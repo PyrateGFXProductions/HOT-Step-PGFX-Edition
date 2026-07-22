@@ -223,6 +223,28 @@ const GENRE_LIST = [
   'Andean','Cumbia Villera','Cumbia Sonidera','Dembow'
 ];
 
+// ── Model Capability Warnings ─────────────────────────────────────────
+// Genres where ACE-Step's training data is insufficient for authentic output.
+var MODEL_UNSUPPORTED = {
+  'Tuvan Throat Singing': 'ACE-Step cannot generate overtone/throat singing. Output will be generic.',
+  'Gagaku': 'ACE-Step has no training data for Japanese imperial court music.',
+  'Carnatic': 'ACE-Step cannot produce raga-based music with gamakas.',
+  'Hindustani': 'ACE-Step cannot produce alap/jor/jhala structures or tabla patterns.',
+  'Gamelan': 'ACE-Step cannot produce interlocking metallophone patterns or non-Western tuning.',
+  'Balinese': 'ACE-Step cannot produce kebyar-style explosive gamelan dynamics.',
+  'Korean Traditional': 'ACE-Step cannot produce sanjo/pansori styles or jangdan cycles.',
+  'Gnawa': 'ACE-Step cannot produce guembri bass patterns or qraqeb rhythms.',
+};
+var MODEL_LIMITED = {
+  'Enka': 'ACE-Step can approximate enka as a ballad, but cannot produce authentic kobushi vibrato.',
+  "Min'yo": 'ACE-Step can approximate Japanese folk, but shamisen/taiko may be generic.',
+};
+function getGenreWarning(genre) {
+  if (MODEL_UNSUPPORTED[genre]) return '⚠️ ' + MODEL_UNSUPPORTED[genre];
+  if (MODEL_LIMITED[genre]) return '⚠️ ' + MODEL_LIMITED[genre];
+  return null;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 function $(id) { return document.getElementById(id); }
 function api(path, opts={}) {
@@ -334,11 +356,12 @@ function render() {
       <div class="form-row">
         <div class="form-group">
           <label>Overall Genre / Style</label>
-          <select onchange="ALBUM_GENRE=this.value==='__custom__'?'':this.value;saveConfig();if(this.value==='__custom__'){this.nextElementSibling.style.display='block'}else{this.nextElementSibling.style.display='none'}">
+          <select onchange="ALBUM_GENRE=this.value==='__custom__'?'':this.value;saveConfig();if(this.value==='__custom__'){this.nextElementSibling.style.display='block'}else{this.nextElementSibling.style.display='none'};var w=getGenreWarning(this.value);var we=document.getElementById('genre-warning');if(w){we.textContent=w;we.style.display='block'}else{we.style.display='none'}">
             <option value="" ${!ALBUM_GENRE?'selected':''}>— Select genre —</option>
             ${GENRE_LIST.map(g => `<option value="${esc(g)}" ${g===ALBUM_GENRE?'selected':''}>${esc(g)}</option>`).join('')}
             <option value="__custom__" ${ALBUM_GENRE && !GENRE_LIST.includes(ALBUM_GENRE)?'selected':''}>Custom genre...</option>
           </select>
+          <div id="genre-warning" style="display:${getGenreWarning(ALBUM_GENRE)?'block':'none'};margin-top:6px;padding:6px 10px;border-radius:6px;background:rgba(255,180,0,0.1);border:1px solid rgba(255,180,0,0.2);color:#e8a030;font-size:11px;line-height:1.4">${getGenreWarning(ALBUM_GENRE)||''}</div>
           <input type="text" value="${esc(ALBUM_GENRE && !GENRE_LIST.includes(ALBUM_GENRE)?ALBUM_GENRE:'')}" placeholder="Type custom genre" style="display:${ALBUM_GENRE && !GENRE_LIST.includes(ALBUM_GENRE)?'block':'none'};margin-top:4px;"
             oninput="ALBUM_GENRE=this.value;saveConfig()">
         </div>
@@ -457,11 +480,12 @@ function renderTrack(t, i) {
       <div class="form-row">
         <div class="form-group">
           <label>Genre Override (optional — uses album genre if empty)</label>
-          <select onchange="TRACKS[${i}].genreOverride=this.value==='__custom__'?'':this.value;saveConfig();if(this.value==='__custom__'){this.nextElementSibling.style.display='block'}else{this.nextElementSibling.style.display='none'}" ${GENERATING?'disabled':''}>
+          <select onchange="TRACKS[${i}].genreOverride=this.value==='__custom__'?'':this.value;saveConfig();if(this.value==='__custom__'){this.nextElementSibling.style.display='block'}else{this.nextElementSibling.style.display='none'};var w=getGenreWarning(this.value);var we=document.getElementById('tw-${i}');if(w){we.textContent=w;we.style.display='block'}else{we.style.display='none'}" ${GENERATING?'disabled':''}>
             <option value="" ${!t.genreOverride?'selected':''}>— Use album genre —</option>
             ${GENRE_LIST.map(g => `<option value="${esc(g)}" ${g===t.genreOverride?'selected':''}>${esc(g)}</option>`).join('')}
             <option value="__custom__" ${t.genreOverride && !GENRE_LIST.includes(t.genreOverride)?'selected':''}>Custom...</option>
           </select>
+          <div id="tw-${i}" style="display:${getGenreWarning(t.genreOverride)?'block':'none'};margin-top:4px;padding:4px 8px;border-radius:5px;background:rgba(255,180,0,0.1);border:1px solid rgba(255,180,0,0.2);color:#e8a030;font-size:10px;line-height:1.3">${getGenreWarning(t.genreOverride)||''}</div>
           <input type="text" value="${esc(t.genreOverride && !GENRE_LIST.includes(t.genreOverride)?t.genreOverride:'')}" placeholder="Type custom genre" style="display:${t.genreOverride && !GENRE_LIST.includes(t.genreOverride)?'block':'none'};margin-top:4px;"
             oninput="TRACKS[${i}].genreOverride=this.value;saveConfig();render()" ${GENERATING?'disabled':''}>
         </div>

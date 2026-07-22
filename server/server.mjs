@@ -44834,6 +44834,36 @@ var GENRE_VOCABULARY_MODULES = {
   }
 };
 
+// ── Model Capability Warnings ──────────────────────────────────────────────────
+// Genres where ACE-Step's training data is insufficient to produce authentic results.
+// The model will attempt generation but output will be generic/incorrect.
+// Used for UI warnings and LLM prompt caution injection.
+var MODEL_UNSUPPORTED_GENRES = {
+  "tuvan": { level: "unsupported", warning: "ACE-Step cannot generate overtone/throat singing. Output will be generic vocal, not authentic Tuvan style." },
+  "tuvan throat singing": { level: "unsupported", warning: "ACE-Step cannot generate overtone/throat singing. Output will be generic vocal, not authentic Tuvan style." },
+  "gagaku": { level: "unsupported", warning: "ACE-Step has no training data for Japanese imperial court music (sho, hichiriki, biwa). Output will not resemble gagaku." },
+  "japanese court music": { level: "unsupported", warning: "ACE-Step has no training data for Japanese imperial court music (sho, hichiriki, biwa). Output will not resemble gagaku." },
+  "carnatic": { level: "unsupported", warning: "ACE-Step cannot produce raga-based music with gamakas and traditional talas. Output will be generic, not authentic Carnatic." },
+  "south indian classical": { level: "unsupported", warning: "ACE-Step cannot produce raga-based music with gamakas and traditional talas. Output will be generic, not authentic Carnatic." },
+  "hindustani": { level: "unsupported", warning: "ACE-Step cannot produce alap/jor/jhala structures or tabla patterns. Output will not resemble Hindustani classical." },
+  "north indian classical": { level: "unsupported", warning: "ACE-Step cannot produce alap/jor/jhala structures or tabla patterns. Output will not resemble Hindustani classical." },
+  "gamelan": { level: "unsupported", warning: "ACE-Step cannot produce interlocking metallophone patterns or non-Western tuning. Output will not resemble gamelan." },
+  "javanese gamelan": { level: "unsupported", warning: "ACE-Step cannot produce interlocking metallophone patterns or non-Western tuning. Output will not resemble gamelan." },
+  "balinese": { level: "unsupported", warning: "ACE-Step cannot produce kebyar-style explosive gamelan dynamics. Output will not resemble Balinese gamelan." },
+  "balinese gamelan": { level: "unsupported", warning: "ACE-Step cannot produce kebyar-style explosive gamelan dynamics. Output will not resemble Balinese gamelan." },
+  "korean traditional": { level: "unsupported", warning: "ACE-Step cannot produce sanjo/pansori styles or jangdan rhythmic cycles. Output will be generic, not Korean traditional." },
+  "korean folk": { level: "unsupported", warning: "ACE-Step cannot produce sanjo/pansori styles or jangdan rhythmic cycles. Output will be generic, not Korean traditional." },
+  "gnawa": { level: "unsupported", warning: "ACE-Step cannot produce guembri bass patterns or qraqeb rhythms. Output will not resemble gnawa trance." },
+  "gnaoua": { level: "unsupported", warning: "ACE-Step cannot produce guembri bass patterns or qraqeb rhythms. Output will not resemble gnawa trance." },
+  "moroccan trance": { level: "unsupported", warning: "ACE-Step cannot produce guembri bass patterns or qraqeb rhythms. Output will not resemble gnawa trance." },
+  "enka": { level: "limited", warning: "ACE-Step can approximate enka as a ballad form, but cannot produce authentic kobushi vibrato or melismatic delivery." },
+  "japanese ballad": { level: "limited", warning: "ACE-Step can approximate enka as a ballad form, but cannot produce authentic kobushi vibrato or melismatic delivery." },
+  "min'yo": { level: "limited", warning: "ACE-Step can approximate Japanese folk melodies, but shamisen/taiko instrumentation and call-and-response may be generic." },
+  "minyo": { level: "limited", warning: "ACE-Step can approximate Japanese folk melodies, but shamisen/taiko instrumentation and call-and-response may be generic." },
+  "japanese folk": { level: "limited", warning: "ACE-Step can approximate Japanese folk melodies, but shamisen/taiko instrumentation and call-and-response may be generic." },
+};
+// Note: "unsupported" = output will be wrong/unrecognizable. "limited" = partial approximation possible.
+
 // ── Language Fallback Mapper ────────────────────────────────────────────────────
 // Maps user-selected languages to the closest supported vocalLanguage code.
 // HOT-Step ACE-Step engine supports a specific set of languages; unsupported ones
@@ -296726,6 +296756,20 @@ router21.post("/llm", async (req, res) => {
       }
       if (genreHints.length) {
         enhancedUserPrompt += `\n\nGenre-Specific Instructions (${genreStr}):\n${genreHints.map(h => `- ${h}`).join("\n")}`;
+      }
+    }
+    // ── MODEL CAPABILITY WARNINGS ──────────────────────────────────────────────
+    // Warn the LLM when selected genres are beyond ACE-Step's training data.
+    // "unsupported" = output will be wrong; "limited" = partial approximation.
+    if (genreKeys.length) {
+      const capabilityWarnings = [];
+      for (const gk of genreKeys) {
+        const cap = MODEL_UNSUPPORTED_GENRES[gk];
+        if (cap) capabilityWarnings.push(cap);
+      }
+      if (capabilityWarnings.length) {
+        const uniqueWarnings = [...new Map(capabilityWarnings.map(w => [w.warning, w])).values()];
+        enhancedUserPrompt += `\n\n⚠️ MODEL CAPABILITY NOTE: The selected genre(s) include styles that ACE-Step's training data does not adequately cover. ${uniqueWarnings.map(w => w.warning).join(" ")} Do your best to capture the SPIRIT and EMOTIONAL CHARACTER of the genre through lyrics, vocabulary, and song structure — the music model will do its best to follow the tags and cues you provide. Focus on what the model CAN do: evocative lyrics, genre-appropriate vocabulary, and compelling song structure.`;
       }
     }
     // ── REGGAE GENRE BLENDING (when reggae + other genres are combined) ──────────
