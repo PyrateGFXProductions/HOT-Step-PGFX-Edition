@@ -22,10 +22,9 @@ This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music 
 Every genre now has its own structural grammar — verse/chorus/bridge line counts, section ordering, and rhythm patterns that match how that genre *actually works*. Metal doesn't structure like reggae doesn't structure like K-pop doesn't structure like blues.
 
 - **Primary-genre-wins architecture**: First selected genre dictates structure. Secondary genres influence vocabulary, tone, and instrumentation only.
-- **60+ templates**: Metal (8 variants), Reggae (3), K-Pop, Hip-Hop (7), Blues (6), Punk (6), Folk (5), DJ/Turntablism (2), Traditional/World (14), plus genre-agnostic fallbacks.
+- **60+ templates**: Metal (8 variants), Reggae (3), K-Pop, Hip-Hop (7), Blues (6), Punk (6), Folk (5), DJ/Turntablism (2), Traditional/World (4), plus genre-agnostic fallbacks.
 - **DJ / Turntablism** and **Dual DJ** as first-class genres with scratch effects, battle vocabulary, and turntablist structure.
-- **14 Traditional/World Music Genres**: Gagaku, Min'yo, Enka, Korean Traditional, Carnatic, Hindustani, Gamelan, Balinese, Klezmer, Mariachi, Tuvan Throat Singing, Bhangra, Gnawa, Andean — each with culturally-specific structure templates, vocabulary modules, BPM ranges, and sonic tag examples.
-- **Model Capability Warnings**: When a user selects a genre that ACE-Step cannot authentically reproduce (e.g., Tuvan Throat Singing, Gagaku, Carnatic), the system warns the user in the UI and injects a capability note into the LLM prompt so it focuses on capturing the genre's spirit through lyrics and vocabulary rather than fighting the model's limitations.
+- **4 Traditional/World Music Genres**: Klezmer, Mariachi, Bhangra, Andean — each with culturally-specific structure templates, vocabulary modules, BPM ranges, and sonic tag examples. (Genres that ACE-Step cannot authentically reproduce — such as Gagaku, Carnatic, Hindustani, Gamelan, Tuvan Throat Singing, and others — have been removed to ensure every listed genre produces what it promises.)
 - **Patois now optional** with bilingual code-switching support for non-English + Patois combinations.
 
 ### Narrative Intelligence
@@ -108,8 +107,8 @@ Ten visualization modes powered by client-side beat detection:
 
 | File | Status | Size | Description |
 |------|--------|------|-------------|
-| `server/server.mjs` | Modified | ~298K lines | Backend with 46+ genre templates, vocabulary modules, model capability warnings, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, video generation |
-| `ui/dist/album.html` | **New** | 42 KB | Album Generator — 9-track workflow with auto-fill, genre dropdowns with capability warnings, sequential generation |
+| `server/server.mjs` | Modified | ~298K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, video generation |
+| `ui/dist/album.html` | **New** | 42 KB | Album Generator — 9-track workflow with auto-fill, genre dropdowns, sequential generation |
 | `ui/dist/visualizer.html` | **New** | 36 KB | Audio-reactive visualizer with 10 modes, settings panel, playlist, video generation |
 | `ui/dist/index.html` | Modified | 3 KB | Added floating album + visualizer buttons |
 | `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle with DJ/Turntablism genre group |
@@ -144,7 +143,7 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 14 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, model capability warnings, quality analyzer, and all Phase 1-3 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-3 enhancements.
 
 ---
 

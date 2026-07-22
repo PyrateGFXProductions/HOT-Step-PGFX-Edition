@@ -44595,140 +44595,6 @@ var GENRE_VOCABULARY_MODULES = {
       "singing": "scratching", "vocalist": "DJ", "guitar solo": "scratch battle"
     }
   },
-  gagaku: {
-    whitelist: [
-      "sho", "biwa", "hichiriki", "koto", "shakuhachi", "ryūteki", "shō", "gagaku", "bugaku", "court music",
-      "imperial", "Heian", "ceremony", "ceremonial", "temple", "shrine", "sacred", "meditative", "serene", "ethereal",
-      "drone", "pentatonic", "modal", "bamboo", "silk", "incense", "chrysanthemum", "moonlight", "stillness",
-      "jo-ha-kyu", "slow build", "gradual acceleration", "silence between notes", "ma", "negative space"
-    ],
-    blacklist: [
-      "electric", "distortion", "drum machine", "synth", "bass drop", "EDM", "auto-tune", "rap", "hip-hop"
-    ],
-    lineRules: { preferSlowTempo: true },
-    replacements: {
-      "drums": "hand drums", "guitar": "biwa", "bass": "sho drone", "synth": "koto",
-      "electric guitar": "shamisen", "rock": "ceremonial", "beat": "pulse"
-    }
-  },
-  minyo: {
-    whitelist: [
-      "shamisen", "taiko", "shakuhachi", "koto", "shinobue", "tsuzumi", "min'yō", "minyo", "folk song",
-      "festival", "matsuri", "harvest", "moon", "river", "mountain", "village", "seasonal", "cherry blossom",
-      "ondo", "bushi", "bon uta", "komoriuta", "lullaby", "work song", "fishing song",
-      "call and response", "kakegoe", "yoisa", "sore", "matsuri bayashi"
-    ],
-    blacklist: [
-      "electric", "distortion", "synth", "auto-tune", "808", "trap beat", "EDM"
-    ],
-    lineRules: { allowCallAndResponse: true },
-    replacements: {
-      "electric guitar": "shamisen", "drum kit": "taiko", "bass guitar": "shamisen bass",
-      "synth pad": "shakuhachi", "rock": "folk", "pop": "folk"
-    }
-  },
-  enka: {
-    whitelist: [
-      "enka", "kokyū", "nostalgia", "longing", "nostalgic", "hometown", "tears", "moon", "river",
-      "separation", "parting", "rain", "lonely", "solitude", "memory", "yesterday", "far away",
-      "sakura", "autumn leaves", "winter snow", "summer river", "port town", "mountain village",
-      "kobushi", "melisma", "vibrato", "emotional ballad", "heartache", "sentimental"
-    ],
-    blacklist: [
-      "happy", "party", "dance", "electric", "distortion", "EDM", "rap", "upbeat"
-    ],
-    lineRules: { preferSlowTempo: true, allowWhispering: true },
-    replacements: {
-      "happy": "bittersweet", "party": "memory", "dance": "sway",
-      "electric guitar": "acoustic guitar", "fast": "slow and aching"
-    }
-  },
-  koreantraditional: {
-    whitelist: [
-      "gayageum", "daegeum", "haegeum", "janggu", "buk", "kkwaenggwari", "jing", "piri", "taepyeongso",
-      "sanjo", "pansori", "samulnori", " farmers dance", "nongak", "chawi", "gut", "shaman ritual",
-      "han", "jeong", "dureup", "jangdan", "korean folk", "court music", "aac", "gayageum",
-      "bamboo", "silk", "mountains", "pine", "crane", "turtle", "four象", "seasons"
-    ],
-    blacklist: [
-      "electric", "synth", "auto-tune", "EDM", "hip-hop", "rap", "trap"
-    ],
-    lineRules: {},
-    replacements: {
-      "guitar": "gayageum", "drums": "janggu", "bass": "haegeum",
-      "synth": "daegeum", "rock": "folk"
-    }
-  },
-  carnatic: {
-    whitelist: [
-      "sitar", "veena", "mridangam", "ghatam", "kanjira", "morsing", "violin", "flute", "venu",
-      "carnatic", "raga", "ragam", "tala", "talam", "rasa", "bhakti", "devotion", "devotional",
-      "krishna", "shiva", "vishnu", "ganesh", "lakshmi", "temple", "prayer", "chant",
-      "alapana", "kriti", "tanam", "pallavi", "swaras", "brigas", "gamakas", "oscillation",
-      "purandardasa", "thyagaraja", "shyama shastry", "muthuswami dikshitar",
-      "sankirnam", "janyaragam", "melakarta"
-    ],
-    blacklist: [
-      "electric guitar", "drum kit", "bass guitar", "synthesizer", "auto-tune", "EDM", "rock"
-    ],
-    lineRules: {},
-    replacements: {
-      "drums": "mridangam", "guitar": "veena", "bass": "tanpura drone",
-      "synth": "sitar", "rock": "classical", "pop": "devotional"
-    }
-  },
-  hindustani: {
-    whitelist: [
-      "sitar", "tabla", "sarangi", "bansuri", "tanpura", "sarod", "santoor", "harmonium", "murli",
-      "hindustani", "raga", "rag", "tala", "theka", "bol", "alap", "jor", "jhala", "gat", "bandish",
-      "drut", "vilambit", "madhyalaya", "jhaptal", "rupak", "teental", "ektal",
-      "meend", "gamak", "andolan", "murki", "krintan", "zamzama",
-      "raag yaman", "raag bhairavi", "raag bhairav", "raag kafi", "raag todi",
-      "khayal", "dhrupad", "thumri", "dadra", "ghazal"
-    ],
-    blacklist: [
-      "electric guitar", "drum kit", "bass guitar", "synthesizer", "auto-tune", "EDM", "rock"
-    ],
-    lineRules: {},
-    replacements: {
-      "drums": "tabla", "guitar": "sitar", "bass": "tanpura",
-      "synth": "sarangi", "rock": "raga", "pop": "classical"
-    }
-  },
-  gamelan: {
-    whitelist: [
-      "gamelan", "saron", "gender", "bonang", "gong", "kendang", "suling", "rebab", "slenthem",
-      "pemukul", "metalophone", "interlocking", "colotomic", "cyclic", "layered", "communal",
-      "gong ageng", "kempul", "kenong", "kethuk", "slametan", "ritual", "ceremonial",
-      "pelog", "slendro", "tuning", "paired tuning", "ombak", "shimmer", "beating",
-      "wayang", "shadow puppet", "dance drama"
-    ],
-    blacklist: [
-      "electric", "distortion", "synth", "drum machine", "EDM", "auto-tune", "solo"
-    ],
-    lineRules: {},
-    replacements: {
-      "drums": "kendang", "guitar": "saron", "bass": "gong", "synth": "gender",
-      "electric": "bronze", "rock": "communal", "solo": "ensemble"
-    }
-  },
-  balinese: {
-    whitelist: [
-      "gamelan", "gong kebyar", "semar pegulingan", "gong gede", "gambuh", "wayang lemah",
-      "ceng-ceng", "kajar", "kempli", "reyong", "calung", "jegog", "gambang",
-      "kebyar", "explosive", "dynamic", "shimmer", "paired", "ombak", "interlocking",
-      "kotekan", "polos", "sangsih", "angsel", "colotomic", "pelog", "slendro",
-      "baris", "legong", "kecak", "monkey chant", "barong", "rangda"
-    ],
-    blacklist: [
-      "electric", "distortion", "synth", "drum machine", "EDM", "solo", "quiet"
-    ],
-    lineRules: {},
-    replacements: {
-      "drums": "kendang", "guitar": "saron", "bass": "gong", "synth": "gender",
-      "electric": "bronze", "rock": "explosive", "quiet": "dynamic"
-    }
-  },
   klezmer: {
     whitelist: [
       "clarinet", "violin", "accordion", "trumpet", "cimbalom", "tuba", "xylophone", "bouzouki",
@@ -44763,24 +44629,6 @@ var GENRE_VOCABULARY_MODULES = {
       "drum kit": "guitarrón rhythm", "rock": "ranchera", "pop": "ranchera"
     }
   },
-  tuvan: {
-    whitelist: [
-      "throat singing", "khoomei", "sygyt", "kargyraa", "komei", "hoomei", "oomii",
-      "igil", "doshpuluur", "byzaanchy", "chanzy", "khomus", "dungur", "shoor",
-      "overtone", "harmonic", "drone", "subharmonic", "undertone",
-      "tuva", "mongolia", "steppe", "horsehead fiddle", "morin khuur",
-      "sky", "wind", "mountains", "eagle", "horse", "grassland", "yurt", "ger",
-      "nomad", "herd", "spirit", "shaman", "ancestor", "eternal blue sky", "tenger"
-    ],
-    blacklist: [
-      "electric", "synth", "EDM", "auto-tune", "drum machine", "pop", "rock"
-    ],
-    lineRules: { preferSlowTempo: true },
-    replacements: {
-      "singing": "throat singing", "voice": "harmonic overtone", "guitar": "igil",
-      "drums": "dungur", "synth": "drone", "rock": "steppe", "pop": "nomadic"
-    }
-  },
   bhangra: {
     whitelist: [
       "dhol", "tumbi", "algoza", "chimta", "dotara", "sarangi", "dholki", "mridangam",
@@ -44796,23 +44644,6 @@ var GENRE_VOCABULARY_MODULES = {
     replacements: {
       "drums": "dhol", "guitar": "tumbi", "synth": "algoza", "bass": "dhol bass",
       "sad": "energetic", "slow": "upbeat", "dark": "festive"
-    }
-  },
-  gnawa: {
-    whitelist: [
-      "guembri", "hajhouj", "sintir", "qraqeb", "krakebs", "tbel", "tbola", "boutmar",
-      "gnawa", "gnaoua", "lila", "moussem", "derdeba", "trance", "healing", "spiritual",
-      "sufi", "morocco", "marrakech", "essaouira", "desert", "night", "incense",
-      "master", "maalem", "amazigh", "berber", "sub-Saharan", "african roots",
-      "call and response", "cyclic", "hypnotic", "meditative", "possession", "jinn"
-    ],
-    blacklist: [
-      "electric", "synth", "EDM", "pop", "rock", "metal", "auto-tune"
-    ],
-    lineRules: { preferSlowTempo: true, allowCallAndResponse: true },
-    replacements: {
-      "guitar": "guembri", "drums": "tbel", "synth": "trance drone",
-      "bass": "guembri bass", "rock": "trance", "pop": "spiritual"
     }
   },
   andean: {
@@ -44833,36 +44664,6 @@ var GENRE_VOCABULARY_MODULES = {
     }
   }
 };
-
-// ── Model Capability Warnings ──────────────────────────────────────────────────
-// Genres where ACE-Step's training data is insufficient to produce authentic results.
-// The model will attempt generation but output will be generic/incorrect.
-// Used for UI warnings and LLM prompt caution injection.
-var MODEL_UNSUPPORTED_GENRES = {
-  "tuvan": { level: "unsupported", warning: "ACE-Step cannot generate overtone/throat singing. Output will be generic vocal, not authentic Tuvan style." },
-  "tuvan throat singing": { level: "unsupported", warning: "ACE-Step cannot generate overtone/throat singing. Output will be generic vocal, not authentic Tuvan style." },
-  "gagaku": { level: "unsupported", warning: "ACE-Step has no training data for Japanese imperial court music (sho, hichiriki, biwa). Output will not resemble gagaku." },
-  "japanese court music": { level: "unsupported", warning: "ACE-Step has no training data for Japanese imperial court music (sho, hichiriki, biwa). Output will not resemble gagaku." },
-  "carnatic": { level: "unsupported", warning: "ACE-Step cannot produce raga-based music with gamakas and traditional talas. Output will be generic, not authentic Carnatic." },
-  "south indian classical": { level: "unsupported", warning: "ACE-Step cannot produce raga-based music with gamakas and traditional talas. Output will be generic, not authentic Carnatic." },
-  "hindustani": { level: "unsupported", warning: "ACE-Step cannot produce alap/jor/jhala structures or tabla patterns. Output will not resemble Hindustani classical." },
-  "north indian classical": { level: "unsupported", warning: "ACE-Step cannot produce alap/jor/jhala structures or tabla patterns. Output will not resemble Hindustani classical." },
-  "gamelan": { level: "unsupported", warning: "ACE-Step cannot produce interlocking metallophone patterns or non-Western tuning. Output will not resemble gamelan." },
-  "javanese gamelan": { level: "unsupported", warning: "ACE-Step cannot produce interlocking metallophone patterns or non-Western tuning. Output will not resemble gamelan." },
-  "balinese": { level: "unsupported", warning: "ACE-Step cannot produce kebyar-style explosive gamelan dynamics. Output will not resemble Balinese gamelan." },
-  "balinese gamelan": { level: "unsupported", warning: "ACE-Step cannot produce kebyar-style explosive gamelan dynamics. Output will not resemble Balinese gamelan." },
-  "korean traditional": { level: "unsupported", warning: "ACE-Step cannot produce sanjo/pansori styles or jangdan rhythmic cycles. Output will be generic, not Korean traditional." },
-  "korean folk": { level: "unsupported", warning: "ACE-Step cannot produce sanjo/pansori styles or jangdan rhythmic cycles. Output will be generic, not Korean traditional." },
-  "gnawa": { level: "unsupported", warning: "ACE-Step cannot produce guembri bass patterns or qraqeb rhythms. Output will not resemble gnawa trance." },
-  "gnaoua": { level: "unsupported", warning: "ACE-Step cannot produce guembri bass patterns or qraqeb rhythms. Output will not resemble gnawa trance." },
-  "moroccan trance": { level: "unsupported", warning: "ACE-Step cannot produce guembri bass patterns or qraqeb rhythms. Output will not resemble gnawa trance." },
-  "enka": { level: "limited", warning: "ACE-Step can approximate enka as a ballad form, but cannot produce authentic kobushi vibrato or melismatic delivery." },
-  "japanese ballad": { level: "limited", warning: "ACE-Step can approximate enka as a ballad form, but cannot produce authentic kobushi vibrato or melismatic delivery." },
-  "min'yo": { level: "limited", warning: "ACE-Step can approximate Japanese folk melodies, but shamisen/taiko instrumentation and call-and-response may be generic." },
-  "minyo": { level: "limited", warning: "ACE-Step can approximate Japanese folk melodies, but shamisen/taiko instrumentation and call-and-response may be generic." },
-  "japanese folk": { level: "limited", warning: "ACE-Step can approximate Japanese folk melodies, but shamisen/taiko instrumentation and call-and-response may be generic." },
-};
-// Note: "unsupported" = output will be wrong/unrecognizable. "limited" = partial approximation possible.
 
 // ── Language Fallback Mapper ────────────────────────────────────────────────────
 // Maps user-selected languages to the closest supported vocalLanguage code.
@@ -45315,19 +45116,9 @@ function resolveGenreFromStyles(genres) {
     "porngroove": ["porn", "porn groove", "70s porn groove", "sensual lounge", "erotic funk", "sexy bedroom soul", "slow jam", "bedroom r&b", "sleazy funk", "nsfw porn", "adult lyrics"],
     "dj": ["dj", "turntablism", "turntablist", "turntable", "scratch", "scratching", "turntables", "deejay", "turntable battle", "scratch battle"],
     "dualdj": ["dual dj", "dual turntablist", "dj battle", "dj duel", "turntable duel", "dj crew", "dj collab", "dj tag team", "scratch battle crew", "dual scratching"],
-    "gagaku": ["gagaku", "japanese court music", "imperial court music", "bugaku", "heian music", "japanese classical", "sho music", "biwa music", "hichiriki"],
-    "minyo": ["min\u0027yo", "minyo", "japanese folk", "japanese folk song", "shamisen folk", "ondo", "bushi", "bon uta", "komoriuta", "japanese traditional song"],
-    "enka": ["enka", "japanese ballad", "japanese blues", "japanese sentimental", "kobushi", "japanese pop ballad"],
-    "koreantraditional": ["korean traditional", "korean folk", "korean court music", "sanjo", "pansori", "samulnori", "gayageum music", "nongak", "farmers dance korean"],
-    "carnatic": ["carnatic", "south indian classical", "indian classical", "karnatik", "mridangam music", "veena music", "veena", "carnatic music"],
-    "hindustani": ["hindustani", "north indian classical", "sitar music", "tabla music", "raga", "hindustani classical", "khayal", "dhrupad", "thumri", "ghazal"],
-    "gamelan": ["gamelan", "javanese gamelan", "indonesian gamelan", "gong music", "saron music", "gender music", "javanese court music"],
-    "balinese": ["balinese", "balinese gamelan", "gong kebyar", "kebyar", "kecak", "monkey chant bali", "balinese dance music"],
     "klezmer": ["klezmer", "eastern european jewish", "jewish folk", "clarinet folk", "wedding band eastern european", "romani folk"],
     "mariachi": ["mariachi", "mexican folk", "mexican traditional", "ranchera", "son jalisciense", "corrido", "huapango", "mexican band"],
-    "tuvan": ["tuvan", "tuvan throat singing", "mongolian throat singing", "khoomei", "khoomei singing", "overtone singing", "mongolian folk", "morin khuur"],
     "bhangra": ["bhangra", "punjabi folk", "punjab folk", "indian folk dance", "punjabi music", "giddha"],
-    "gnawa": ["gnawa", "gnaoua", "moroccan trance", "moroccan folk", "guembri music", "lila ceremony", "essaouira music"],
     "andean": ["andean", "andean folk", "quechua music", "charango music", "quena music", "andes music", "inca music", "south american folk", "latin folk andean"]
   };
   const genresLower = genres.map(g => g.toLowerCase().trim());
@@ -45438,19 +45229,9 @@ const GENRE_BPM_RANGES = {
   "soul": [80, 120],
   "funk": [90, 120],
   // Traditional / World
-  "gagaku": [30, 60],
-  "min\u0027yo": [80, 120],
-  "enka": [60, 90],
-  "korean traditional": [60, 120],
-  "carnatic": [60, 180],
-  "hindustani": [40, 180],
-  "gamelan": [60, 120],
-  "balinese": [80, 160],
   "klezmer": [100, 180],
   "mariachi": [100, 150],
-  "tuvan throat singing": [30, 70],
   "bhangra": [100, 150],
-  "gnawa": [70, 120],
   "andean": [70, 120]
 };
 
@@ -45983,75 +45764,8 @@ var GENRE_STRUCTURE_TEMPLATES = {
     hookStyle: "Warm, melodic, storytelling. 'He Stopped Loving Her Today', 'Jolene' energy."
   },
   // ════════════════════════════════════════════════════════════════════════════════
-  // TRADITIONAL / WORLD — 14 genres with distinct cultural structures
+  // TRADITIONAL / WORLD — Klezmer, Mariachi, Bhangra, Andean
   // ════════════════════════════════════════════════════════════════════════════════
-  gagaku: {
-    structure: "Jo-Ha-Kyu",
-    description: "Gagaku: Jo (slow serene intro, sho drone) -> Ha (gradual acceleration) -> Kyu (rapid conclusion). CONTINUOUS and CEREMONIAL. Oldest orchestral music (1200+ years). Silences (ma) are as important as notes.",
-    verseLines: "No traditional verses. Sections defined by tempo and instrumentation. Lyric lines sparse, ceremonial, chant-like.",
-    chorusLines: "No chorus. Music is continuous and cyclical. Lyrics repeat in mantra-like fashion.",
-    bridgeNotes: "Transitions between Jo, Ha, Kyu are the structural markers. Tempo accelerates, more instruments join.",
-    hookStyle: "The hypnotic drone of the sho and gradual layering of instruments."
-  },
-  "min'yo": {
-    structure: "I-V-R-V-R-Outro",
-    description: "Min'yo (Japanese Folk): Intro (shamisen/taiko) -> Verse (seasonal/nature themes) -> Refrain (call-and-response, yoisa!) -> Verse -> Refrain -> Outro. COMMUNAL and SEASONAL. Shamisen drives rhythm.",
-    verseLines: "4 lines; seasonal imagery (cherry blossoms, harvest moon, winter snow), nature themes, concrete sensory details.",
-    chorusLines: "Refrain: 2 lines with call-and-response. Simple, repetitive, designed for group participation.",
-    bridgeNotes: "Instrumental shamisen or taiko break between verse pairs.",
-    hookStyle: "Communal refrain with call-and-response. The audience participation IS the hook."
-  },
-  enka: {
-    structure: "I-V-C-V-C-Bridge-C-Outro",
-    description: "Enka (Japanese Ballad): Intro (acoustic guitar/kokyu) -> Verse (nostalgic, longing) -> Chorus (emotional peak, kobushi vibrato) -> Verse -> Chorus -> Bridge (climax, key change) -> Chorus -> Outro. HEARTACHE set to music.",
-    verseLines: "4 lines; nostalgic, longing, concrete images (rain on window, river at dusk, empty station).",
-    chorusLines: "4 lines; emotional release, kobushi vibrato, melismatic delivery on key words.",
-    bridgeNotes: "Emotional climax, often key change upward. The vocalist kobushi reaches its peak.",
-    hookStyle: "The kobushi itself is the hook - that trembling, melismatic vocal technique."
-  },
-  koreantraditional: {
-    structure: "I-Sanjo-Pansori-Outro",
-    description: "Korean Traditional: Intro (gayageum/daegeum solo) -> Sanjo (instrumental meditation, jangdan cycles) -> Pansori (narrative vocal, powerful storytelling) -> Outro. Blends instrumental meditation with narrative singing.",
-    verseLines: "Pansori: LONG narrative passages, 8-12 lines. Vocal lines powerful, raw, emotionally charged.",
-    chorusLines: "No traditional chorus. Pansori uses aniri (narrative bridges). Jangdan cycles as structural markers.",
-    bridgeNotes: "Jangdan cycle changes signal transitions: Jajinmori (fast) -> Jungmori (medium) -> Gutgeori (slow).",
-    hookStyle: "The raw emotional power of the pansori voice IS the hook."
-  },
-  // Indian Classical
-  carnatic: {
-    structure: "Alapana-Kriti-Tanam-Pallavi-Swaras",
-    description: "Carnatic (South Indian Classical): Alapana (free-tempo raga exploration) -> Kriti (composed piece) -> Tanam (rhythmic improvisation) -> Pallavi (elaborate exposition) -> Swaras (fast scalar passages). RAGA-BASED.",
-    verseLines: "Kriti verses (charanams): 4-8 lines. Alapana has no fixed lyrics. Pallavi lines longer, more elaborate.",
-    chorusLines: "Pallavi: repeated refrain of the Kriti, 2-4 lines, establishes the raga identity.",
-    bridgeNotes: "Tanam is the bridge - rhythmic improvisation without lyrics. Gamakas (oscillations) essential.",
-    hookStyle: "The raga itself - characteristic phrases and gamakas create an unmistakable emotional signature."
-  },
-  hindustani: {
-    structure: "Alap-Jor-Jhala-Gat",
-    description: "Hindustani (North Indian Classical): Alap (free-tempo raga intro) -> Jor (rhythm enters, tabla joins) -> Jhala (fast climax) -> Gat (composed piece, tabla interplay). A JOURNEY through a raga.",
-    verseLines: "Gat verses (bandish): 4-8 lines. Alap and Jor are purely instrumental.",
-    chorusLines: "Gat refrain (mukhda): 2 lines that return after each improvisation. The home base of the raga.",
-    bridgeNotes: "Gat -> improvisation -> Gat cycle IS the structure. Jhala is the climactic section.",
-    hookStyle: "The raga's characteristic phrases - the pakad (catch phrase) - serve as the hook."
-  },
-  // Southeast Asian
-  gamelan: {
-    structure: "Cyclic-Colotomic",
-    description: "Gamelan (Indonesian Orchestral): CYCLIC structure. Interlocking parts (kotekan). Colotomic: gongs punctuate cycles. COMMUNAL - no soloists, the ensemble IS the instrument.",
-    verseLines: "Lyrics follow cyclic structure. Each cycle is one verse. Javanese or Balinese, poetic, courtly, wayang stories.",
-    chorusLines: "No chorus. The gong cycle IS the structural marker. When gong sounds, cycle completes and restarts.",
-    bridgeNotes: "Tempo changes mark transitions. Kebyar style has explosive dynamic changes. The bridge is the gong.",
-    hookStyle: "Interlocking patterns (kotekan) and shimmer of paired tuning create hypnotic, otherworldly sound."
-  },
-  balinese: {
-    structure: "I-Kebyar-Interlocking-Outro",
-    description: "Balinese Gamelan: Intro (gong, shimmer) -> Kebyar (explosive, dynamic bursts) -> Interlocking (kotekan passages) -> Outro. EXPLOSIVE and DRAMATIC. Faster and more dynamic than Javanese gamelan.",
-    verseLines: "Vocal parts (if any) are chorus-based, layered over interlocking metallophone patterns.",
-    chorusLines: "Choral passages (gerong) are 2-4 lines, powerful, projected over the ensemble.",
-    bridgeNotes: "Angsel (rhythmic punctuation) marks transitions. Explosive dynamic changes from soft to thunderous.",
-    hookStyle: "The explosive kebyar moments - sudden bursts of synchronized metallic sound - are the hook."
-  },
-  // Klezmer
   klezmer: {
     structure: "I-V-C-V-C-Break-V-Outro",
     description: "Klezmer: Intro (clarinet wail) -> Verse (dancing, celebratory) -> Chorus (communal) -> Verse -> Chorus -> Instrumental Break (doina lament) -> Verse -> Outro (accelerating). WEDDING MUSIC - joy and sorrow intertwined.",
@@ -46068,15 +45782,6 @@ var GENRE_STRUCTURE_TEMPLATES = {
     bridgeNotes: "Violin solo or bolero - tempo drops, intimate, romantic. The serenade moment.",
     hookStyle: "The trumpet's triumphant fanfare and the grito - that passionate shout that says LIFE."
   },
-  // World
-  tuvan: {
-    structure: "Drone-Sygyt-Kargyraa-Outro",
-    description: "Tuvan Throat Singing: Drone (fundamental tone) -> Sygyt (high whistle harmonics) -> Kargyraa (deep growling subharmonics) -> Outro. ONE VOICE producing MULTIPLE PITCHES SIMULTANEOUSLY.",
-    verseLines: "Lyrics about nature, horses, sky, steppe, spirits. But primarily INSTRUMENTAL - the voice IS the instrument.",
-    chorusLines: "No chorus. The overtone melody IS the song.",
-    bridgeNotes: "Transitions between sygyt and kargyraa are structural markers. The shift is dramatic and physical.",
-    hookStyle: "Hearing a single human voice produce two notes at once IS the hook. Nature, ancient, primal."
-  },
   bhangra: {
     structure: "I-V-C-V-C-DanceBreak-C-Outro",
     description: "Bhangra: Intro (dhol beat drop) -> Verse (energetic, Punjab themes) -> Chorus (everyone dances) -> Verse -> Chorus -> Dance Break (dhol solo) -> Chorus -> Outro. CELEBRATION personified. Energy NEVER drops.",
@@ -46084,14 +45789,6 @@ var GENRE_STRUCTURE_TEMPLATES = {
     chorusLines: "4 lines; infectious, repetitive, designed for group dancing. Balle balle! / Ho ho!",
     bridgeNotes: "Dhol solo / dance break. Call-and-response with the crowd. Energy PEAKS here.",
     hookStyle: "The dhol beat IS the hook. That chaal rhythm is instantly recognizable."
-  },
-  gnawa: {
-    structure: "Lila-Cyclic-Trance",
-    description: "Gnawa (Moroccan Trance): Lila ceremony structure - CYCLIC, TRANCE-INDUCING. Guembri (bass lute) establishes root. Qraqeb (metal castanets) add complexity. SPIRITUAL MUSIC for healing.",
-    verseLines: "Call-and-response - master (maalem) calls, chorus responds. Short, repetitive, hypnotic.",
-    chorusLines: "Chorus responses: 2-3 lines, repeated with variations. Repetition induces trance.",
-    bridgeNotes: "No bridges. The trance IS the bridge. Intensity builds through repetition and volume.",
-    hookStyle: "The guembri's hypnotic bass and qraqeb's metallic shimmer create trance-inducing groove."
   },
   andean: {
     structure: "I-V-C-V-C-Instr-C-Outro",
@@ -47202,13 +46899,8 @@ GENRE-SPECIFIC TAG EXAMPLES (use as reference for matching the production aesthe
 - K-POP: "Layered synthesizer pads creating lush harmonic bed. Punchy electronic drum machine with four-on-the-floor kick and crisp hi-hat. Multiple vocal parts with tight harmonies and rhythmic rap sections. Brass synth stabs and arpeggiated synth melodies. Heavy sidechain compression creating pumping effect. Vocal processing with subtle pitch correction and wide stereo reverb. Production polished and bright with clean separation."
 - DJ/TURNTABLISM: "Two turntables and a mixer as the primary instruments. Vinyl crackle and needle-drop warmth. Aggressive scratch patterns using transform, flare, and crab techniques over a boom-bap beat break. Crossfader clicks punctuating rhythmic cuts. Beat-juggled drum breaks creating syncopated rhythms. Vocal samples chopped and scratched into rhythmic hooks. MPC-triggered drum patterns layered under live scratching. Echo and delay effects on scratch phrases creating dub-like space. Crowd hype and energy building through dynamic scratch routines. Bass-heavy mix with vinyl warmth and analog character."
 - DUAL DJ (BATTLE): "Two sets of turntables creating a sonic duel. DJ 1 cuts in with aggressive transform scratches; DJ 2 responds with faster flare patterns. Crossfader rhythms creating call-and-response between the two turntablists. Shared drum break underneath both DJs trading bars. Vinyl samples chopped differently by each DJ — one smooth, one jagged. The battle intensifies with both DJs layering scratches simultaneously, building to a climactic unison scratch pattern. Crowd energy rising through the exchange. Production raw and live-sounding with room ambience and crowd noise. Two distinct scratch styles weaving together — technical precision meets raw instinct."
-- GAGAKU: "Ancient Japanese imperial court ensemble. Sho (mouth organ) sustaining shimmering cluster chords creating an otherworldly harmonic cloud. Ryuteki (transverse flute) playing sinuous pentatonic melodies with breathy tone. Sho and hichiriki (double-reed) in heterophonic unison with subtle intonation drift. Biwa (short-necked lute) punctuating with percussive plectrum strikes and dramatic silences. Kakko (small drum) providing sparse rhythmic foundation. Taiko drums entering with deep resonant booms. Tempo extremely slow with generous ma (silence) between phrases. Production reverberant and spacious with natural hall acoustics."
-- CARNATIC: "South Indian classical raga performance. Veena or sitar playing elaborate gamakas (oscillations and microtonal bends) over a tanpura drone creating a shimmering harmonic base. Mridangam (double-headed drum) providing complex rhythmic cycles with crisp bols and resonant bass strokes. Vocal lines featuring melismatic runs spanning two octaves with precise gamakas. Violin doubling the vocal melody with characteristic sliding phrases. Kanjira (frame drum) adding asymmetric rhythmic accents. Swara passages featuring rapid scalar runs in rhythmic unison. Production intimate with close-miked instruments capturing breath and string detail."
-- HINDUSTANI: "North Indian classical raga performance. Sitar or sarod playing the alap — unhurried raga exploration with meend (string bends) and gamak creating the raga's characteristic phrases over a tanpura drone. Tabla enters with bol patterns building from jor (pulse) to jhala (fast climax). Santoor or sarangi providing melodic accompaniment. Vocal (if present) features slow elaboration building to rapid sargam passages. The gat section features tabla-player and melodicist trading increasingly virtuosic phrases. Production captures the resonance of the tabla and the sympathetic string vibrations of the sitar."
-- GAMELAN: "Indonesian metallophone orchestra. Bonang (kettle gongs) and gender (metallophones) playing interlocking kotekan patterns creating shimmering polyrhythmic texture. Saron and gender providing the core melody in unison with subtle tuning differences creating ombak (wave) shimmer. Gong ageng sounding at cycle boundaries with deep resonant sustain. Kendang (double-headed drum) controlling tempo and dynamics. Slendro or pelog tuning creating intervals unlike Western scales. Suling (bamboo flute) weaving melodic lines above the metallic ensemble. Production captures the natural shimmer and beating effect of paired instruments."
 - KLEZMER: "Eastern European Jewish celebratory music. Clarinet leading with characteristic krekhts (sobs) and dreydlekh (turns), bending notes into laughter-through-tears expression. Violin playing in parallel thirds with the clarinet. Accordion providing harmonic bed with characteristic oom-pah rhythm. Tuba or bass providing bass lines. Balalaika or domra strumming rhythmic accompaniment. Tempos shift dramatically — slow, mournful doina sections erupting into fast freylekhs dance numbers. The violin and clarinet engage in call-and-response with increasing ornamentation. Production warm and intimate with acoustic instruments."
 - MARIACHI: "Mexican traditional ensemble. Trumpets playing fanfare-like phrases with bright piercing tone and characteristic vibrato. Violin section playing in tight harmony with expressive vibrato. Vihuela strumming rhythmic patterns with bright nylon-string tone. Guitarron providing deep bass lines with characteristic bounce. Gritos (passionate shouts) punctuating transitions. Bolero sections with slower romantic violin melodies over gentle vihuela strumming. Ranchera sections with energetic full-band playing. Production captures the acoustic warmth of nylon strings and the brilliant trumpet tone."
-- TUVAN THROAT SINGING: "Single human voice producing multiple pitches simultaneously. Kargyraa creating deep rumbling subharmonics with growling throat technique. Sygyt producing high whistling overtones above a low fundamental. khoomei creating the middle harmonic layer. Igil (horsehead fiddle) providing melodic accompaniment with bowing technique. Doshpuluur (lute) strumming rhythmic patterns. Nature sounds — wind, water — as production elements. The fundamental drone is constant while overtones shift and shimmer. Production dry and close-miked to capture the physical harmonic complexity of the voice."
 - BHANGRA: "Punjabi celebratory music. Dhol (double-headed drum) driving everything with characteristic chaal rhythm — bass treble bass treble at high energy. Tumbi (single-string instrument) playing repetitive melodic hook lines. Algoza (double flute) playing melodic fills. Dholki providing supporting rhythmic patterns. Vocals delivered with high energy, celebratory tone. Chorus sections featuring call-and-response with audience participation. Production bright and bass-heavy with the dhol front and center. Tempo high energy throughout with no drops."
 - ANDES: "South American highland folk music. Charango (10-string mandolin) playing rapid arpeggiated patterns with shimmering nylon tone. Quena (end-blown flute) playing pentatonic melodies with characteristic breathy attack. Zampoña (panpipes) providing melodic bass lines with gentle breathy tone. Bombo (bass drum) providing deep rhythmic foundation. Guitar strumming chordal accompaniment. Vocal harmonies in parallel thirds and sixths. Production warm and acoustic with natural room reverb evoking mountain landscapes." (rich and specific — use as STYLE reference, adapting to the actual genre):
 "Thunderous 808 bass tuned precisely to root note sustains with controlled decay creating physical chest-hitting impact. Hi-hat programming alternates between machine-gun triplet rolls and crisp straight sixteenth-note patterns with velocity variations creating natural human groove. Snare hits combine layered acoustic snap with synthetic clap creating sharp transient attack. Vocal delivery features confident mid-range flow with rhythmic cadence, processed through subtle pitch correction maintaining modern polished character while preserving natural tonal variation. Ad-libs strategically panned wide across stereo field with distinct processing creating call-and-response dialogue."
@@ -47243,7 +46935,7 @@ STRUCTURE:
 - Punk genres often use: Intro \u2192 Verse \u2192 Chorus \u2192 Verse \u2192 Chorus \u2192 Verse \u2192 Chorus \u2192 Outro (no bridge)
 - DJ/Turntablism genres often use: Intro \u2192 Scratch Break \u2192 Verse \u2192 Chorus \u2192 Scratch Break \u2192 Verse \u2192 Chorus \u2192 Scratch Solo \u2192 Chorus \u2192 Outro. Use [Scratch Break] and [Scratch Solo] section labels for turntable showcases. The scratch sections are INSTRUMENTAL — no lyrics, just the turntable solo.
 - Dual DJ genres often use: Intro \u2192 DJ 1 Scratch \u2192 Verse 1 \u2192 Chorus \u2192 DJ 2 Scratch \u2192 Verse 2 \u2192 Chorus \u2192 DJ Battle \u2192 Chorus \u2192 Outro. Use [DJ 1 Scratch], [DJ 2 Scratch], and [DJ Battle] labels. The DJ Battle section is the climax \u2014 both DJs trading scratch patterns back and forth.
-- Traditional/World genres (Carnatic, Hindustani, Gamelan, Gagaku, Min'yo, Enka, Korean Traditional, Balinese, Klezmer, Mariachi, Tuvan, Bhangra, Gnawa, Andean): Structure is dictated by CULTURAL TRADITION, not Western pop conventions. Use the section labels and patterns appropriate to the genre. These genres may not have verses/choruses in the Western sense \u2014 use instrumental sections, call-and-response, cyclic patterns, or raga-based structures as appropriate. The dynamic structure hint will provide specific guidance for each traditional genre.
+- Traditional/World genres (Klezmer, Mariachi, Bhangra, Andean): Structure is dictated by CULTURAL TRADITION, not Western pop conventions. Use the section labels and patterns appropriate to the genre. These genres may not have verses/choruses in the Western sense \u2014 use instrumental sections, call-and-response, cyclic patterns, or raga-based structures as appropriate. The dynamic structure hint will provide specific guidance for each traditional genre.
 - Add instrumental breaks between major sections where appropriate for the genre
 
 QUALITY:
@@ -296756,20 +296448,6 @@ router21.post("/llm", async (req, res) => {
       }
       if (genreHints.length) {
         enhancedUserPrompt += `\n\nGenre-Specific Instructions (${genreStr}):\n${genreHints.map(h => `- ${h}`).join("\n")}`;
-      }
-    }
-    // ── MODEL CAPABILITY WARNINGS ──────────────────────────────────────────────
-    // Warn the LLM when selected genres are beyond ACE-Step's training data.
-    // "unsupported" = output will be wrong; "limited" = partial approximation.
-    if (genreKeys.length) {
-      const capabilityWarnings = [];
-      for (const gk of genreKeys) {
-        const cap = MODEL_UNSUPPORTED_GENRES[gk];
-        if (cap) capabilityWarnings.push(cap);
-      }
-      if (capabilityWarnings.length) {
-        const uniqueWarnings = [...new Map(capabilityWarnings.map(w => [w.warning, w])).values()];
-        enhancedUserPrompt += `\n\n⚠️ MODEL CAPABILITY NOTE: The selected genre(s) include styles that ACE-Step's training data does not adequately cover. ${uniqueWarnings.map(w => w.warning).join(" ")} Do your best to capture the SPIRIT and EMOTIONAL CHARACTER of the genre through lyrics, vocabulary, and song structure — the music model will do its best to follow the tags and cues you provide. Focus on what the model CAN do: evocative lyrics, genre-appropriate vocabulary, and compelling song structure.`;
       }
     }
     // ── REGGAE GENRE BLENDING (when reggae + other genres are combined) ──────────
