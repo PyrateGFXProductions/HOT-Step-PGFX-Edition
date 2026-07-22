@@ -18,12 +18,13 @@ This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music 
 
 ## What's New in the PGFX Edition
 
-### Genre-Aware Song Architecture (46+ Structure Templates)
+### Genre-Aware Song Architecture (60+ Structure Templates)
 Every genre now has its own structural grammar — verse/chorus/bridge line counts, section ordering, and rhythm patterns that match how that genre *actually works*. Metal doesn't structure like reggae doesn't structure like K-pop doesn't structure like blues.
 
 - **Primary-genre-wins architecture**: First selected genre dictates structure. Secondary genres influence vocabulary, tone, and instrumentation only.
-- **32+ new templates**: Metal (8 variants), Reggae (3), K-Pop, Hip-Hop (7), Blues (6), Punk (6), Folk (5), DJ/Turntablism (2), plus genre-agnostic fallbacks.
+- **60+ templates**: Metal (8 variants), Reggae (3), K-Pop, Hip-Hop (7), Blues (6), Punk (6), Folk (5), DJ/Turntablism (2), Traditional/World (14), plus genre-agnostic fallbacks.
 - **DJ / Turntablism** and **Dual DJ** as first-class genres with scratch effects, battle vocabulary, and turntablist structure.
+- **14 Traditional/World Music Genres**: Gagaku, Min'yo, Enka, Korean Traditional, Carnatic, Hindustani, Gamelan, Balinese, Klezmer, Mariachi, Tuvan Throat Singing, Bhangra, Gnawa, Andean — each with culturally-specific structure templates, vocabulary modules, BPM ranges, and sonic tag examples.
 - **Patois now optional** with bilingual code-switching support for non-English + Patois combinations.
 
 ### Narrative Intelligence
@@ -127,15 +128,20 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 
 ## Credits
 
-- **HOT-Step CPP** by [scragnog](https://github.com/scragnog/HOT-Step-CPP) — The base application
-- **ACE-Step** by [ace-step](https://github.com/ace-step) — The AI music inference engine (MIT License)
-- **PyrateGFX Productions** — PGFX Edition enhancements, genre architecture, narrative intelligence, album generator, visualizer, video pipeline
+### Original Author
+- **HOT-Step CPP** by [scragnog](https://github.com/scragnog/HOT-Step-CPP) — The base application, inference pipeline, UI, and ACE-Step integration. All original code, architecture, and design belong to scragnog. The PGFX Edition enhancements are additive modifications to this foundation.
+
+### AI Music Engine
+- **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
+
+### PGFX Edition Enhancements
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 14 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-3 enhancements.
 
 ---
 
 ## License
 
-This project builds on HOT-Step CPP (which uses ACE-Step under MIT License). The PGFX Edition enhancements are provided as-is for community use. See individual file headers for specific licensing.
+This project builds upon HOT-Step CPP by scragnog (which uses ACE-Step under MIT License). The original HOT-Step CPP code and ACE-Step engine retain their original licenses. The PGFX Edition enhancements are provided as-is for community use and potential upstream contribution. See individual file headers for specific licensing.
 
 ---
 
