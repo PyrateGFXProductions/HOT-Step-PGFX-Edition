@@ -538,21 +538,21 @@ async function autoFillAlbum() {
 
     const sysPrompt = `You are an expert music producer and album concept designer. You design album track listings with compelling themes and subjects.
 
-Output ONLY valid JSON with this exact structure — no markdown, no code blocks, no explanation:
-{
-  "theme": "A 1-2 sentence album concept/theme description",
-  "title": "Album title (2-5 words, catchy)",
-  "tracks": [
-    {"title": "Track Title", "subject": "A 2-3 sentence description of what this song is about — enough detail for a lyricist to write from. Concrete images, specific scenarios, emotional arc."},
-    ...repeat for every track...
-  ]
-}
+Output your response in this EXACT format — one line per field, no JSON, no markdown, no code blocks:
+
+THEME: A 1-2 sentence album concept/theme description
+TITLE: Album title (2-5 words, catchy)
+1: Track Title | A 2-3 sentence description of what this song is about — enough detail for a lyricist to write from. Concrete images, specific scenarios, emotional arc.
+2: Track Title | A 2-3 sentence description...
+3: Track Title | A 2-3 sentence description...
+...continue for every track...
 
 CRITICAL RULES:
+- EVERY line must start with either "THEME:", "TITLE:", or a number followed by colon.
 - Every track subject must be DIFFERENT — no two tracks about the same thing.
 - Each subject must contain CONCRETE IMAGES (places, objects, actions, sensory details) — never abstract concepts.
 - ${hasTheme
-    ? 'The tracks should tell a STORY ARC across the album: Act 1 (tracks 1-2) = Setup — introduce the world/characters. Act 2 (middle tracks) = Conflict/Journey — raise stakes, explore different angles. Act 2-3 (final tracks) = Resolution — climax, transformation, the final image.'
+    ? 'The tracks should tell a STORY ARC across the album: Act 1 (tracks 1-2) = Setup — introduce the world/characters. Act 2 (middle tracks) = Conflict/Journey — raise stakes, explore different angles. Final tracks = Resolution — climax, transformation, the final image.'
     : 'Vary the mood, tempo feel, and lyrical themes across tracks. Make each track feel like a distinct chapter — different scene, different emotion, different energy level — but all belonging to the same genre universe.'}
 - Titles should be SHORT (1-4 words), evocative, and memorable.
 - Never repeat a title word across tracks (e.g. if one track is "Midnight Rain" don't use "rain" in another title).`;
@@ -569,20 +569,39 @@ CRITICAL RULES:
       })
     });
 
-    // Parse the response — try multiple strategies
+    // Parse the response — line-based format: THEME:/TITLE:/N: Title | Subject
     let concept = null;
     const raw = result.lyrics || '';
+    console.log('[AutoFill] Raw LLM response:', raw.substring(0, 500));
 
-    // Strategy 1: direct JSON parse
-    try { concept = JSON.parse(raw); } catch {}
+    // Strategy 1: Parse our line-based format (THEME:/TITLE:/N: Title | Subject)
+    {
+      const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+      const theme = lines.find(l => /^THEME:\s*/i.test(l))?.replace(/^THEME:\s*/i, '').trim() || '';
+      const title = lines.find(l => /^TITLE:\s*/i.test(l))?.replace(/^TITLE:\s*/i, '').trim() || '';
+      const tracks = [];
+      for (const line of lines) {
+        const m = line.match(/^(\d+):\s*(.+)/);
+        if (m) {
+          const parts = m[2].split('|').map(s => s.trim());
+          tracks.push({ title: parts[0] || '', subject: parts.slice(1).join(' | ') || parts[0] || '' });
+        }
+      }
+      if (tracks.length > 0) concept = { theme, title, tracks };
+    }
 
-    // Strategy 2: extract from markdown code blocks
+    // Strategy 2: try JSON (some models output JSON anyway)
+    if (!concept) {
+      try { concept = JSON.parse(raw); } catch {}
+    }
+
+    // Strategy 3: extract JSON from markdown code blocks
     if (!concept) {
       const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (m) try { concept = JSON.parse(m[1]); } catch {}
     }
 
-    // Strategy 3: find the outermost { ... } in the text
+    // Strategy 4: find outermost { ... } in the text
     if (!concept) {
       const start = raw.indexOf('{');
       const end = raw.lastIndexOf('}');
@@ -591,8 +610,25 @@ CRITICAL RULES:
       }
     }
 
+    // Strategy 5: brute-force — extract any "number: Title | Subject" lines
+    if (!concept || !concept.tracks) {
+      const tracks = [];
+      const lines = raw.split('\n');
+      for (const line of lines) {
+        const m = line.trim().match(/^(\d+)[.:)\]]\s*(.+)/);
+        if (m) {
+          const parts = m[2].split('|').map(s => s.trim());
+          tracks.push({ title: parts[0] || '', subject: parts.slice(1).join(' | ') || parts[0] || '' });
+        }
+      }
+      if (tracks.length >= 2) {
+        concept = { theme: '', title: '', tracks };
+      }
+    }
+
     if (!concept || !concept.tracks || !Array.isArray(concept.tracks) || concept.tracks.length === 0) {
-      throw new Error('Could not parse album concept from LLM response. The model may not support structured output — try a different provider or fill tracks manually.');
+      console.error('[AutoFill] All parse strategies failed. Raw response:', raw);
+      throw new Error('Could not parse album concept. Check the browser console (F12) for the raw LLM response. Try a different provider or fill tracks manually.');
     }
 
     // Apply results
@@ -650,15 +686,14 @@ async function shuffleTracks() {
 
     const sysPrompt = `You are an expert music producer shuffling an album's track listing.
 
-Output ONLY valid JSON — no markdown, no code blocks:
-{
-  "tracks": [
-    {"title": "New or improved title (1-4 words)", "subject": "A 2-3 sentence description — concrete images, specific scenarios, emotional arc. Enough for a lyricist to write from."}
-    ...one entry per existing track...
-  ]
-}
+Output your response in this EXACT format — one line per field:
+
+1: New Title | A 2-3 sentence description — concrete images, specific scenarios, emotional arc. Enough for a lyricist to write from.
+2: New Title | A 2-3 sentence description...
+...continue for every track...
 
 RULES:
+- EVERY line must start with a number followed by colon.
 - Every track must be DISTINCT from the others.
 - Subjects must contain CONCRETE IMAGES — never abstract concepts.
 - Titles must be SHORT and evocative.
@@ -676,24 +711,41 @@ RULES:
       })
     });
 
-    // Parse
+    // Parse — same line-based format as autoFill
     let concept = null;
     const raw = result.lyrics || '';
-    try { concept = JSON.parse(raw); } catch {}
+    console.log('[Shuffle] Raw LLM response:', raw.substring(0, 500));
+
+    // Strategy 1: line-based format (N: Title | Subject)
+    {
+      const tracks = [];
+      for (const line of raw.split('\n')) {
+        const m = line.trim().match(/^(\d+)[.:)\]]\s*(.+)/);
+        if (m) {
+          const parts = m[2].split('|').map(s => s.trim());
+          tracks.push({ title: parts[0] || '', subject: parts.slice(1).join(' | ') || parts[0] || '' });
+        }
+      }
+      if (tracks.length > 0) concept = { tracks };
+    }
+
+    // Strategy 2: JSON
+    if (!concept) try { concept = JSON.parse(raw); } catch {}
+    // Strategy 3: JSON in code blocks
     if (!concept) {
       const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (m) try { concept = JSON.parse(m[1]); } catch {}
     }
+    // Strategy 4: outermost { ... }
     if (!concept) {
       const start = raw.indexOf('{');
       const end = raw.lastIndexOf('}');
-      if (start >= 0 && end > start) {
-        try { concept = JSON.parse(raw.substring(start, end + 1)); } catch {}
-      }
+      if (start >= 0 && end > start) try { concept = JSON.parse(raw.substring(start, end + 1)); } catch {}
     }
 
     if (!concept || !concept.tracks || !Array.isArray(concept.tracks)) {
-      throw new Error('Could not parse shuffled tracks from LLM response.');
+      console.error('[Shuffle] All parse strategies failed. Raw:', raw);
+      throw new Error('Could not parse shuffled tracks. Check the browser console (F12) for the raw LLM response.');
     }
 
     const numToFill = Math.min(concept.tracks.length, TRACKS.length);
