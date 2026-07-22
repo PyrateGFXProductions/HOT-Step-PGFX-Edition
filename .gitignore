@@ -1,0 +1,66 @@
+# ============================================================
+# HOT-Step CPP — PGFX Edition .gitignore
+# ============================================================
+# Strategy: only track modified/new source files.
+# Users apply changes to a clean HOT-Step CPP v1.1.4 install.
+# ============================================================
+
+# ── Secrets ──────────────────────────────────────────────────
+.env
+
+# ── Binaries & Engines (2.9 GB) ─────────────────────────────
+engine/
+
+# ── AI Models — GGUF files (31+ GB) ─────────────────────────
+models/
+
+# ── LoRA Adapters (2.5 GB) ──────────────────────────────────
+adapters/
+
+# ── Runtime (81 MB) ─────────────────────────────────────────
+runtime/
+
+# ── Whisper / Tools (697 MB) ────────────────────────────────
+tools/
+
+# ── Essentia audio analysis (23 MB) ─────────────────────────
+Essentia/
+
+# ── Noise samples (3.7 MB) ──────────────────────────────────
+noise_samples/
+
+# ── Server data — generated audio, stems, references (27 GB) 
+server/data/
+server/node_modules/
+
+# ── Logs ─────────────────────────────────────────────────────
+logs/
+
+# ── Temp / generated files ───────────────────────────────────
+temp/
+data/tmp/
+data/references/
+*.wav
+*.mp3
+*.mp4
+*.ogg
+*.flac
+
+# ── ffmpeg binary (79 MB — users download separately) ───────
+ffmpeg.exe
+
+# ── OS / editor junk ─────────────────────────────────────────
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# ── Node ─────────────────────────────────────────────────────
+node_modules/
+package-lock.json
+
+# ── Windows shortcuts ────────────────────────────────────────
+*.lnk
