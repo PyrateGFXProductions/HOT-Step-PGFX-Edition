@@ -12,7 +12,7 @@
 This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music generation tool built on ACE-Step. The PGFX Edition transforms it from a capable inference wrapper into a full **music production system** with genre-aware song structure, narrative intelligence, and creative workflow tools.
 
 **Base**: HOT-Step CPP v1.1.4 (Windows x64, CUDA 13.1)
-**Enhancements**: 32 sections of improvements across 3 phases
+**Enhancements**: 33 sections of improvements across 3 phases
 
 ---
 
@@ -25,6 +25,7 @@ Every genre now has its own structural grammar — verse/chorus/bridge line coun
 - **60+ templates**: Metal (8 variants), Reggae (3), K-Pop, Hip-Hop (7), Blues (6), Punk (6), Folk (5), DJ/Turntablism (2), Traditional/World (14), plus genre-agnostic fallbacks.
 - **DJ / Turntablism** and **Dual DJ** as first-class genres with scratch effects, battle vocabulary, and turntablist structure.
 - **14 Traditional/World Music Genres**: Gagaku, Min'yo, Enka, Korean Traditional, Carnatic, Hindustani, Gamelan, Balinese, Klezmer, Mariachi, Tuvan Throat Singing, Bhangra, Gnawa, Andean — each with culturally-specific structure templates, vocabulary modules, BPM ranges, and sonic tag examples.
+- **Model Capability Warnings**: When a user selects a genre that ACE-Step cannot authentically reproduce (e.g., Tuvan Throat Singing, Gagaku, Carnatic), the system warns the user in the UI and injects a capability note into the LLM prompt so it focuses on capturing the genre's spirit through lyrics and vocabulary rather than fighting the model's limitations.
 - **Patois now optional** with bilingual code-switching support for non-English + Patois combinations.
 
 ### Narrative Intelligence
@@ -107,14 +108,14 @@ Ten visualization modes powered by client-side beat detection:
 
 | File | Status | Size | Description |
 |------|--------|------|-------------|
-| `server/server.mjs` | Modified | ~298K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, video generation |
-| `ui/dist/album.html` | **New** | 42 KB | Album Generator — 9-track workflow with auto-fill, genre dropdowns, sequential generation |
+| `server/server.mjs` | Modified | ~298K lines | Backend with 46+ genre templates, vocabulary modules, model capability warnings, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, video generation |
+| `ui/dist/album.html` | **New** | 42 KB | Album Generator — 9-track workflow with auto-fill, genre dropdowns with capability warnings, sequential generation |
 | `ui/dist/visualizer.html` | **New** | 36 KB | Audio-reactive visualizer with 10 modes, settings panel, playlist, video generation |
 | `ui/dist/index.html` | Modified | 3 KB | Added floating album + visualizer buttons |
 | `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle with DJ/Turntablism genre group |
 
 ### Full Enhancement Report
-See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 32 enhancement sections, reproduction guide, and file locations.
+See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 33 enhancement sections, reproduction guide, and file locations.
 
 ---
 
@@ -143,7 +144,7 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 14 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-3 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 14 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, model capability warnings, quality analyzer, and all Phase 1-3 enhancements.
 
 ---
 
