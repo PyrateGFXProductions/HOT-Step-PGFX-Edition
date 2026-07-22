@@ -48,7 +48,7 @@ Every genre now has its own structural grammar — verse/chorus/bridge line coun
 - Sequential generation pipeline: LLM lyrics → ACE-Step audio → playback.
 
 ### Audio-Reactive Visualizer
-Ten visualization modes powered by client-side beat detection:
+Eleven visualization modes powered by client-side beat detection:
 - **Bars** — 64-bar spectrum analyzer with peaks, reflections, and gradient fills
 - **Wave** — 3-layer oscilloscope with afterglow and optional mirror
 - **Particles** — 600-pool beat-spawned particle system with glow
@@ -59,12 +59,15 @@ Ten visualization modes powered by client-side beat detection:
 - **Rings** — Concentric rotating rings reactive to frequency bands
 - **Liquid** — Layered fluid waves with floating orbs
 - **Image + FX** — Cover art with spectrum overlay, vignette, and particle bursts
+- **Milkdrop** — WebGL Milkdrop renderer via Butterchurn with 70+ built-in presets and custom `.milk` file import
 
 **Settings panel**: 6 color schemes, sensitivity, smoothing, brightness, BG opacity, mode blending, mirror, glow, and scanline toggles.
+**Preset browser** (Milkdrop mode): Searchable preset list, prev/next/shuffle navigation, drag-and-drop `.milk` file import for custom presets.
 **Playback controls**: Play/pause, stop, prev/next, seek bar, volume, track info.
 **Playlist**: Auto-loads songs from server, shuffle, repeat, auto-advance.
 **Video generation**: One-click MP4 creation via server ffmpeg pipeline.
 **Main app integration**: Visualizer button auto-detects the currently playing song and opens with it.
+**Keyboard shortcuts**: `Space` Play/Pause, `1`-`0` Modes, `M` Milkdrop, `F` Fullscreen, `R` Record, `S` Settings, `L` Playlist, `P` Presets.
 
 ### MP4 Video Generator
 - Beat-synced crossfades between cover art images
@@ -111,7 +114,7 @@ Ten visualization modes powered by client-side beat detection:
 |------|--------|------|-------------|
 | `server/server.mjs` | Modified | ~298K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, video generation |
 | `ui/dist/album.html` | **New** | 42 KB | Album Generator — 9-track workflow with auto-fill, genre dropdowns, sequential generation |
-| `ui/dist/visualizer.html` | **New** | 36 KB | Audio-reactive visualizer with 10 modes, settings panel, playlist, video generation |
+| `ui/dist/visualizer.html` | **New** | 43 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation |
 | `ui/dist/index.html` | Modified | 3 KB | Added floating album + visualizer buttons |
 | `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle with DJ/Turntablism genre group |
 
@@ -145,7 +148,7 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-3 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn integration, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-3 enhancements.
 
 ---
 

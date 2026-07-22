@@ -122,16 +122,42 @@ canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
+
+/* ── Preset Browser Panel ─────────────────────────── */
+#preset-panel{position:fixed;top:50px;left:14px;z-index:250;width:300px;max-height:60vh;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:var(--radius);padding:10px;display:none;flex-direction:column;overflow:hidden}
+#preset-panel.open{display:flex}
+#preset-panel h3{font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px;padding:0 4px;display:flex;align-items:center;justify-content:space-between}
+#preset-panel h3 .preset-count{color:var(--accent);font-weight:400}
+#preset-search{width:100%;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:#ccc;font-size:12px;outline:none;margin-bottom:6px}
+#preset-search:focus{border-color:rgba(0,255,255,0.3)}
+#preset-search::placeholder{color:#555}
+#preset-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px;max-height:40vh}
+#preset-list::-webkit-scrollbar{width:4px}
+#preset-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
+.preset-item{padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;color:#888;transition:all .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.preset-item:hover{background:rgba(0,255,255,0.08);color:#ccc}
+.preset-item.active{background:rgba(0,255,255,0.12);color:var(--accent)}
+.preset-controls{display:flex;gap:4px;padding-top:8px;border-top:1px solid var(--border);margin-top:6px}
+.preset-controls button{flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:#666;padding:5px;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;transition:all .2s}
+.preset-controls button:hover{background:rgba(0,255,255,0.08);color:var(--accent)}
+#preset-drop-zone{border:2px dashed rgba(0,255,255,0.2);border-radius:8px;padding:12px;text-align:center;color:#555;font-size:10px;margin-top:6px;transition:all .2s;cursor:pointer}
+#preset-drop-zone:hover,#preset-drop-zone.dragover{border-color:var(--accent);color:var(--accent);background:rgba(0,255,255,0.05)}
+#preset-drop-zone input{display:none}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<canvas id="gl-canvas" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:1"></canvas>
+
+<!-- Butterchurn (Milkdrop WebGL renderer) -->
+<script src="https://unpkg.com/butterchurn@2.6.7/lib/butterchurn.min.js"></script>
+<script src="https://unpkg.com/butterchurn-presets@0.3.3/lib/butterchurnPresets.min.js"></script>
 
 <!-- Welcome -->
 <div id="welcome">
   <h1>HOT-Step Visualizer</h1>
   <p>Open with audio parameters, drag &amp; drop a file, or double-click to browse.</p>
-  <p style="font-size:11px;color:#444;margin-top:4px"><kbd>Space</kbd> Play/Pause &nbsp; <kbd>1</kbd>-<kbd>0</kbd> Mode &nbsp; <kbd>F</kbd> Fullscreen &nbsp; <kbd>R</kbd> Record &nbsp; <kbd>S</kbd> Settings &nbsp; <kbd>L</kbd> Playlist</p>
+  <p style="font-size:11px;color:#444;margin-top:4px"><kbd>Space</kbd> Play/Pause &nbsp; <kbd>1</kbd>-<kbd>0</kbd> Mode &nbsp; <kbd>M</kbd> Milkdrop &nbsp; <kbd>F</kbd> Fullscreen &nbsp; <kbd>R</kbd> Record &nbsp; <kbd>S</kbd> Settings &nbsp; <kbd>L</kbd> Playlist &nbsp; <kbd>P</kbd> Presets</p>
 </div>
 
 <!-- Drop -->
@@ -150,8 +176,23 @@ canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
 <!-- BPM -->
 <div id="bpm-display">BPM: <span class="bpm-num" id="bpm-val">--</span></div>
 
+<!-- Preset Browser Panel (Milkdrop) -->
+<div id="preset-panel">
+  <h3>Milkdrop Presets <span class="preset-count" id="preset-count">0</span></h3>
+  <input type="text" id="preset-search" placeholder="Search presets...">
+  <div id="preset-list"></div>
+  <div id="preset-drop-zone">
+    Drop .milk preset file or click to import
+    <input type="file" id="preset-file-input" accept=".milk">
+  </div>
+  <div class="preset-controls">
+    <button id="preset-prev" title="Previous preset">&#9664;</button>
+    <button id="preset-random" title="Random preset">Shuffle</button>
+    <button id="preset-next" title="Next preset">&#9654;</button>
+  </div>
+</div>
+
 <!-- Settings Panel -->
-<div id="settings-panel">
   <div class="setting-group">
     <div class="setting-label">Color Scheme</div>
     <div class="color-swatches" id="color-swatches"></div>
@@ -242,7 +283,7 @@ canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
 /* ═══════════════════════════════════════════════════════════════════════
    CONSTANTS & STATE
    ═══════════════════════════════════════════════════════════════════════ */
-const MODES = ['Bars','Wave','Particles','Circular','Plasma','Tunnel','Starfield','Rings','Liquid','Image+FX'];
+const MODES = ['Bars','Wave','Particles','Circular','Plasma','Tunnel','Starfield','Rings','Liquid','Image+FX','Milkdrop'];
 const COLOR_SCHEMES = [
   { name:'Cyber',   colors:['#00ffff','#ff00ff','#00ff66','#ff8800','#ffff00','#ff4488'] },
   { name:'Fire',    colors:['#ff2200','#ff6600','#ffaa00','#ff4400','#cc0000','#ff8844'] },
@@ -274,7 +315,7 @@ const videoModal = $('video-modal'), videoImages = $('video-images');
 const videoGenBtn = $('video-gen-btn'), videoStatus = $('video-status');
 
 let W, H;
-function resize(){ W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; plasmaBuf = null; }
+function resize(){ W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; plasmaBuf = null; if(butterchurnViz){try{butterchurnViz.setRendererSize(W,H);}catch(e){}} }
 resize();
 window.addEventListener('resize', resize);
 
@@ -308,6 +349,8 @@ function loadAudio(url, title){
   sourceNode = audioCtx.createMediaElementSource(audioEl);
   sourceNode.connect(analyser);
   analyser.connect(destNode);
+  /* Connect audio to Butterchurn if Milkdrop is ready */
+  if(butterchurnViz){try{butterchurnViz.connectAudio(sourceNode);}catch(e){}}
   audioEl.volume = parseFloat(volEl.value);
   audioEl.play().catch(function(){});
   S.playing = true;
@@ -824,19 +867,186 @@ function renderImageFx(dt){
 var renderers=[renderBars,renderWave,renderParticles,renderCircular,renderPlasma,renderTunnel,renderStarfield,renderRings,renderLiquid,renderImageFx];
 
 /* ═══════════════════════════════════════════════════════════════════════
+   MILKDROP / BUTTERCHURN
+   ═══════════════════════════════════════════════════════════════════════ */
+var glCanvas=$('gl-canvas'), butterchurnViz=null, milkdropReady=false, milkdropVisible=false;
+var milkdropPresets=[], milkdropPresetIndex=-1, customPresets=[];
+var presetPanel=$('preset-panel'), presetList=$('preset-list'), presetSearch=$('preset-search');
+var presetCount=$('preset-count'), presetDropZone=$('preset-drop-zone');
+var presetFileInput=$('preset-file-input');
+
+function isButterchurnSupported(){
+  try{
+    var c=document.createElement('canvas');
+    return !!(window.WebGL2RenderingContext && (c.getContext('webgl2') || c.getContext('experimental-webgl2')));
+  }catch(e){return false;}
+}
+
+function initButterchurn(){
+  if(milkdropReady || !isButterchurnSupported()) return;
+  if(typeof window.butterchurn==='undefined'){console.warn('[Milkdrop] butterchurn not loaded');return;}
+  if(typeof window.butterchurnPresets==='undefined'){console.warn('[Milkdrop] butterchurn-presets not loaded');return;}
+  try{
+    butterchurnViz=window.butterchurn.createVisualizer(audioCtx,glCanvas,{width:W,height:H});
+    var allPresets=window.butterchurnPresets.getPresets();
+    milkdropPresets=Object.keys(allPresets).sort();
+    milkdropReady=true;
+    renderPresetList();
+    console.log('[Milkdrop] Initialized with '+milkdropPresets.length+' presets');
+  }catch(e){console.error('[Milkdrop] Init failed:',e);}
+}
+
+function showMilkdrop(){
+  if(!milkdropReady){initButterchurn();if(!milkdropReady)return;}
+  glCanvas.style.display='block';canvas.style.display='none';
+  milkdropVisible=true;
+  if(butterchurnViz){try{butterchurnViz.setRendererSize(W,H);}catch(e){}}
+}
+function hideMilkdrop(){
+  glCanvas.style.display='none';canvas.style.display='block';
+  milkdropVisible=false;
+}
+
+function renderMilkdrop(dt){
+  if(!milkdropReady){initButterchurn();if(!milkdropReady){ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);ctx.fillStyle='#444';ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText('Milkdrop requires WebGL2',W/2,H/2);return;}}
+  if(!milkdropVisible) showMilkdrop();
+  try{butterchurnViz.render();}catch(e){}
+}
+
+function loadMilkdropPreset(name, blendTime){
+  if(!milkdropReady||!butterchurnViz) return;
+  var allPresets=window.butterchurnPresets.getPresets();
+  var preset=allPresets[name];
+  if(!preset){/* Check custom presets */
+    var cp=customPresets.find(function(p){return p.name===name;});
+    if(cp) preset=cp.data;
+  }
+  if(!preset) return;
+  try{
+    butterchurnViz.loadPreset(preset, blendTime||0.0);
+    milkdropPresetIndex=milkdropPresets.indexOf(name);
+    if(milkdropPresetIndex<0) milkdropPresetIndex=milkdropPresets.indexOf(name);
+    updatePresetHighlight();
+    console.log('[Milkdrop] Loaded: '+name);
+  }catch(e){console.error('[Milkdrop] Load failed:',e);}
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PRESET BROWSER
+   ═══════════════════════════════════════════════════════════════════════ */
+function getAllPresetNames(){ return milkdropPresets.concat(customPresets.map(function(p){return p.name;})); }
+
+function renderPresetList(){
+  var q=(presetSearch.value||'').toLowerCase();
+  var all=getAllPresetNames();
+  var filtered=q?all.filter(function(n){return n.toLowerCase().indexOf(q)>=0;}):all;
+  presetCount.textContent=filtered.length;
+  presetList.innerHTML='';
+  filtered.forEach(function(name){
+    var d=document.createElement('div');
+    d.className='preset-item'+(name===milkdropPresets[milkdropPresetIndex]?' active':'');
+    d.textContent=name;
+    d.title=name;
+    d.addEventListener('click',function(){loadMilkdropPreset(name,1.0);});
+    presetList.appendChild(d);
+  });
+}
+
+function updatePresetHighlight(){
+  presetList.querySelectorAll('.preset-item').forEach(function(d){
+    d.classList.toggle('active',d.textContent===milkdropPresets[milkdropPresetIndex]);
+  });
+}
+
+presetSearch.addEventListener('input',renderPresetList);
+
+/* Preset navigation */
+$('preset-prev').addEventListener('click',function(){
+  var all=getAllPresetNames();if(!all.length)return;
+  var idx=milkdropPresetIndex-1;if(idx<0)idx=all.length-1;
+  loadMilkdropPreset(all[idx],1.5);
+});
+$('preset-next').addEventListener('click',function(){
+  var all=getAllPresetNames();if(!all.length)return;
+  var idx=milkdropPresetIndex+1;if(idx>=all.length)idx=0;
+  loadMilkdropPreset(all[idx],1.5);
+});
+$('preset-random').addEventListener('click',function(){
+  var all=getAllPresetNames();if(!all.length)return;
+  var r=all[Math.floor(Math.random()*all.length)];
+  loadMilkdropPreset(r,1.0);
+});
+
+/* Toggle preset panel */
+
+/* .milk file import via drop zone */
+presetDropZone.addEventListener('click',function(){presetFileInput.click();});
+presetFileInput.addEventListener('change',function(e){
+  if(e.target.files.length) importMilkFile(e.target.files[0]);
+  e.target.value='';
+});
+presetDropZone.addEventListener('dragover',function(e){e.preventDefault();presetDropZone.classList.add('dragover');});
+presetDropZone.addEventListener('dragleave',function(){presetDropZone.classList.remove('dragover');});
+presetDropZone.addEventListener('drop',function(e){
+  e.preventDefault();presetDropZone.classList.remove('dragover');
+  if(e.dataTransfer.files.length) importMilkFile(e.dataTransfer.files[0]);
+});
+
+function importMilkFile(file){
+  if(!milkdropReady) initButterchurn();
+  if(!butterchurnViz){alert('Milkdrop not ready. Requires WebGL2.');return;}
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      var presetData=JSON.parse(ev.target.result);
+      var name='[Custom] '+file.name.replace('.milk','');
+      customPresets.push({name:name,data:presetData});
+      milkdropPresets.push(name);
+      renderPresetList();
+      loadMilkdropPreset(name,1.0);
+    }catch(e){
+      /* Milkdrop files may be binary — try loading as raw preset object */
+      try{
+        var presetData2=eval('('+ev.target.result+')');
+        var name2='[Custom] '+file.name.replace('.milk','');
+        customPresets.push({name:name2,data:presetData2});
+        milkdropPresets.push(name2);
+        renderPresetList();
+        loadMilkdropPreset(name2,1.0);
+      }catch(e2){alert('Could not parse preset file: '+e2.message);}
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* Allow drag-and-drop .milk files anywhere in Milkdrop mode */
+document.addEventListener('dragover',function(e){if(milkdropVisible)e.preventDefault();});
+document.addEventListener('drop',function(e){
+  if(!milkdropVisible) return;
+  var files=e.dataTransfer.files;
+  for(var i=0;i<files.length;i++){
+    if(files[i].name.endsWith('.milk')){e.preventDefault();importMilkFile(files[i]);return;}
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════════
    MODE BUTTONS
    ═══════════════════════════════════════════════════════════════════════ */
 var modeBar=$('mode-bar');
 MODES.forEach(function(name,i){
   var b=document.createElement('button');
   b.className='mode-btn'+(i===0?' active':'');
-  b.textContent=name;b.dataset.mode=i;b.title='Keyboard: '+(i===0?'1':i<9?i+1:'0');
+  b.textContent=name;b.dataset.mode=i;b.title='Keyboard: '+(i===0?'1':i<9?i+1:i===9?'0':'M');
   b.addEventListener('click',function(){setMode(i);});
   modeBar.appendChild(b);
 });
 function setMode(m){
+  var wasMilkdrop=(S.mode===10);
   S.mode=m;
   modeBar.querySelectorAll('.mode-btn').forEach(function(b,i){b.classList.toggle('active',i===m);});
+  /* Canvas switching for Milkdrop */
+  if(m===10){ showMilkdrop(); presetPanel.classList.add('open'); }
+  else if(wasMilkdrop){ hideMilkdrop(); presetPanel.classList.remove('open'); }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1013,6 +1223,8 @@ $('btn-next').addEventListener('click',function(){
 $('btn-settings').addEventListener('click',function(){
   settingsPanel.classList.toggle('open');
   playlistPanel.classList.remove('open');
+  /* Also toggle preset panel in Milkdrop mode */
+  if(S.mode===10){presetPanel.classList.toggle('open');}
 });
 $('btn-playlist').addEventListener('click',function(){
   playlistPanel.classList.toggle('open');
@@ -1091,11 +1303,14 @@ document.addEventListener('keydown',function(e){
   else if(k==='l'){$('btn-playlist').click();}
   else if(k==='escape'){
     if(videoModal.classList.contains('open')){videoModal.classList.remove('open');return;}
+    if(presetPanel.classList.contains('open')){presetPanel.classList.remove('open');return;}
     if(settingsPanel.classList.contains('open')){settingsPanel.classList.remove('open');return;}
     if(playlistPanel.classList.contains('open')){playlistPanel.classList.remove('open');return;}
   }
   else if(k>='1'&&k<='9'){setMode(+k-1);}
   else if(k==='0'){setMode(9);}
+  else if(k==='m'){setMode(10);}
+  else if(k==='p'&&S.mode===10){presetPanel.classList.toggle('open');}
 });
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1112,20 +1327,24 @@ function frame(now){
   updateSeek();
 
   /* Render current mode */
-  renderers[S.mode](dt);
+  if(S.mode===10){
+    renderMilkdrop(dt);
+  } else {
+    renderers[S.mode](dt);
 
-  /* Blend mode overlay */
-  if(S.blend>0){
-    ctx.globalAlpha=S.blend;
-    renderers[(S.mode+1)%MODES.length](dt);
-    ctx.globalAlpha=1;
-  }
+    /* Blend mode overlay */
+    if(S.blend>0){
+      ctx.globalAlpha=S.blend;
+      renderers[(S.mode+1)%MODES.length](dt);
+      ctx.globalAlpha=1;
+    }
 
-  /* Global scanline overlay */
-  if(S.scanlines&&S.mode!==4&&S.mode!==9){
-    ctx.globalAlpha=0.03;ctx.fillStyle='#000';
-    for(var sl=0;sl<H;sl+=3)ctx.fillRect(0,sl,W,1);
-    ctx.globalAlpha=1;
+    /* Global scanline overlay */
+    if(S.scanlines&&S.mode!==4&&S.mode!==9){
+      ctx.globalAlpha=0.03;ctx.fillStyle='#000';
+      for(var sl=0;sl<H;sl+=3)ctx.fillRect(0,sl,W,1);
+      ctx.globalAlpha=1;
+    }
   }
 }
 requestAnimationFrame(frame);
