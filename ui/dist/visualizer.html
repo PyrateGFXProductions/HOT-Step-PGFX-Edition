@@ -149,9 +149,7 @@ canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
 <canvas id="c"></canvas>
 <canvas id="gl-canvas" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;z-index:1"></canvas>
 
-<!-- Butterchurn (Milkdrop WebGL renderer) -->
-<script src="https://unpkg.com/butterchurn@2.6.7/lib/butterchurn.min.js"></script>
-<script src="https://unpkg.com/butterchurn-presets@0.3.3/lib/butterchurnPresets.min.js"></script>
+<!-- Butterchurn scripts loaded dynamically in initButterchurn() to avoid blocking page load -->
 
 <!-- Welcome -->
 <div id="welcome">
@@ -869,11 +867,21 @@ var renderers=[renderBars,renderWave,renderParticles,renderCircular,renderPlasma
 /* ═══════════════════════════════════════════════════════════════════════
    MILKDROP / BUTTERCHURN
    ═══════════════════════════════════════════════════════════════════════ */
-var glCanvas=$('gl-canvas'), butterchurnViz=null, milkdropReady=false, milkdropVisible=false;
+var glCanvas=$('gl-canvas'), butterchurnViz=null, milkdropReady=false, milkdropVisible=false, milkdropLoading=false;
 var milkdropPresets=[], milkdropPresetIndex=-1, customPresets=[];
 var presetPanel=$('preset-panel'), presetList=$('preset-list'), presetSearch=$('preset-search');
 var presetCount=$('preset-count'), presetDropZone=$('preset-drop-zone');
 var presetFileInput=$('preset-file-input');
+var milkdropCallbacks=[];
+
+function loadScript(src){
+  return new Promise(function(resolve,reject){
+    if(document.querySelector('script[src="'+src+'"]')){resolve();return;}
+    var s=document.createElement('script');s.src=src;s.async=true;
+    s.onload=resolve;s.onerror=function(){reject(new Error('Failed to load: '+src));};
+    document.head.appendChild(s);
+  });
+}
 
 function isButterchurnSupported(){
   try{
@@ -882,25 +890,65 @@ function isButterchurnSupported(){
   }catch(e){return false;}
 }
 
-function initButterchurn(){
-  if(milkdropReady || !isButterchurnSupported()) return;
-  if(typeof window.butterchurn==='undefined'){console.warn('[Milkdrop] butterchurn not loaded');return;}
-  if(typeof window.butterchurnPresets==='undefined'){console.warn('[Milkdrop] butterchurn-presets not loaded');return;}
-  try{
-    butterchurnViz=window.butterchurn.createVisualizer(audioCtx,glCanvas,{width:W,height:H});
-    var allPresets=window.butterchurnPresets.getPresets();
-    milkdropPresets=Object.keys(allPresets).sort();
-    milkdropReady=true;
-    renderPresetList();
-    console.log('[Milkdrop] Initialized with '+milkdropPresets.length+' presets');
-  }catch(e){console.error('[Milkdrop] Init failed:',e);}
+function initButterchurn(callback){
+  if(milkdropReady){if(callback)callback();return;}
+  if(milkdropLoading){if(callback)milkdropCallbacks.push(callback);return;}
+  if(!isButterchurnSupported()){console.warn('[Milkdrop] WebGL2 not supported');if(callback)callback();return;}
+
+  milkdropLoading=true;
+  if(callback)milkdropCallbacks.push(callback);
+  console.log('[Milkdrop] Loading Butterchurn scripts...');
+  loadScript('https://unpkg.com/butterchurn@2.6.7/lib/butterchurn.min.js')
+    .then(function(){return loadScript('https://unpkg.com/butterchurn-presets@2.4.7/lib/butterchurnPresets.min.js');})
+    .then(function(){
+      if(typeof window.butterchurn==='undefined'||typeof window.butterchurnPresets==='undefined'){
+        throw new Error('Butterchurn libraries not available after loading');
+      }
+      butterchurnViz=window.butterchurn.createVisualizer(audioCtx,glCanvas,{width:W,height:H});
+      /* Connect audio if already loaded */
+      if(sourceNode){try{butterchurnViz.connectAudio(sourceNode);}catch(e){}}
+      var allPresets=window.butterchurnPresets.getPresets();
+      milkdropPresets=Object.keys(allPresets).sort();
+      milkdropReady=true;
+      milkdropLoading=false;
+      renderPresetList();
+      console.log('[Milkdrop] Initialized with '+milkdropPresets.length+' presets');
+      /* Fire all queued callbacks */
+      var cbs=milkdropCallbacks;milkdropCallbacks=[];
+      for(var ci=0;ci<cbs.length;ci++){try{cbs[ci]();}catch(e){}}
+    })
+    .catch(function(err){
+      console.error('[Milkdrop] Init failed:',err);
+      milkdropLoading=false;
+      var cbs=milkdropCallbacks;milkdropCallbacks=[];
+      for(var ci=0;ci<cbs.length;ci++){try{cbs[ci]();}catch(e){}}
+    });
 }
 
 function showMilkdrop(){
-  if(!milkdropReady){initButterchurn();if(!milkdropReady)return;}
+  if(!milkdropReady){
+    if(!milkdropLoading){
+      initButterchurn(function(){
+        if(milkdropReady){
+          glCanvas.style.display='block';canvas.style.display='none';
+          milkdropVisible=true;
+          try{butterchurnViz.setRendererSize(W,H);}catch(e){}
+          /* Auto-load first preset if none selected */
+          if(milkdropPresetIndex<0&&milkdropPresets.length>0){
+            loadMilkdropPreset(milkdropPresets[0],0.0);
+          }
+        }
+      });
+    }
+    return;
+  }
   glCanvas.style.display='block';canvas.style.display='none';
   milkdropVisible=true;
   if(butterchurnViz){try{butterchurnViz.setRendererSize(W,H);}catch(e){}}
+  /* Auto-load first preset if none selected */
+  if(milkdropPresetIndex<0&&milkdropPresets.length>0){
+    loadMilkdropPreset(milkdropPresets[0],0.0);
+  }
 }
 function hideMilkdrop(){
   glCanvas.style.display='none';canvas.style.display='block';
@@ -908,9 +956,19 @@ function hideMilkdrop(){
 }
 
 function renderMilkdrop(dt){
-  if(!milkdropReady){initButterchurn();if(!milkdropReady){ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);ctx.fillStyle='#444';ctx.font='14px sans-serif';ctx.textAlign='center';ctx.fillText('Milkdrop requires WebGL2',W/2,H/2);return;}}
-  if(!milkdropVisible) showMilkdrop();
-  try{butterchurnViz.render();}catch(e){}
+  if(!milkdropReady){
+    if(!milkdropLoading) initButterchurn();
+    /* Show loading state on the 2D canvas (visible when GL canvas not shown) */
+    canvas.style.display='block';
+    ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#0ff';ctx.font='bold 16px sans-serif';ctx.textAlign='center';
+    ctx.fillText(milkdropLoading?'Loading Milkdrop visualizer...':'Milkdrop requires WebGL2',W/2,H/2);
+    return;
+  }
+  if(!milkdropVisible){showMilkdrop();return;}
+  try{butterchurnViz.render();}catch(e){
+    console.error('[Milkdrop] Render error:',e);
+  }
 }
 
 function loadMilkdropPreset(name, blendTime){
@@ -918,8 +976,9 @@ function loadMilkdropPreset(name, blendTime){
   var allPresets=window.butterchurnPresets.getPresets();
   var preset=allPresets[name];
   if(!preset){/* Check custom presets */
-    var cp=customPresets.find(function(p){return p.name===name;});
-    if(cp) preset=cp.data;
+    for(var ci=0;ci<customPresets.length;ci++){
+      if(customPresets[ci].name===name){preset=customPresets[ci].data;break;}
+    }
   }
   if(!preset) return;
   try{
@@ -1332,11 +1391,14 @@ function frame(now){
   } else {
     renderers[S.mode](dt);
 
-    /* Blend mode overlay */
+    /* Blend mode overlay (skip if next mode is Milkdrop — different canvas) */
     if(S.blend>0){
-      ctx.globalAlpha=S.blend;
-      renderers[(S.mode+1)%MODES.length](dt);
-      ctx.globalAlpha=1;
+      var nextMode=(S.mode+1)%MODES.length;
+      if(nextMode!==10){
+        ctx.globalAlpha=S.blend;
+        renderers[nextMode](dt);
+        ctx.globalAlpha=1;
+      }
     }
 
     /* Global scanline overlay */
