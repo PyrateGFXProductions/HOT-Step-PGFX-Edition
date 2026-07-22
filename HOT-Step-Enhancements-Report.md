@@ -12,7 +12,7 @@ This report documents all enhancements made to the HOT-Step CPP codebase. The wo
 
 **Phase 1** (July 18–20): Anti-AI slop vocabulary, genre-adaptive structure rules, Patois dialect integration, new genre profiles (acapella, duet, adult/sensual), and lyric quality evaluation improvements.
 
-**Phase 2** (July 21): Multi-genre architecture overhaul, narrative coherence enforcement, outro fix, metal vocabulary safety, subject-aware processing, removal of unsupported genres, Patois made optional, bilingual Patois code-switching, Album Generator feature with AI auto-fill & shuffle, DJ/Dual DJ genre system, audio-reactive visualizer, MP4 video generator with beat-synced editing, and 14 traditional/world music genres (Gagaku, Min'yo, Enka, Korean Traditional, Carnatic, Hindustani, Gamelan, Balinese, Klezmer, Mariachi, Tuvan Throat Singing, Bhangra, Gnawa, Andean).
+**Phase 2** (July 21): Multi-genre architecture overhaul, narrative coherence enforcement, outro fix, metal vocabulary safety, subject-aware processing, removal of unsupported genres, Patois made optional, bilingual Patois code-switching, Album Generator feature with AI auto-fill & shuffle, DJ/Dual DJ genre system, audio-reactive visualizer, MP4 video generator with beat-synced editing, and 4 traditional/world music genres (Klezmer, Mariachi, Bhangra, Andean) — 10 incompatible traditional genres (Gagaku, Min'yo, Enka, Korean Traditional, Carnatic, Hindustani, Gamelan, Balinese, Tuvan Throat Singing, Gnawa) were removed for structural incompatibility.
 
 The modified `server.mjs` grew from **294,865 lines** to **~299,000 lines** (net addition of ~4,135 lines). Three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons).
 
@@ -57,7 +57,7 @@ The modified `server.mjs` grew from **294,865 lines** to **~299,000 lines** (net
 30. [Audio-Reactive Visualizer](#30-audio-reactive-visualizer)
 31. [MP4 Video Generator with Beat-Synced Editing](#31-mp4-video-generator-with-beat-synced-editing)
 32. [Album Auto-Fill & Shuffle](#32-album-auto-fill--shuffle)
-33. [Traditional / World Music Genres (14 Genres)](#33-traditional--world-music-genres-14-genres)
+33. [Traditional / World Music Genres (4 Genres)](#33-traditional--world-music-genres-4-genres)
 
 ---
 
@@ -811,60 +811,44 @@ Genre blend rule also adapts:
 
 ---
 
-### 33. Traditional / World Music Genres (14 Genres)
+### 33. Traditional / World Music Genres (4 Genres)
 
 **Date**: July 21, 2026  
-**Added**: 14 culturally-specific genres with full backend integration (vocabulary, BPM, structure templates, genre aliases, INSTAGEN tag examples)
+**Added**: 4 culturally-specific genres (Klezmer, Mariachi, Bhangra, Andean) with full backend integration (vocabulary, BPM, structure templates, genre aliases, INSTAGEN tag examples). 10 incompatible traditional genres were removed.
 
 **Genres Added**:
 
 | Genre | Culture | Structure | BPM Range |
 |-------|---------|-----------|-----------|
-| Gagaku | Japanese Imperial Court | Jo-Ha-Kyu (slow acceleration) | 30-60 |
-| Min'yo | Japanese Folk | I-V-R-V-R-Outro (refrain, call-and-response) | 70-140 |
-| Enka | Japanese Ballad | I-V-C-V-C-Bridge-C-Outro (kobushi vibrato) | 50-80 |
-| Korean Traditional | Korean (Sanjo/Pansori) | I-Sanjo-Pansori-Outro (instrumental meditation → narrative) | 40-120 |
-| Carnatic | South Indian Classical | Alapana-Kriti-Tanam-Pallavi-Swaras (raga-based) | 60-180 |
-| Hindustani | North Indian Classical | Alap-Jor-Jhala-Gat (journey through a raga) | 40-160 |
-| Gamelan | Indonesian Orchestral | Cyclic-Colotomic (gong-punctuated cycles) | 50-120 |
-| Balinese | Balinese Gamelan | I-Kebyar-Interlocking-Outro (explosive dynamics) | 60-180 |
 | Klezmer | Eastern European Jewish | I-V-C-V-C-Break-V-Outro (doina lament break) | 80-180 |
 | Mariachi | Mexican Traditional | I-V-C-V-C-Bridge-V-Outro (trumpet fanfare + grito) | 80-160 |
-| Tuvan Throat Singing | Tuvan/Inner Asian | Drone-Sygyt-Kargyraa-Outro (overtone singing) | 30-70 |
 | Bhangra | Punjabi | I-V-C-V-C-DanceBreak-C-Outro (dhol-driven, energy never drops) | 100-150 |
-| Gnawa | Moroccan Trance | Lila-Cyclic-Trance (trance-inducing repetition) | 80-130 |
 | Andean | South American Highland | I-V-C-V-C-Instr-C-Outro (mountain folk) | 70-120 |
 
 **Backend Changes**:
-1. **`GENRE_VOCABULARY_MODULES`** (line ~43346): Added 14 modules with genre-specific whitelists (cultural instruments, aesthetic terms), blacklists, lineRules, and replacements. Each module is tailored to its cultural tradition — e.g., gagaku whitelists "sho, hichiriki, biwa, gagaku, jo-ha-kyu, ma" while bhangra whitelists "dhol, tumbi, algoza, bhangra, chaal, punjabi."
+1. **`GENRE_VOCABULARY_MODULES`** (line ~43346): Added 4 modules with genre-specific whitelists (cultural instruments, aesthetic terms), blacklists, lineRules, and replacements for the remaining traditional/world genres (Klezmer, Mariachi, Bhangra, Andean). Each module is tailored to its cultural tradition — e.g., klezmer whitelists "klezmer, klez, freylekhs, doina, hora, bulgar" while bhangra whitelists "dhol, tumbi, algoza, bhangra, chaal, punjabi."
 
-2. **`GENRE_BPM_RANGES`** (line ~45327): Added 14 entries. Ranges reflect the genre's real-world tempo — gagaku is 30-60 BPM (ceremonial, slow), carnatic spans 60-180 BPM (depends on raga and section), bhangra is 100-150 BPM (high energy dance).
+2. **`GENRE_BPM_RANGES`** (line ~45327): Added 4 entries for the remaining traditional/world genres. Ranges reflect each genre's real-world tempo — bhangra is 100-150 BPM (high energy dance), klezmer is 80-180 BPM (variable).
 
-3. **`resolveGenreFromStyles()`** (line ~45270): Added 14 genre alias entries. Each includes common spellings and regional names — e.g., "min'yo" resolves to "minyo", and aliases include "japanese folk", "nihon min'yo", "minyo."
+3. **`resolveGenreFromStyles()`** (line ~45270): Added 4 genre alias entries for the remaining traditional/world genres. Each includes common spellings and regional names.
 
-4. **`GENRE_STRUCTURE_TEMPLATES`** (line ~45958): Added 14 templates with cultural structure patterns. These are NOT Western verse-chorus structures — they reflect how each tradition actually organizes music:
-   - **Gagaku**: Jo-Ha-Kyu (slow introduction → gradual acceleration → rapid conclusion)
-   - **Min'yo**: Intro-Verse-Refrain-Verse-Refrain-Outro (communal call-and-response)
-   - **Carnatic**: Alapana-Kriti-Tanam-Pallavi-Swaras (free-tempo exploration → composed piece → rhythmic improvisation → scalar passages)
-   - **Hindustani**: Alap-Jor-Jhala-Gat (free-tempo → rhythm enters → fast climax → composed piece)
-   - **Gamelan**: Cyclic-Colotomic (gong-punctuated cycles, interlocking kotekan patterns)
-   - **Tuvan**: Drone-Sygyt-Kargyraa (fundamental drone → high whistle overtones → deep subharmonics)
-   - **Gnawa**: Lila-Cyclic-Trance (ceremony-based, repetition induces trance state)
+4. **`GENRE_STRUCTURE_TEMPLATES`** (line ~45958): Added 4 templates for the remaining traditional/world genres with cultural structure patterns. These are NOT Western verse-chorus structures — they reflect how each tradition actually organizes music:
 
-5. **`buildGenreStructureHint()`** (line ~46593): No changes needed — this function dynamically pulls from `GENRE_STRUCTURE_TEMPLATES` by genre key. The 14 new templates are automatically included.
 
-6. **INSTAGEN Tag Examples** (line ~47175): Added sonic description examples for 12 traditional genres in the INSTAGEN prompt. These provide the LLM with model descriptions of each genre's sonic identity — e.g., gamelan: "Indonesian metallophone orchestra. Bonang (kettle gongs) and gender (metallophones) playing interlocking kotekan patterns creating shimmering polyrhythmic texture."
+5. **`buildGenreStructureHint()`** (line ~46593): No changes needed — this function dynamically pulls from `GENRE_STRUCTURE_TEMPLATES` by genre key. The 4 remaining traditional/world templates are automatically included.
 
-7. **INSTAGEN Structure Hints** (line ~47217): Added Traditional/World genre note to the STRUCTURE section: "Traditional/World genres (Carnatic, Hindustani, Gamelan, Gagaku, Min'yo, Enka, Korean Traditional, Balinese, Klezmer, Mariachi, Tuvan, Bhangra, Gnawa, Andean): Structure is dictated by CULTURAL TRADITION, not Western pop conventions."
+6. **INSTAGEN Tag Examples** (line ~47175): Added sonic description examples for the remaining traditional/world genres in the INSTAGEN prompt. These provide the LLM with model descriptions of each genre's sonic identity.
+
+7. **INSTAGEN Structure Hints** (line ~47217): Added Traditional/World genre note to the STRUCTURE section: "Traditional/World genres (Klezmer, Mariachi, Bhangra, Andean): Structure is dictated by CULTURAL TRADITION, not Western pop conventions."
 
 **Frontend Changes**:
-1. **`album.html`** GENRE_LIST (line ~210): Added "Traditional / World" genre group with all 14 genres, positioned after "DJ / Turntablism" group.
+1. **`album.html`** GENRE_LIST (line ~210): Added "Traditional / World" genre group with 4 genres (Klezmer, Mariachi, Bhangra, Andean), positioned after "DJ / Turntablism" group.
 2. **`index-DscBS4mv.js`**: Added "Traditional / World" genre group to the minified React bundle.
 
 **Design Decisions**:
-1. Each genre's vocabulary module is culturally researched — instruments, aesthetic terms, and forbidden words are specific to each tradition (e.g., tuvan bans "synthesizer, electric, digital" while klezmer whitelists "klezmer, klez, freylekhs, doina, hora, bulgar").
-2. BPM ranges are based on real-world practice, not Western defaults — gagaku's 30-60 BPM reflects its ceremonial pace; bhangra's 100-150 BPM reflects its dance energy.
-3. Structure templates use cultural structure patterns (Jo-Ha-Kyu, raga cycles, cyclic gong structures) rather than forcing Western verse-chorus forms.
+1. Each genre's vocabulary module is culturally researched — instruments, aesthetic terms, and forbidden words are specific to each tradition (e.g., klezmer whitelists "klezmer, klez, freylekhs, doina, hora, bulgar").
+2. BPM ranges are based on real-world practice, not Western defaults — bhangra's 100-150 BPM reflects its dance energy.
+3. Structure templates use cultural structure patterns rather than forcing Western verse-chorus forms.
 4. INSTAGEN tag examples give the LLM specific sonic vocabulary for each genre's production aesthetic.
 
 ---
@@ -880,16 +864,16 @@ Genre blend rule also adapts:
 5. **BPM ranges**: Add entries for `metal` subgenres, `duet`, `porn`, `porn groove`, `dj`, `dual dj` (note: `acapella` and `beatbox` were added then removed — do NOT re-add)
 6. **Structure rules**: Add `FLEXIBLE_VERSE_GENRES` and `NO_CHORUS_GENRES` to `enforceLineCounts()`
 7. **Multi-genre architecture**: Rewrite `mergeGenreModules()` and `buildMergedSlopReplacements()` with primary-wins logic. Update `enforceLineCounts()` chorus enforcement to primary-genre-only.
-8. **Genre structure templates**: Add all 60+ templates to `GENRE_STRUCTURE_TEMPLATES` (metal×8, reggae×3, kpop, hiphop×7, blues×6, punk×6, folk×5, dj×2, traditional/world×14, plus genre-agnostic fallbacks)
-9. **Traditional/world vocabulary modules**: Add 14 modules to `GENRE_VOCABULARY_MODULES` (gagaku, minyo, enka, koreantraditional, carnatic, hindustani, gamelan, balinese, klezmer, mariachi, tuvan, bhangra, gnawa, andean)
-10. **Traditional/world BPM ranges**: Add 14 entries to `GENRE_BPM_RANGES`
-11. **Traditional/world genre aliases**: Add 14 entries to `resolveGenreFromStyles()`
+8. **Genre structure templates**: Add all 60+ templates to `GENRE_STRUCTURE_TEMPLATES` (metal×8, reggae×3, kpop, hiphop×7, blues×6, punk×6, folk×5, dj×2, traditional/world×4, plus genre-agnostic fallbacks)
+9. **Traditional/world vocabulary modules**: Add 4 modules to `GENRE_VOCABULARY_MODULES` (klezmer, mariachi, bhangra, andean) — 10 incompatible genres removed
+10. **Traditional/world BPM ranges**: Add 4 entries to `GENRE_BPM_RANGES`
+11. **Traditional/world genre aliases**: Add 4 entries to `resolveGenreFromStyles()`
 12. **Metal vocabulary safety**: Remove destructive replacements (sun→moon, light→flame, sky→grave, dark→void, walk→prowl, wet→drenched)
 10. **Subject-aware vocabulary lock**: Add `subject` parameter to `enforceVocabularyLock()` and `processLyricsWithGenre()`
 11. **Outro enforcement**: Add Step 2b (auto-insertion) to `processLyricsWithGenre()`. Add OUTRO RULE to all 3 prompts. Add outro quality check (#14) to `analyzeLyricsQuality()`.
 12. **Dub notation preservation**: Add `PRESERVED_EFFECT_WORDS` Set and modify `stripParentheticalInstructions()` to preserve single-word effects.
 13. **Quality analyzer**: Add subject parameter to `analyzeLyricsQuality()`. Add checks #11 (Subject Relevance), #12 (Narrative Coherence), #13 (3-Act Progression), #14 (Outro Check).
-14. **Prompts**: Add 3-Act Story Structure, Narrative Coherence, ALL CAPS fix, Grease Spot exception, VARIETY IS SURVIVAL, OUTRO RULE, DJ/Dual DJ tag examples, Traditional/World genre structure hints, and 12 traditional genre tag examples to all prompt locations.
+14. **Prompts**: Add 3-Act Story Structure, Narrative Coherence, ALL CAPS fix, Grease Spot exception, VARIETY IS SURVIVAL, OUTRO RULE, DJ/Dual DJ tag examples, Traditional/World genre structure hints, and traditional genre tag examples for the 4 remaining genres to all prompt locations.
 15. **Blend instructions**: Update `buildGenreStructureHint()` to explicitly state primary dictates structure. Add DJ genre blend rule for turntablism + other genres.
 16. **Patois optional**: Split Patois override into mandatory (Patois variant selected) and optional (base reggae genre). When a non-English language is selected alongside a Patois variant, enter bilingual code-switching mode instead of forcing 100% Patois.
 17. **Line rule processing**: Add `allowScratchEffects` and `allowDuetVocals` to genre hint injection in `/llm` route.
@@ -899,7 +883,7 @@ Genre blend rule also adapts:
 1. Remove the "Vocal / Special" group from the `iy` genre groups array
 2. Add `Reggae (Patois)`, `Dub (Patois)`, `Dancehall (Patois)` to the "Reggae / Caribbean" group
 3. Add new "DJ / Turntablism" genre group with DJ, Dual DJ, Turntablism, Scratch Battle
-4. Add new "Traditional / World" genre group with Gagaku, Min'yo, Enka, Korean Traditional, Carnatic, Hindustani, Gamelan, Balinese, Klezmer, Mariachi, Tuvan Throat Singing, Bhangra, Gnawa, Andean
+4. Add new "Traditional / World" genre group with Klezmer, Mariachi, Bhangra, Andean
 5. Verify the bundle loads without errors
 
 ### Frontend (`ui/dist/index.html`)
@@ -917,7 +901,7 @@ Genre blend rule also adapts:
 3. LLM lyrics → ACE-Step audio → poll → results with playback
 4. Add "Auto-Fill Album" button with LLM-based concept generation (line-based format output, 5-tier parsing)
 5. Add "Shuffle Tracks" button for re-rolling track subjects with existing context
-6. Add "Traditional / World" genre group to genre dropdown (14 genres)
+6. Add "Traditional / World" genre group to genre dropdown (4 genres: Klezmer, Mariachi, Bhangra, Andean)
 
 ### Frontend (`ui/dist/visualizer.html`)
 
@@ -953,7 +937,7 @@ This project builds upon the work of the following creators and open-source proj
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 14 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-3 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-3 enhancements.
 
 ### Additional
 - **Node.js** runtime — Server-side JavaScript execution

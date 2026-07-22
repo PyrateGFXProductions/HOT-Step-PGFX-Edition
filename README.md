@@ -3,6 +3,8 @@
 > **A music production tool that understands songcraft, not just audio generation.**
 > Built on [HOT-Step CPP](https://github.com/scragnog/HOT-Step-CPP) v1.1.4 by scragnog. Enhanced by PyrateGFX Productions.
 
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/pyrategfxproductions)
+
 ![PyrateGFX Productions](https://github.com/user-attachments/assets/PyrateGFXProductions.jpg)
 
 ---
@@ -144,6 +146,16 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 
 ### PGFX Edition Enhancements
 - **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-3 enhancements.
+
+---
+
+## Support This Project
+
+If the PGFX Edition has been useful to your music production workflow, consider supporting continued development:
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/pyrategfxproductions)
+
+Your support helps fund new features, genre expansions, visualizer improvements, and keeping the project maintained and free for everyone.
 
 ---
 
