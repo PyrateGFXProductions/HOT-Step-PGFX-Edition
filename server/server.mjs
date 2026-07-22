@@ -42437,32 +42437,112 @@ function getGenreVisuals(style) {
   }
   return "";
 }
+function extractTitleConcept(title) {
+  if (!title?.trim()) return "";
+  const t = title.trim().toLowerCase();
+  const conceptMap = {
+    "fire|flame|burn|blaze|inferno": "intense flames, glowing embers, rising heat, orange and red hues",
+    "rain|storm|thunder|lightning|tempest": "dramatic storm clouds, rain streaks, lightning illuminating a dark sky",
+    "night|midnight|dark|moon|moonlight": "nocturnal scene, moonlight casting long shadows, deep blue and black tones",
+    "sun|sunrise|sunset|dawn|golden|day": "warm golden hour light, sun-drenched landscape, long shadows, amber tones",
+    "city|urban|street|building|skyline": "modern cityscape, architectural forms, concrete and glass, neon reflections",
+    "ocean|sea|wave|water|tide|surf|deep": "vast ocean expanse, rolling waves, underwater light rays, deep blues and greens",
+    "sky|cloud|heaven|star|galaxy|cosmos": "sweeping sky view, cloud formations, celestial bodies, cosmic dust, ethereal light",
+    "heart|love|passion|desire|kiss": "romantic warm tones, intimate close-up, soft bokeh, rose and crimson palette",
+    "ghost|haunt|shadow|phantom|spirit|soul": "ethereal translucent figures, misty atmosphere, spectral light, haunting stillness",
+    "diamond|gold|crown|throne|royal|king|queen": "opulent regal scene, metallic gold and jewel tones, ornate details, luxury",
+    "wolf|tiger|lion|eagle|raven|serpent": "powerful animal in natural habitat, intense gaze, wild landscape, primal energy",
+    "time|clock|hour|moment|eternity|forever": "surreal time imagery, melting clocks, hourglass, temporal distortion",
+    "road|journey|path|trail|wander": "winding road through landscape, vanishing point, sense of movement and exploration",
+    "dream|sleep|awake|vision|imagine": "surreal dreamlike scene, impossible geometry, soft edges, surreal color palette",
+    "blood|wound|scar|pain|hurt|cry": "dramatic chiaroscuro lighting, raw emotion, intense red accents on dark background",
+    "war|fight|battle|sword|gun|army": "epic battlefield scene, dramatic smoke, silhouettes against fiery sky, conflict",
+    "peace|calm|serene|quiet|still|gentle": "tranquil pastoral scene, soft diffused light, gentle colors, harmonious composition",
+    "dance|move|groove|rhythm|beat|flow": "dynamic sense of motion, flowing fabric or particles, rhythmic visual patterns",
+    "mask|face|eye|stare|gaze|look": "mysterious face or mask, intense eye detail, dramatic shadow play, enigmatic mood",
+    "chain|link|bind|lock|shack|free": "symbolic chains or freedom imagery, contrast of confinement and liberation",
+    "ghost|phantom|specter|wraith|apparition": "ghostly translucent figures, eerie fog, supernatural lighting, otherworldly atmosphere",
+    "kingdom|empire|throne|castle|fortress": "grand medieval architecture, towering stone walls, dramatic sky, epic scale",
+    "machine|engine|robot|cyber|neon|tech": "futuristic cyberpunk scene, glowing circuits, neon-lit machinery, technological sublime",
+    "desert|sand|dune|cactus|sun|heat": "vast desert landscape, shimmering heat haze, sand dunes, harsh sunlight",
+    "forest|tree|wood|leaf|moss|fern": "dense ancient forest, dappled sunlight through canopy, rich green foliage, organic textures",
+    "mountain|peak|cliff|rock|stone|summit": "towering mountain peak, dramatic clouds, rugged terrain, sense of altitude",
+    "flower|bloom|petal|garden|rose|lily": "lush botanical close-up, delicate petals, dewdrops, vibrant floral colors",
+    "ice|frost|snow|winter|cold|freeze|glacier": "frozen crystalline landscape, ice formations, cool blue-white palette, frost patterns"
+  };
+  for (const [pattern, concept] of Object.entries(conceptMap)) {
+    if (new RegExp(pattern).test(t)) return concept;
+  }
+  return "";
+}
+function extractLyricImagery(lyrics) {
+  if (!lyrics?.trim()) return "";
+  const cleaned = lyrics.replace(/\[.*?\]/g, "").replace(/\n+/g, " ").trim();
+  const lines = cleaned.split(/[.!?]+/).filter((l) => l.trim().length > 10);
+  const visualWords = ["see", "watch", "look", "eyes", "light", "dark", "color", "red", "blue", "green", "black", "white", "gold", "silver", "shadow", "glow", "shine", "bright", "dim", "fog", "mist", "smoke", "fire", "water", "rain", "sun", "moon", "star", "sky", "earth", "stone", "metal", "glass", "steel", "iron", "blood", "bone", "dust", "ash", "ember", "spark", "flame", "wave", "tide", "storm", "wind", "frost", "snow", "ice", "cloud", "lightning", "thunder", "rose", "thorn", "vine", "leaf", "tree", "flower", "garden", "wild", "jungle", "desert", "mountain", "river", "ocean", "sea", "beach", "shore", "cliff", "cave", "forest", "field", "meadow", "valley", "canyon", "road", "path", "street", "city", "building", "wall", "door", "window", "tower", "bridge", "castle", "palace", "crown", "throne", "sword", "shield", "chain", "lock", "key", "mask", "face", "hand", "heart", "eye", "bone", "skull", "ghost", "spirit", "shadow", "phantom", "demon", "angel", "god", "devil", "heaven", "hell", "universe", "galaxy", "star", "planet", "moon", "sun", "comet", "meteor", "void", "abyss", "depth", "surface", "edge", "horizon", "sky", "ground", "floor", "ceiling", "roof", "dome", "pillar", "column", "arch", "gate", "fence", "barrier", "border", "line", "circle", "square", "triangle", "spiral", "wave", "pattern", "texture", "grain", "smooth", "rough", "soft", "hard", "sharp", "blunt", "thick", "thin", "wide", "narrow", "tall", "short", "deep", "shallow", "heavy", "light", "fast", "slow", "loud", "quiet", "warm", "cold", "hot", "cool", "wet", "dry", "clean", "dirty", "new", "old", "young", "ancient", "modern", "future", "past", "present", "now", "then", "here", "there", "everywhere", "nowhere", "somewhere", "anywhere", "always", "never", "sometimes", "forever", "eternity", "moment", "instant", "flash", "blink", "breath", "heartbeat", "pulse", "rhythm", "beat", "tempo", "melody", "harmony", "chord", "note", "sound", "silence", "noise", "whisper", "scream", "cry", "laugh", "smile", "frown", "tear", "blood", "sweat", "tears"];
+  const found = [];
+  const words = cleaned.toLowerCase().split(/\s+/);
+  for (const w of words) {
+    if (visualWords.includes(w) && !found.includes(w)) found.push(w);
+    if (found.length >= 6) break;
+  }
+  return found.join(", ");
+}
 function buildCoverArtPrompt(opts) {
   if (opts.prompt?.trim()) {
     return opts.prompt.trim();
   }
   const parts = [];
-  if (opts.subject?.trim()) {
-    parts.push(opts.subject.trim());
+  const style = opts.style || "";
+  const title = opts.title || "";
+  const subject = opts.subject || "";
+  const lyrics = opts.lyrics || "";
+  const description = opts.description || "";
+  const titleConcept = extractTitleConcept(title);
+  const genreVisuals = getGenreVisuals(style);
+  const lyricImagery = extractLyricImagery(lyrics);
+  const themeKeywords = extractThemeKeywords(lyrics, 5);
+  if (subject?.trim()) {
+    parts.push(subject.trim());
+  } else if (description?.trim()) {
+    parts.push(description.trim());
+  } else if (titleConcept) {
+    parts.push(`A scene inspired by "${title.trim()}": ${titleConcept}`);
+  } else if (lyricImagery) {
+    parts.push(`Visual composition featuring: ${lyricImagery}`);
+  } else if (themeKeywords.length > 0) {
+    parts.push(`A scene evoking themes of ${themeKeywords.join(", ")}`);
   } else {
-    const keywords = extractThemeKeywords(opts.lyrics || "", 5);
-    if (keywords.length > 0) {
-      parts.push(`a scene evoking ${keywords.join(", ")}`);
-    } else {
-      parts.push("a striking visual composition with dramatic lighting");
-    }
+    const fallbackScenes = [
+      "a vast ethereal landscape under a dramatic sky",
+      "abstract flowing forms with rich color gradients",
+      "a mysterious figure silhouetted against light",
+      "symbolic objects arranged in dramatic composition",
+      "organic shapes merging with geometric patterns"
+    ];
+    parts.push(fallbackScenes[Math.floor(Math.random() * fallbackScenes.length)]);
   }
-  const genreVisuals = getGenreVisuals(opts.style || "");
   if (genreVisuals) {
     parts.push(genreVisuals);
-  } else if (opts.style) {
-    const styleWords = opts.style.split(",").map((w) => w.trim().toLowerCase()).filter((w) => w.length > 2 && !w.includes("_")).slice(0, 2);
+  } else if (style) {
+    const styleWords = style.split(",").map((w) => w.trim().toLowerCase()).filter((w) => w.length > 2 && !w.includes("_")).slice(0, 2);
     if (styleWords.length > 0) {
       parts.push(`${styleWords.join(" ")} aesthetic`);
     }
   }
-  parts.push("digital painting, cinematic composition, highly detailed, beautiful lighting, 8k");
-  return parts.join(", ");
+  const suffixPool = [
+    "digital painting, cinematic composition, highly detailed, beautiful lighting, 8k",
+    "concept art, artstation quality, dramatic lighting, vivid details, masterpiece",
+    "professional illustration, atmospheric depth, rich textures, stunning visual impact",
+    "ultra detailed artwork, dynamic lighting, emotional depth, gallery quality",
+    "painterly style, luminous color palette, intricate details, breathtaking composition",
+    "photorealistic digital art, volumetric lighting, sharp focus, award-winning visual",
+    "matte painting style, epic scale, atmospheric perspective, visually striking",
+    "fine art quality, balanced composition, nuanced color theory, museum-worthy piece"
+  ];
+  const suffix = suffixPool[Math.floor(Math.random() * suffixPool.length)];
+  parts.push(suffix);
+  return parts.join(". ");
 }
 var STOP_WORDS, GENRE_VISUALS;
 var init_promptBuilder = __esm({
@@ -134890,7 +134970,8 @@ async function runGeneration(job) {
                 title: job.params.title || trackResult.caption?.substring(0, 60) || "Untitled",
                 style: job.params.caption || job.params.style || "",
                 lyrics: trackResult.lyrics || "",
-                subject: job.params.coverArtSubject || job.params.subject || ""
+                subject: job.params.coverArtSubject || job.params.subject || "",
+                description: job.params.songDescription || job.params.description || ""
               });
               coverArtResults.push({ coverUrl: result.coverUrl });
               logGeneration(job.id, "INFO", `[CoverArt] Image generated (${(result.durationMs / 1e3).toFixed(1)}s)`);
@@ -135366,7 +135447,8 @@ async function runGeneration(job) {
                 title,
                 style,
                 lyrics: trackResult.lyrics || "",
-                subject: job.params.coverArtSubject || job.params.subject || ""
+                subject: job.params.coverArtSubject || job.params.subject || "",
+                description: job.params.songDescription || job.params.description || ""
               });
               logGeneration(job.id, "INFO", `[CoverArt] Generated cover for song ${songIds[i]}`);
             } catch (coverTrackErr) {
