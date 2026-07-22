@@ -46,15 +46,23 @@ Every genre now has its own structural grammar — verse/chorus/bridge line coun
 - Sequential generation pipeline: LLM lyrics → ACE-Step audio → playback.
 
 ### Audio-Reactive Visualizer
-Six visualization modes powered by client-side beat detection:
-- **Bars** — 64-bar spectrum analyzer with peaks and reflections
-- **Wave** — 3-layer oscilloscope with afterglow
-- **Particles** — 500-pool beat-spawned particle system
-- **Circular** — 128 radial bars with rotation
-- **Plasma** — Full-screen plasma effect
-- **Image + FX** — Cover art with spectrum overlay and vignette
+Ten visualization modes powered by client-side beat detection:
+- **Bars** — 64-bar spectrum analyzer with peaks, reflections, and gradient fills
+- **Wave** — 3-layer oscilloscope with afterglow and optional mirror
+- **Particles** — 600-pool beat-spawned particle system with glow
+- **Circular** — 128 radial bars with rotation and inner mirror
+- **Plasma** — Full-screen audio-reactive plasma effect
+- **Tunnel** — Perspective-correct rectangular tunnel with depth
+- **Starfield** — 400-star warp field with streaks
+- **Rings** — Concentric rotating rings reactive to frequency bands
+- **Liquid** — Layered fluid waves with floating orbs
+- **Image + FX** — Cover art with spectrum overlay, vignette, and particle bursts
 
-Built-in **MediaRecorder** for capturing visualizations as video.
+**Settings panel**: 6 color schemes, sensitivity, smoothing, brightness, BG opacity, mode blending, mirror, glow, and scanline toggles.
+**Playback controls**: Play/pause, stop, prev/next, seek bar, volume, track info.
+**Playlist**: Auto-loads songs from server, shuffle, repeat, auto-advance.
+**Video generation**: One-click MP4 creation via server ffmpeg pipeline.
+**Main app integration**: Visualizer button auto-detects the currently playing song and opens with it.
 
 ### MP4 Video Generator
 - Beat-synced crossfades between cover art images
@@ -101,7 +109,7 @@ Built-in **MediaRecorder** for capturing visualizations as video.
 |------|--------|------|-------------|
 | `server/server.mjs` | Modified | ~298K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, video generation |
 | `ui/dist/album.html` | **New** | 42 KB | Album Generator — 9-track workflow with auto-fill, genre dropdowns, sequential generation |
-| `ui/dist/visualizer.html` | **New** | 35 KB | Audio-reactive visualizer with 6 modes and recording |
+| `ui/dist/visualizer.html` | **New** | 36 KB | Audio-reactive visualizer with 10 modes, settings panel, playlist, video generation |
 | `ui/dist/index.html` | Modified | 3 KB | Added floating album + visualizer buttons |
 | `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle with DJ/Turntablism genre group |
 

@@ -636,9 +636,9 @@ Genre blend rule also adapts:
 
 **Problem**: The existing UI has a spectrum analyzer (audioMotion bar display) and Disco Mode (kick/snare/hihat energy state), but no full-featured audio-reactive visualizer with Winamp/Milkdrop-style effects, no particle systems, no waveform display, and no way to record visualizations as video.
 
-**Solution**: Standalone visualizer page with 6 visualization modes, client-side beat detection, and MediaRecorder-based video recording.
+**Solution**: Standalone visualizer page with 10 visualization modes, client-side beat detection, settings panel, playlist, video generation, and main app integration.
 
-**New file**: `ui/dist/visualizer.html` (35.2 KB, self-contained, zero dependencies)
+**New file**: `ui/dist/visualizer.html` (36 KB, self-contained, zero dependencies)
 
 ### Features
 
@@ -646,27 +646,57 @@ Genre blend rule also adapts:
 |---------|---------|
 | **Audio loading** | URL params `?src=<url>` or `?id=<songId>`, drag-and-drop, file picker |
 | **Beat detection** | Kick/snare/hihat spectral analysis, EMA onset detection, BPM estimation from median IBI |
-| **6 modes** | Bars, Wave, Particles, Circular, Plasma, Image+FX |
+| **10 modes** | Bars, Wave, Particles, Circular, Plasma, Tunnel, Starfield, Rings, Liquid, Image+FX |
+| **Settings panel** | 6 color schemes, sensitivity, smoothing, brightness, BG opacity, mode blending, mirror, glow, scanlines |
+| **Playback controls** | Play/pause, stop, prev/next, seek bar, volume, track title display |
+| **Playlist** | Auto-loads songs from server, shuffle, repeat, auto-advance on track end |
+| **Video generation** | One-click MP4 creation via server ffmpeg pipeline with cover art |
 | **Recording** | MediaRecorder on `canvas.captureStream(30)` + audio, downloads as `.webm` |
-| **Keyboard** | Space=play/pause, 1-6=modes, F=fullscreen, R=record |
-| **UI** | Glassmorphism controls, auto-hide in fullscreen, info panel with BPM + beat indicator |
+| **Keyboard** | Space=play/pause, 1-0=modes, F=fullscreen, R=record, S=settings, L=playlist, ESC=close panels |
+| **UI** | Glassmorphism controls, auto-hide in fullscreen, top/bottom bars, panels |
+| **Main app integration** | Floating button auto-detects currently playing song via MutationObserver, opens visualizer with `?id=` param |
 
 ### Visualization Modes
 
-1. **Bars** — Classic 64-bar spectrum analyzer with gradient colors (cyan→magenta→orange), glow on beats, reflection bars, peak-hold dots
-2. **Wave** — 3-layer oscilloscope with afterglow (semi-transparent clear), lineWidth pulses with beat energy
-3. **Particles** — 500-particle pool, spawns 20-40 particles on each beat from bottom center, gravity + fade, neon colors with glow
-4. **Circular** — 128 radial bars from center circle, rotation speed increases with energy, inner circle pulses on beats
-5. **Plasma** — Canvas 2D pixel manipulation using sin() combinations, rendered at 1/4 resolution for performance, time variable accelerates on beats
-6. **Image+FX** — Cover art background (from `?img=url` param) with spectrum overlay, pulsing vignette, hue rotation responding to beat energy
+1. **Bars** — Classic 64-bar spectrum analyzer with color scheme gradients, glow on beats, reflection bars, peak-hold dots
+2. **Wave** — 3-layer oscilloscope with afterglow, lineWidth pulses with beat energy, optional mirror
+3. **Particles** — 600-particle pool, spawns 25-50 particles on each beat, gravity + fade, color scheme support with glow
+4. **Circular** — 128 radial bars from center circle, rotation speed increases with energy, inner mirror bars
+5. **Plasma** — Canvas 2D pixel manipulation at 1/4 resolution, audio-reactive coordinate distortion, color scheme tinting
+6. **Tunnel** — Perspective-correct rectangular tunnel with depth, color-cycling rings, center glow
+7. **Starfield** — 400-star warp field with streaks, speed reacts to beat energy
+8. **Rings** — 8 concentric rotating rings reactive to frequency bands, counter-rotating
+9. **Liquid** — 5-layer fluid waves with sine composition, floating orbs on strong beats
+10. **Image+FX** — Cover art background with spectrum overlay, pulsing vignette, particle bursts, color shift
+
+### Settings Panel
+
+| Setting | Range | Default | Description |
+|---------|-------|---------|-------------|
+| Color Scheme | 6 options | Cyber | Cyan/Magenta, Fire, Ocean, Neon, Monochrome, Sunset |
+| Sensitivity | 0.5-3.0 | 1.3 | Beat detection threshold multiplier |
+| Smoothing | 0.50-0.95 | 0.80 | FFT smoothing time constant |
+| Brightness | 0.3-1.5 | 1.0 | Overall visualizer brightness multiplier |
+| BG Opacity | 0-1.0 | 0.0 | Background fade between frames (higher = more trails) |
+| Mode Blend | 0-100% | 0% | Blend current mode with next mode |
+| Mirror | on/off | off | Horizontal mirror effect (Wave mode) |
+| Glow | on/off | on | Canvas shadow glow on all elements |
+| Scanlines | on/off | off | CRT scanline overlay |
 
 ### Beat Detection Algorithm
 - Spectral energy in kick range (50-200 Hz), snare range (1-5 kHz), hihat range (6-12 kHz)
-- Onset detection: energy > 1.3 × EMA running average, minimum 150ms interval
+- Onset detection: energy > sensitivity × EMA running average, minimum 150ms interval
 - BPM estimation: median inter-beat interval over last 30 beats
-- Exposed as reactive state: `isBeat`, `beatEnergy`, `bpm`, `kickEnergy`, `snareEnergy`, `hihatEnergy`
+- Exposed as reactive state: `isBeat`, `beatEnergy`, `bpm`, `kickE`, `snareE`, `hihatE`
 
-**Location**: `ui/dist/visualizer.html` (new file), `ui/dist/index.html` (floating button added at line 39)
+### Main App Integration
+- Floating visualizer button in `index.html` uses MutationObserver to watch for `<audio>` elements
+- Extracts song ID from `/api/songs/{id}/audio` pattern in audio src
+- Opens visualizer with `?id=SONGID&title=TITLE` parameters
+- Polls every 2s for dynamically mounted React audio elements
+- Visualizer button glows brighter when a song is detected
+
+**Location**: `ui/dist/visualizer.html` (rewritten), `ui/dist/index.html` (button updated with song detection)
 
 ---
 
@@ -876,7 +906,9 @@ Genre blend rule also adapts:
 
 1. Add floating album button script before closing `</body>` tag
 2. Button links to `/album.html` with gradient purple/pink styling
-3. Add floating visualizer button (gradient cyan, links to `/visualizer.html`)
+3. Add floating visualizer button with MutationObserver song detection (gradient cyan)
+4. Button auto-detects currently playing song from `<audio>` element src pattern
+5. Opens visualizer with `?id=SONGID&title=TITLE` parameters
 
 ### Frontend (`ui/dist/album.html`)
 
@@ -889,11 +921,15 @@ Genre blend rule also adapts:
 
 ### Frontend (`ui/dist/visualizer.html`)
 
-1. Create standalone HTML file (35.2 KB, self-contained, zero dependencies)
+1. Create standalone HTML file (36 KB, self-contained, zero dependencies)
 2. Implement client-side beat detection (kick/snare/hihat spectral analysis, EMA onset detection)
-3. Implement 6 visualization modes: Bars (spectrum), Wave (oscilloscope), Particles, Circular, Plasma, Image+FX
-4. Add MediaRecorder-based video recording (canvas.captureStream + audio)
-5. Add keyboard shortcuts (Space, 1-6, F, R) and auto-hide glassmorphism UI
+3. Implement 10 visualization modes: Bars, Wave, Particles, Circular, Plasma, Tunnel, Starfield, Rings, Liquid, Image+FX
+4. Add settings panel: 6 color schemes, sensitivity, smoothing, brightness, BG opacity, mode blending, mirror, glow, scanlines
+5. Add playback controls: play/pause, stop, prev/next, seek bar, volume, track info
+6. Add playlist panel: auto-loads songs from server, shuffle, repeat, auto-advance
+7. Add video generation modal: calls server `/api/inspire/video/generate` with cover art
+8. Add MediaRecorder-based video recording (canvas.captureStream + audio)
+9. Add keyboard shortcuts (Space, 1-0, F, R, S, L, ESC) and auto-hide UI
 
 ### Backend — Video Generation (`server/server.mjs`)
 
