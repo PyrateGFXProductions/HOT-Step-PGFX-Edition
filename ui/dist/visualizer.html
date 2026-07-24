@@ -1231,7 +1231,40 @@ async function loadPlaylist(){
     renderPlaylist();
   }catch(e){console.warn('Playlist load failed:',e);}
 }
-loadPlaylist();
+loadPlaylist().then(function(){
+  /* ─── Auto-load song from URL params ─── */
+  var params=new URLSearchParams(window.location.search);
+  var songId=params.get('id')||params.get('songId')||'';
+  var songTitle=params.get('title')||'';
+  if(songId){
+    /* Try to find in playlist first */
+    var idx=-1;
+    for(var i=0;i<S.playlist.length;i++){
+      if(S.playlist[i].id===songId){idx=i;break;}
+    }
+    if(idx>=0){
+      playPlaylistIndex(idx);
+    } else {
+      /* Playlist may still be loading — try direct audio URL */
+      var audioUrl='/api/songs/'+encodeURIComponent(songId)+'/audio';
+      loadAudio(audioUrl,songTitle||'Playing...');
+      if(audioEl){
+        audioEl.onended=onAudioEnd;
+        audioEl.ontimeupdate=onAudioTimeUpdate;
+      }
+      S.songId=songId;
+    }
+    /* Auto-open playlist panel for quick access */
+    setTimeout(function(){playlistPanel.classList.add('open');},500);
+  } else {
+    /* No song specified — show playlist and welcome */
+    playlistPanel.classList.add('open');
+  }
+  /* Clean up URL params to avoid re-triggering on refresh */
+  if(songId){
+    window.history.replaceState({},'',window.location.pathname);
+  }
+});
 
 /* Shuffle & Repeat */
 $('pl-shuffle').addEventListener('click',function(){
