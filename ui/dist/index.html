@@ -133,10 +133,9 @@
         };
       })();
     </script>
-    <!-- Album Batch Handler v3 — ONLY uses params captured from a real manual generation.
+    <!-- Album Batch Handler v3 — Reads user's pipeline settings from multiple sources.
+         Priority: monkey-patch capture > saved template > hs-* localStorage keys.
          NO server defaults, NO applyQualityDefaults fallback, NO guessing.
-         The user MUST generate one song manually first so the monkey-patch captures
-         their exact settings (solver, scheduler, guidance, DCW, etc.).
          Only prompt fields (caption, lyrics, title, etc.) are overridden per track. -->
     <script>
       (function() {
@@ -145,8 +144,33 @@
         var tracks;
         try { tracks = JSON.parse(raw); } catch(e) { return; }
         if (!Array.isArray(tracks) || tracks.length === 0) return;
+        /* Extract album metadata from first track that has it */
+        var albumArtist = '';
+        var albumTitle = '';
+        for (var k = 0; k < tracks.length; k++) {
+          if (tracks[k].artistName) albumArtist = tracks[k].artistName;
+          if (tracks[k].albumTitle) albumTitle = tracks[k].albumTitle;
+          if (albumArtist && albumTitle) break;
+        }
+        if (!albumArtist) albumArtist = 'Unknown Artist';
+        if (!albumTitle) albumTitle = 'Unknown Album';
         /* DO NOT remove hs-album-pending until generation actually starts.
            This way if there's no template, the panel reappears on next page load. */
+
+        /* === IMMEDIATELY invalidate stale templates from v1/v2 era ===
+           Old handlers saved templates WITHOUT the _src:'mp' marker.
+           Those templates contain dpm2m/apg/sgm_uniform from /api/generate/defaults.
+           We MUST clear them so they don't get loaded. */
+        try {
+          var old = localStorage.getItem('hs-album-params-template');
+          if (old) {
+            var parsed = JSON.parse(old);
+            if (!parsed || (!parsed._src)) {
+              console.warn('[AlbumBatch] Clearing STALE params template (no _src marker — from v1/v2 handler)');
+              localStorage.removeItem('hs-album-params-template');
+            }
+          }
+        } catch(e) {}
 
         /* Build floating panel */
         var panel = document.createElement('div');
@@ -165,20 +189,32 @@
         var cancelled = false;
         var templateReady = false;
 
+        function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        /* Load JSZip for zip download */
+        if (!window.JSZip) {
+          var script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+          script.onload = function() { console.log('[AlbumBatch] JSZip loaded'); };
+          document.head.appendChild(script);
+        }
+
         function render() {
           var done = tracks.filter(function(t) { return t._status === 'done'; }).length;
           var err = tracks.filter(function(t) { return t._status === 'error'; }).length;
           var total = tracks.length;
 
           var html = '<div style="margin-bottom:16px;font-size:15px;font-weight:700;background:linear-gradient(135deg,#c084fc,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Album Batch (' + total + ' tracks)</div>';
+          html += '<div style="font-size:12px;color:#a1a1aa;margin-bottom:4px;">\u266B ' + escHtml(albumArtist) + ' — ' + escHtml(albumTitle) + '</div>';
+          html += '<div style="font-size:10px;color:#71717a;margin-bottom:12px;">Folder: ' + escHtml(albumArtist) + '/' + escHtml(albumTitle) + '/</div>';
 
           if (!generating && done === 0 && err === 0) {
             if (!templateReady) {
-              html += '<div style="font-size:12px;color:#f59e0b;margin-bottom:12px;">\u26A0 No generation settings captured yet. Please generate ONE song manually on the main page first (this captures your exact settings), then reload this page.</div>';
+              html += '<div style="font-size:12px;color:#f59e0b;margin-bottom:12px;">\u26A0 No generation settings found. Please configure your settings on the main page first, then come back to the Album Creator.</div>';
               html += '<button id="ab-retry-template" style="width:100%;padding:8px 16px;border-radius:8px;border:none;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;">Retry (Check for Settings)</button>';
             } else {
               html += '<div style="font-size:12px;color:#a1a1aa;margin-bottom:16px;">The Album Creator prepared ' + total + ' tracks. Click generate to produce audio using your current HOT-Step settings.</div>';
-              html += '<div style="font-size:10px;color:#71717a;margin-bottom:12px;">Using captured settings. Generate Album will use EXACTLY the same pipeline settings as your last manual generation.</div>';
+              html += '<div style="font-size:10px;color:#71717a;margin-bottom:12px;">Using your current HOT-Step pipeline settings.</div>';
             }
           } else if (generating) {
             html += '<div style="font-size:12px;color:#3b82f6;margin-bottom:12px;">Generating... ' + done + '/' + total + ' complete' + (err > 0 ? ', ' + err + ' failed' : '') + '</div>';
@@ -195,7 +231,7 @@
             else if (t._status === 'error') { statusColor = '#ef4444'; statusIcon = '\u2717'; }
             html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">';
             html += '<span style="color:' + statusColor + ';font-size:12px;width:16px;">' + statusIcon + '</span>';
-            html += '<span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (t.title || 'Track ' + (i+1)) + '</span>';
+            html += '<span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (String(i+1).padStart(2,'0') + '. ' + (t.title || 'Track ' + (i+1))) + '</span>';
             if (t._stage) html += '<span style="font-size:10px;color:#71717a;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + t._stage + '</span>';
             if (t._audioUrl) html += '<a href="' + t._audioUrl + '" target="_blank" style="font-size:10px;color:#a855f7;text-decoration:none;">\u25B6</a>';
             html += '</div>';
@@ -204,6 +240,9 @@
           html += '<div style="margin-top:16px;display:flex;gap:8px;">';
           if (!generating) {
             html += '<button id="ab-generate" style="flex:1;padding:8px 16px;border-radius:8px;border:none;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;font-size:13px;font-weight:600;cursor:pointer;' + (templateReady ? '' : 'opacity:0.5;cursor:not-allowed;') + '">Generate Album</button>';
+            if (done > 0) {
+              html += '<button id="ab-download-zip" style="flex:1;padding:8px 16px;border-radius:8px;border:none;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;font-size:13px;font-weight:600;cursor:pointer;">\uD83D\uDCE6 Download ZIP</button>';
+            }
             html += '<button id="ab-dismiss" style="padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#a1a1aa;font-size:13px;cursor:pointer;">Dismiss</button>';
           } else {
             html += '<button id="ab-cancel" style="flex:1;padding:8px 16px;border-radius:8px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.15);color:#ef4444;font-size:13px;font-weight:600;cursor:pointer;">Cancel</button>';
@@ -215,6 +254,8 @@
           /* Wire up buttons */
           var genBtn = document.getElementById('ab-generate');
           if (genBtn) genBtn.onclick = function() { if (templateReady) startGeneration(); };
+          var zipBtn = document.getElementById('ab-download-zip');
+          if (zipBtn) zipBtn.onclick = function() { downloadAlbumZip(); };
           var disBtn = document.getElementById('ab-dismiss');
           if (disBtn) disBtn.onclick = function() { panel.remove(); backdrop.remove(); };
           var canBtn = document.getElementById('ab-cancel');
@@ -244,51 +285,248 @@
           throw new Error('Cancelled');
         }
 
-        /* Load generation params template — ONLY from real captured params.
+        /* Load generation params template.
            Priority:
+             0. Read hs-* localStorage keys directly (user's current UI settings)
              1. window.__abCapturedParams (captured this session via monkey-patch)
              2. localStorage['hs-album-params-template'] (saved from a previous session)
            NO server defaults. NO applyQualityDefaults fallback. */
+
+        /* Helper: read hs-* localStorage key, parse as JSON */
+        function hs(key, fallback) {
+          try {
+            var v = localStorage.getItem('hs-' + key);
+            if (v === null || v === '') return fallback;
+            return JSON.parse(v);
+          } catch(e) { return fallback; }
+        }
+        /* Helper: read from ace-settings object */
+        function ace(key, fallback) {
+          try {
+            var raw = localStorage.getItem('ace-settings');
+            if (!raw) return fallback;
+            var obj = JSON.parse(raw);
+            return obj && obj[key] !== undefined ? obj[key] : fallback;
+          } catch(e) { return fallback; }
+        }
+
+        /* Priority 0: Read settings directly from hs-* localStorage keys.
+           These are persisted by the React Zustand store (useLocalStorage hook).
+           This gives us the EXACT same settings the React app would use. */
+        function readSettingsFromStorage() {
+          /* Read adapter settings */
+          var advancedAdapters = hs('advancedAdapters', false);
+          var adapterStack = hs('adapterStack', []);
+          var adapterPath = hs('adapter', '');
+          var adapterScale = hs('adapterScale', 1);
+          var hasAdapter = !!(adapterPath || (advancedAdapters && adapterStack && adapterStack.length > 0));
+          var adapters = advancedAdapters && adapterStack && adapterStack.length > 0
+            ? adapterStack
+            : adapterPath ? [{path: adapterPath, scale: adapterScale}] : [];
+
+          /* Adapter blend mode */
+          if (advancedAdapters && hs('adapterStackMode', '') === 'blend' && adapters.length >= 2) {
+            var budget = hs('adapterStackBudget', 0.75);
+            var totalScale = adapters.reduce(function(sum, a) { return sum + (a.scale || 0); }, 0);
+            adapters = totalScale > 0
+              ? adapters.map(function(a) { return {path: a.path, scale: +(budget * (a.scale || 0) / totalScale).toFixed(4)}; })
+              : adapters.map(function(a) { return {path: a.path, scale: +(budget / adapters.length).toFixed(4)}; });
+          }
+
+          var loraPath = adapters[0] ? adapters[0].path || '' : '';
+          var aceSettings = ace(null, {});
+
+          /* Trigger words from adapter filenames */
+          var triggerWords = [];
+          var triggerWord = '';
+          if (aceSettings.triggerUseFilename && adapters.length > 0) {
+            triggerWords = adapters.map(function(a) {
+              return (a.path || '').split(/[\\\/]/).pop().replace(/\.safetensors$/i, '') || '';
+            }).filter(Boolean);
+            triggerWord = triggerWords.join(', ');
+          }
+
+          var inferMethod = hs('inferMethod', '');
+          var guidanceMode = hs('guidanceMode', '');
+          var postProcessingEnabled = hs('postProcessingEnabled', false);
+          var spectralLifterEnabled = hs('spectralLifterEnabled', false);
+          var masteringEnabled = hs('masteringEnabled', false);
+          var dcwEnabled = hs('dcwEnabled', false);
+          var dcwMode = hs('dcwMode', '');
+          var skipLm = hs('skipLm', false);
+          var vocalNaturalizerEnabled = hs('vocalNaturalizerEnabled', false);
+          var autoTrimEnabled = hs('autoTrimEnabled', false);
+          var dcwLowScaler = hs('dcwLowScaler', 0);
+          var dcwHighScaler = hs('dcwHighScaler', 0);
+          var lmCodesStrength = hs('lmCodesStrength', 1);
+
+          return {
+            ditModel: hs('ditModel', ''),
+            lmModel: hs('lmModel', ''),
+            vaeModel: hs('vaeModel', ''),
+            embeddingModel: hs('embeddingModel', ''),
+            loraPath: loraPath || void 0,
+            loraScale: adapters[0] ? (adapters[0].scale ?? 1) : 1,
+            loraStack: adapters.length > 0 ? adapters : void 0,
+            adapterStackMode: hs('adapterStackMode', '') || void 0,
+            adapterStackBudget: hs('adapterStackBudget', 0.75),
+            adapterSectionAlignAt: adapters.length >= 2 ? (hs('adapterSectionAlignAt', '') || void 0) : void 0,
+            adapterSectionIsolation: adapters.length >= 2 ? (hs('adapterSectionIsolation', false) || void 0) : void 0,
+            adapterGroupScales: loraPath ? (hs('adapterGroupScales', '') || void 0) : void 0,
+            adapterMode: loraPath ? (hs('adapterMode', 'merge')) : 'merge',
+            adapterRuntimeQuant: loraPath && hs('adapterMode', '') === 'runtime' ? (hs('adapterRuntimeQuant', '') || void 0) : void 0,
+            rebaseSource: loraPath && hs('rebaseSource', '') ? (hs('rebaseSource', '') || void 0) : void 0,
+            rebaseBeta: loraPath && hs('rebaseSource', '') ? (hs('rebaseBeta', 0) || void 0) : void 0,
+            triggerWord: triggerWord || void 0,
+            triggerWords: triggerWords.length > 0 ? triggerWords : void 0,
+            triggerPlacement: triggerWords.length > 0 ? (aceSettings.triggerPlacement || void 0) : void 0,
+            inferenceSteps: hs('inferenceSteps', 30),
+            guidanceScale: hs('guidanceScale', 6.5),
+            shift: hs('shift', 4.2),
+            cfgCutoffRatio: (function() { var v = hs('cfgCutoffRatio', 1); return v < 1 ? v : void 0; })(),
+            lmCfgCutoffRatio: (function() { var v = hs('lmCfgCutoffRatio', 1); return v < 1 ? v : void 0; })(),
+            cacheRatio: (function() { var v = hs('cacheRatio', 0); return v > 0 ? v : void 0; })(),
+            inferMethod: inferMethod,
+            scheduler: hs('scheduler', ''),
+            guidanceMode: guidanceMode,
+            seed: hs('seed', 0),
+            randomSeed: hs('randomSeed', true),
+            lmSeed: hs('lmSeed', 0),
+            lmSeedFollowsDit: hs('lmSeedFollowsDit', true),
+            batchSize: hs('batchSize', 1),
+            storkSubsteps: (inferMethod === 'stork2' || inferMethod === 'stork4') ? (hs('storkSubsteps', 4) || void 0) : void 0,
+            beatStability: inferMethod === 'jkass_fast' ? (hs('beatStability', 0) || void 0) : void 0,
+            frequencyDamping: inferMethod === 'jkass_fast' ? (hs('frequencyDamping', 0) || void 0) : void 0,
+            temporalSmoothing: inferMethod === 'jkass_fast' ? (hs('temporalSmoothing', 0) || void 0) : void 0,
+            apgMomentum: guidanceMode === 'apg' ? (hs('apgMomentum', 0.5) || void 0) : void 0,
+            apgNormThreshold: guidanceMode === 'apg' ? (hs('apgNormThreshold', 3.5) || void 0) : void 0,
+            skipLm: skipLm,
+            useCotCaption: hs('useCotCaption', false),
+            skipLrc: hs('skipLrc', false) || void 0,
+            lmTemperature: hs('lmTemperature', 0.8),
+            lmCfgScale: hs('lmCfgScale', 0),
+            lmTopK: hs('lmTopK', 0),
+            lmTopP: hs('lmTopP', 1),
+            lmNegativePrompt: hs('lmNegativePrompt', '') || void 0,
+            audioCoverStrength: !skipLm && lmCodesStrength < 1 ? lmCodesStrength : void 0,
+            postProcessingEnabled: postProcessingEnabled,
+            spectralLifterEnabled: postProcessingEnabled ? spectralLifterEnabled : false,
+            slDenoiseStrength: postProcessingEnabled && spectralLifterEnabled ? (hs('slDenoiseStrength', 0.5) || void 0) : void 0,
+            slNoiseFloor: postProcessingEnabled && spectralLifterEnabled ? (hs('slNoiseFloor', -60) || void 0) : void 0,
+            slHfMix: postProcessingEnabled && spectralLifterEnabled ? (hs('slHfMix', 1) || void 0) : void 0,
+            slTransientBoost: postProcessingEnabled && spectralLifterEnabled ? (hs('slTransientBoost', 0) || void 0) : void 0,
+            slShimmerReduction: postProcessingEnabled && spectralLifterEnabled ? (hs('slShimmerReduction', 0) || void 0) : void 0,
+            masteringEnabled: postProcessingEnabled ? masteringEnabled : false,
+            masteringReference: postProcessingEnabled && masteringEnabled ? (hs('masteringReference', '') || void 0) : void 0,
+            timbreReference: (function() {
+              var timbrePath = hs('timbreAudioPath', '');
+              if (timbrePath) return timbrePath;
+              if (postProcessingEnabled && masteringEnabled && hs('timbreReference', false) && hs('masteringReference', '')) return true;
+              return void 0;
+            })(),
+            dcwEnabled: dcwEnabled,
+            dcwMode: dcwEnabled ? dcwMode : void 0,
+            dcwScaler: dcwEnabled ? (dcwMode === 'high' ? dcwHighScaler * 0.02 : dcwLowScaler * 0.05) : void 0,
+            dcwHighScaler: dcwEnabled && dcwMode === 'double' ? dcwHighScaler * 0.02 : void 0,
+            latentShift: (function() { var v = hs('latentShift', 0); return v === 0 ? void 0 : v; })(),
+            latentRescale: (function() { var v = hs('latentRescale', 1); return v === 1 ? void 0 : v; })(),
+            customTimesteps: hs('customTimesteps', '') || void 0,
+            denoiseStrength: (function() { var v = hs('denoiseStrength', 0); return v > 0 ? v : void 0; })(),
+            denoiseSmoothing: hs('denoiseStrength', 0) > 0 ? (hs('denoiseSmoothing', 0) || void 0) : void 0,
+            denoiseMix: hs('denoiseStrength', 0) > 0 ? (hs('denoiseMix', 0) || void 0) : void 0,
+            lssStrength: (function() { var v = hs('lssStrength', 0); return v > 0 ? v : void 0; })(),
+            lssVarThresh: hs('lssStrength', 0) > 0 ? (hs('lssVarThresh', 0) || void 0) : void 0,
+            lssDcRemove: hs('lssStrength', 0) > 0 ? (hs('lssDcRemove', false) || void 0) : void 0,
+            pluginParams: (function() { var v = hs('pluginParams', {}); return Object.keys(v).length > 0 ? v : void 0; })(),
+            autoTrimEnabled: autoTrimEnabled || void 0,
+            durationBuffer: autoTrimEnabled ? (hs('durationBuffer', 1) || void 0) : void 0,
+            autoTrimFadeMs: autoTrimEnabled ? (hs('autoTrimFadeMs', 50) || void 0) : void 0,
+            vocalNaturalizerEnabled: postProcessingEnabled ? vocalNaturalizerEnabled : false,
+            gainOffsetDb: postProcessingEnabled ? (function() { var v = hs('gainOffsetDb', 0); return v !== 0 ? v : void 0; })() : void 0,
+            naturalizeAmount: postProcessingEnabled && vocalNaturalizerEnabled ? (hs('naturalizeAmount', 0.5) || void 0) : void 0,
+            natVibratoRate: postProcessingEnabled && vocalNaturalizerEnabled ? (hs('natVibratoRate', 0) || void 0) : void 0,
+            natVibratoDepth: postProcessingEnabled && vocalNaturalizerEnabled ? (hs('natVibratoDepth', 0) || void 0) : void 0,
+            natFormantStrength: postProcessingEnabled && vocalNaturalizerEnabled ? (hs('natFormantStrength', 0) || void 0) : void 0,
+            natMetallicReduction: postProcessingEnabled && vocalNaturalizerEnabled ? (hs('natMetallicReduction', false) || void 0) : void 0,
+            natQuantizationMask: postProcessingEnabled && vocalNaturalizerEnabled ? (hs('natQuantizationMask', false) || void 0) : void 0,
+            natTransitionSmooth: postProcessingEnabled && vocalNaturalizerEnabled ? (hs('natTransitionSmooth', false) || void 0) : void 0,
+            lufsEnabled: postProcessingEnabled ? (hs('lufsEnabled', false) || void 0) : void 0,
+            lufsTarget: postProcessingEnabled && hs('lufsEnabled', false) ? (hs('lufsTarget', -14) || void 0) : void 0,
+            coverArtEnabled: hs('coverArtEnabled', false) || void 0,
+            coverArtSubject: hs('coverArtSubject', '') || void 0,
+            ppVaeReencode: postProcessingEnabled ? (hs('ppVaeReencode', false) || void 0) : void 0,
+            ppVaeBlend: postProcessingEnabled && hs('ppVaeReencode', false) ? (hs('ppVaeBlend', 1) || void 0) : void 0
+          };
+        }
+
+        function logSettings(label, s) {
+          console.log('[AlbumBatch] ' + label + ': solver=' + (s.inferMethod || '(default)') +
+            ' scheduler=' + (s.scheduler || '(default)') +
+            ' guidance=' + (s.guidanceMode || s.guidanceScale || '(default)') +
+            ' steps=' + (s.inferenceSteps || '(default)') +
+            ' shift=' + (s.shift || '(default)') +
+            ' dcwEnabled=' + s.dcwEnabled +
+            ' dcwMode=' + (s.dcwMode || '(default)') +
+            ' dcwScaler=' + (s.dcwScaler || '(default)'));
+        }
+
         function tryLoadTemplate() {
           /* Priority 1: Just captured this session */
           if (window.__abCapturedParams) {
             console.log('[AlbumBatch] Using just-captured params from this session');
-            console.log('[AlbumBatch] Captured settings: solver=' + (window.__abCapturedParams.inferMethod || '(default)') +
-              ' scheduler=' + (window.__abCapturedParams.scheduler || '(default)') +
-              ' guidance=' + (window.__abCapturedParams.guidanceMode || window.__abCapturedParams.guidanceScale || '(default)') +
-              ' steps=' + (window.__abCapturedParams.inferenceSteps || '(default)') +
-              ' dcwEnabled=' + window.__abCapturedParams.dcwEnabled +
-              ' dcwMode=' + (window.__abCapturedParams.dcwMode || '(default)') +
-              ' dcwScaler=' + (window.__abCapturedParams.dcwScaler || '(default)'));
+            logSettings('Captured', window.__abCapturedParams);
             templateReady = true;
             render();
             return;
           }
 
-          /* Priority 2: Saved template from previous session */
+          /* Priority 2: Saved template from previous session — ONLY if it has _src marker.
+             _src:'mp' = captured from monkey-patch (most accurate)
+             _src:'ls' = reconstructed from hs-* localStorage keys (also accurate)
+             No _src = stale template from v1/v2 handler — discard it. */
           try {
             var saved = localStorage.getItem('hs-album-params-template');
             if (saved) {
               var parsed = JSON.parse(saved);
-              if (parsed && typeof parsed === 'object') {
-                console.log('[AlbumBatch] Using saved params template from localStorage');
-                console.log('[AlbumBatch] Saved settings: solver=' + (parsed.inferMethod || '(default)') +
-                  ' scheduler=' + (parsed.scheduler || '(default)') +
-                  ' guidance=' + (parsed.guidanceMode || parsed.guidanceScale || '(default)') +
-                  ' steps=' + (parsed.inferenceSteps || '(default)') +
-                  ' dcwEnabled=' + parsed.dcwEnabled +
-                  ' dcwMode=' + (parsed.dcwMode || '(default)') +
-                  ' dcwScaler=' + (parsed.dcwScaler || '(default)'));
+              if (parsed && typeof parsed === 'object' && (parsed._src === 'mp' || parsed._src === 'ls')) {
+                console.log('[AlbumBatch] Using saved params template from localStorage (_src=' + parsed._src + ')');
+                console.log('[AlbumBatch] Saved at: ' + (parsed._capturedAt ? new Date(parsed._capturedAt).toISOString() : 'unknown'));
+                logSettings('Saved', parsed);
                 templateReady = true;
                 render();
                 return;
+              } else if (parsed && !parsed._src) {
+                console.warn('[AlbumBatch] Discarding stale template (no _src marker)');
+                localStorage.removeItem('hs-album-params-template');
               }
             }
           } catch(e) {}
 
-          /* No template — refuse to generate without real settings */
-          console.warn('[AlbumBatch] No captured params available. The batch handler will NOT use server defaults (applyQualityDefaults would override your settings).');
-          console.warn('[AlbumBatch] User must: 1) Generate one song manually on the main page, 2) Reload this page.');
+          /* Priority 3: Read directly from hs-* localStorage keys.
+             The React app persists ALL settings to localStorage via useLocalStorage hook.
+             We replicate the getGlobalParams() logic from the React bundle to reconstruct
+             the exact same params object the React app would send. */
+          try {
+            var storage = readSettingsFromStorage();
+            if (storage && storage.inferMethod) {
+              console.log('[AlbumBatch] Reading settings directly from hs-* localStorage keys');
+              logSettings('FromStorage', storage);
+              /* Stamp it so future sessions can use Priority 2 */
+              var toSave = JSON.parse(JSON.stringify(storage));
+              toSave._src = 'ls';
+              toSave._capturedAt = Date.now();
+              try { localStorage.setItem('hs-album-params-template', JSON.stringify(toSave)); } catch(e2) {}
+              templateReady = true;
+              render();
+              return;
+            }
+          } catch(e) {
+            console.warn('[AlbumBatch] Failed to read settings from localStorage:', e);
+          }
+
+          /* No settings available anywhere */
+          console.warn('[AlbumBatch] No generation settings found. Cannot generate without real settings.');
+          console.warn('[AlbumBatch] Please configure your settings on the main page first.');
           templateReady = false;
           render();
         }
@@ -300,9 +538,12 @@
           /* Try just-captured first */
           if (window.__abCapturedParams) {
             base = window.__abCapturedParams;
-            /* Save for future sessions */
-            try { localStorage.setItem('hs-album-params-template', JSON.stringify(base)); } catch(e) {}
-            console.log('[AlbumBatch] Using just-captured params, saved to localStorage');
+            /* Save for future sessions — stamp with _src:'mp' marker so we know it's from a real capture */
+            var toSave = JSON.parse(JSON.stringify(base));
+            toSave._src = 'mp';
+            toSave._capturedAt = Date.now();
+            try { localStorage.setItem('hs-album-params-template', JSON.stringify(toSave)); } catch(e) {}
+            console.log('[AlbumBatch] Using just-captured params, saved to localStorage with _src:mp marker');
           } else {
             /* Use saved template */
             try {
@@ -336,6 +577,10 @@
 
           /* Ensure batch size is 1 for album tracks */
           params.batchSize = 1;
+
+          /* Strip internal metadata fields that shouldn't be sent to the server */
+          delete params._src;
+          delete params._capturedAt;
 
           return params;
         }
@@ -421,6 +666,70 @@
           render();
           var finalDone = tracks.filter(function(t) { return t._status === 'done'; }).length;
           console.log('[AlbumBatch] Batch complete: ' + finalDone + '/' + tracks.length + ' succeeded');
+        }
+
+        /* Download all completed tracks as a ZIP file with folder structure:
+           Artist Name/Album Title/01 - Track Title.wav */
+        async function downloadAlbumZip() {
+          if (!window.JSZip) { alert('ZIP library is still loading. Please wait a moment and try again.'); return; }
+          var doneTracks = tracks.filter(function(t) { return t._status === 'done' && t._audioUrl; });
+          if (doneTracks.length === 0) { alert('No completed tracks to download.'); return; }
+
+          var zipBtn = document.getElementById('ab-download-zip');
+          if (zipBtn) { zipBtn.disabled = true; zipBtn.textContent = '\u23F3 Preparing ZIP...'; }
+
+          try {
+            var zip = new JSZip();
+            var folderName = albumArtist + '/' + albumTitle;
+            var folder = zip.folder(albumArtist).folder(albumTitle);
+
+            /* Add metadata.txt */
+            var metaLines = ['Album: ' + albumTitle, 'Artist: ' + albumArtist, 'Tracks: ' + doneTracks.length, ''];
+            for (var m = 0; m < doneTracks.length; m++) {
+              var mt = doneTracks[m];
+              metaLines.push(String(m+1).padStart(2,'0') + '. ' + (mt.title || 'Untitled'));
+            }
+            folder.file('metadata.txt', metaLines.join('\n'));
+
+            /* Fetch and add each audio file */
+            for (var j = 0; j < doneTracks.length; j++) {
+              var t = doneTracks[j];
+              if (zipBtn) zipBtn.textContent = '\u23F3 Fetching track ' + (j+1) + '/' + doneTracks.length + '...';
+              try {
+                var audioResp = await fetch(t._audioUrl);
+                var audioBlob = await audioResp.blob();
+                var trackNum = String(j+1).padStart(2,'0');
+                var trackName = trackNum + ' - ' + (t.title || 'Untitled') + '.wav';
+                folder.file(trackName, audioBlob);
+              } catch(fetchErr) {
+                console.error('[AlbumBatch] Failed to fetch track ' + (j+1) + ':', fetchErr);
+                folder.file(trackNum + ' - ' + (t.title || 'Untitled') + ' (FAILED).txt', 'Failed to download: ' + fetchErr.message);
+              }
+            }
+
+            /* Generate the zip and trigger download */
+            if (zipBtn) zipBtn.textContent = '\u23F3 Creating ZIP file...';
+            var zipBlob = await zip.generateAsync({type: 'blob'}, function(meta) {
+              if (zipBtn) zipBtn.textContent = '\u23F3 ZIP: ' + meta.percent.toFixed(0) + '%';
+            });
+
+            var zipName = albumArtist + ' - ' + albumTitle + '.zip';
+            var link = document.createElement('a');
+            link.href = URL.createObjectURL(zipBlob);
+            link.download = zipName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+
+            if (zipBtn) { zipBtn.disabled = false; zipBtn.textContent = '\u2713 ZIP Downloaded!'; }
+            console.log('[AlbumBatch] ZIP downloaded: ' + zipName + ' (' + doneTracks.length + ' tracks)');
+
+          } catch(e) {
+            console.error('[AlbumBatch] ZIP creation failed:', e);
+            alert('ZIP download failed: ' + e.message);
+            if (zipBtn) { zipBtn.disabled = false; zipBtn.textContent = '\uD83D\uDCE6 Download ZIP'; }
+          }
         }
 
         /* Initialize: try to load template, then render */

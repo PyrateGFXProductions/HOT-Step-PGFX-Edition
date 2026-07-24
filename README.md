@@ -40,8 +40,11 @@ Every genre now has its own structural grammar — verse/chorus/bridge line coun
 - **Deterministic slop replacer** that swaps clichés for genre-appropriate alternatives.
 - **Grease Spot Rule**: Forces concrete nouns over abstract adjectives, with an existential exception for doom metal, folk, shoegaze, and post-rock.
 
-### Album Generator
-- Generate up to **9 tracks** with per-track subject, title, genre override, and custom lyrics.
+### 🌟 Album Creator
+*One of the standout features of the PGFX Edition!*
+It will create an album of 9+ tracks with a full story concept, either user-created or auto-generated with context based on the genre, from the first track to the last track.
+
+- Generate **9+ tracks** with per-track subject, title, genre override, and custom lyrics.
 - **AI Auto-Fill**: One-click generates a complete album concept with a story arc across all tracks.
 - **Shuffle Tracks**: Re-roll all track subjects while preserving the album theme.
 - Sequential generation pipeline: LLM lyrics → ACE-Step audio → playback.

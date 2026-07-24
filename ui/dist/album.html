@@ -158,6 +158,7 @@ let PROVIDERS = [];
 let SELECTED_PROVIDER = '';
 let SELECTED_MODEL = '';
 let ALBUM_TITLE = '';
+let ARTIST_NAME = '';
 let ALBUM_THEME = '';
 let ALBUM_GENRE = '';
 let LANGUAGES = [
@@ -222,6 +223,36 @@ const GENRE_LIST = [
   'Andean','Celtic','Nordic Folk','Balkan'
 ];
 
+// ── Random Name Generators ──────────────────────────────────────────────
+const RANDOM_ADJECTIVES = ['Neon','Midnight','Velvet','Electric','Cosmic','Phantom','Silver','Golden','Crimson','Azure','Obsidian','Crystal','Ethereal','Savage','Lucid','Frozen','Burning','Silent','Wild','Lost'];
+const RANDOM_NOUNS = ['Drifter','Pilgrim','Prophet','Wanderer','Voyager','Sentinel','Nomad','Revenant','Oracle','Phoenix','Mirage','Spectre','Echo','Storm','Raven','Hawk','Wolf','Fox','Lynx','Serpent'];
+const RANDOM_ALBUM_WORDS = ['Echoes','Horizons','Visions','Chronicles','Reflections','Odyssey','Saga','Requiem','Nocturne','Rhapsody','Labyrinth','Overture','Whispers','Fragments','Parallels','Euphoria','Catharsis','Metamorphosis','Genesis','Renaissance'];
+
+function randomName() {
+  const a = RANDOM_ADJECTIVES[Math.floor(Math.random() * RANDOM_ADJECTIVES.length)];
+  const n = RANDOM_NOUNS[Math.floor(Math.random() * RANDOM_NOUNS.length)];
+  return a + ' ' + n;
+}
+function randomAlbumTitle() {
+  const words = [];
+  const len = 2 + Math.floor(Math.random() * 3);
+  const pool = [...RANDOM_ALBUM_WORDS];
+  for (let i = 0; i < len && pool.length > 0; i++) {
+    const idx = Math.floor(Math.random() * pool.length);
+    words.push(pool.splice(idx, 1)[0]);
+  }
+  return words.join(' ');
+}
+function autoFillArtistName() {
+  if (ARTIST_NAME) return; // already set
+  const saved = localStorage.getItem('hs-username');
+  if (saved) { ARTIST_NAME = saved; return; }
+  ARTIST_NAME = randomName();
+}
+function autoFillAlbumTitle() {
+  if (!ALBUM_TITLE) ALBUM_TITLE = randomAlbumTitle();
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 function $(id) { return document.getElementById(id); }
 function api(path, opts={}) {
@@ -273,6 +304,7 @@ async function init() {
   try {
     const saved = JSON.parse(localStorage.getItem('hs-album-config') || '{}');
     ALBUM_TITLE = saved.title || '';
+    ARTIST_NAME = saved.artistName || '';
     ALBUM_THEME = saved.theme || '';
     ALBUM_GENRE = saved.genre || '';
     SELECTED_LANG = saved.lang || 'en';
@@ -282,6 +314,10 @@ async function init() {
       TRACKS = saved.tracks;
     }
   } catch(e) {}
+
+  // Auto-fill artist name and album title if empty
+  autoFillArtistName();
+  autoFillAlbumTitle();
 
   // Validate saved provider against available providers
   if (PROVIDERS.length > 0) {
@@ -303,9 +339,13 @@ async function init() {
 function saveConfig() {
   try {
     localStorage.setItem('hs-album-config', JSON.stringify({
-      title: ALBUM_TITLE, theme: ALBUM_THEME, genre: ALBUM_GENRE, lang: SELECTED_LANG,
+      title: ALBUM_TITLE, artistName: ARTIST_NAME, theme: ALBUM_THEME, genre: ALBUM_GENRE, lang: SELECTED_LANG,
       provider: SELECTED_PROVIDER, model: SELECTED_MODEL,
-      tracks: TRACKS.map(t => ({subject:t.subject,lyrics:t.lyrics,title:t.title,genreOverride:t.genreOverride}))
+      tracks: TRACKS.map(t => ({
+        subject:t.subject,lyrics:t.lyrics,title:t.title,genreOverride:t.genreOverride,
+        bpm:t._bpm,key:t._key,duration:t._duration,timeSignature:t._timeSignature,
+        caption:t._caption
+      }))
     }));
   } catch(e) {}
 }
@@ -333,8 +373,20 @@ function render() {
       <div class="form-row">
         <div class="form-group">
           <label>Album Title</label>
-          <input type="text" value="${esc(ALBUM_TITLE)}" placeholder="My Album" oninput="ALBUM_TITLE=this.value;saveConfig()">
+          <div style="display:flex;gap:6px;">
+            <input type="text" value="${esc(ALBUM_TITLE)}" placeholder="My Album" style="flex:1;" oninput="ALBUM_TITLE=this.value;saveConfig()">
+            <button class="btn btn-secondary btn-sm" onclick="ALBUM_TITLE=randomAlbumTitle();saveConfig();render();" title="Random album title">🎲</button>
+          </div>
         </div>
+        <div class="form-group">
+          <label>Artist Name</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" value="${esc(ARTIST_NAME)}" placeholder="Artist" style="flex:1;" oninput="ARTIST_NAME=this.value;saveConfig()">
+            <button class="btn btn-secondary btn-sm" onclick="ARTIST_NAME=randomName();saveConfig();render();" title="Random artist name">🎲</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
         <div class="form-group">
           <label>Album Theme / Concept</label>
           <input type="text" value="${esc(ALBUM_THEME)}" placeholder="e.g. A journey through night markets in Tokyo" oninput="ALBUM_THEME=this.value;saveConfig()">
@@ -709,6 +761,7 @@ Do NOT add any other text, explanations, or formatting. ONLY output the lines ab
 
     if (concept.theme) ALBUM_THEME = concept.theme;
     if (concept.title && !ALBUM_TITLE) ALBUM_TITLE = concept.title;
+    if (!ARTIST_NAME) ARTIST_NAME = randomName();
 
     const numToFill = Math.min(concept.tracks.length, TRACKS.length);
     for (let i = 0; i < numToFill; i++) {
@@ -990,6 +1043,9 @@ async function generateAlbum() {
       keyScale: t._key || undefined,
       timeSignature: t._timeSignature || undefined,
       vocalLanguage: SELECTED_LANG,
+      artistName: ARTIST_NAME || undefined,
+      albumTitle: ALBUM_TITLE || undefined,
+      trackIndex: pendingTracks.length + 1,
     });
   }
 
@@ -1006,6 +1062,7 @@ function clearForm() {
   if (GENERATING) return alert('Cannot clear while generating. Cancel first.');
   if (!confirm('Clear all album info and tracks? This cannot be undone.')) return;
   ALBUM_TITLE = '';
+  ARTIST_NAME = '';
   ALBUM_THEME = '';
   ALBUM_GENRE = '';
   SELECTED_LANG = 'en';
@@ -1013,6 +1070,8 @@ function clearForm() {
   for (let i = 0; i < 9; i++) TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
   localStorage.removeItem('hs-album-config');
   saveConfig();
+  autoFillArtistName();
+  autoFillAlbumTitle();
   render();
 }
 
