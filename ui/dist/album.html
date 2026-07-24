@@ -127,7 +127,7 @@
 <div class="header">
   <div>
     <h1>ALBUM GENERATOR</h1>
-    <div class="subtitle">Generate up to 9 tracks with full control per song</div>
+    <div class="subtitle">Generate up to 20 tracks with full control per song</div>
   </div>
   <a href="/" class="back-btn">Back to HOT-Step</a>
 </div>
@@ -562,8 +562,9 @@ function toggleTrack(i) {
   }
 }
 
+const MAX_TRACKS = 20;
 function addTrack() {
-  if (TRACKS.length >= 9) return;
+  if (TRACKS.length >= MAX_TRACKS) return;
   TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
   saveConfig();
   render();
@@ -583,12 +584,12 @@ function removeTrack(i) {
 function updateAddBtn() {
   var btn = $('add-track-btn');
   if (!btn) return;
-  if (TRACKS.length >= 9) {
+  if (TRACKS.length >= MAX_TRACKS) {
     btn.disabled = true;
-    btn.textContent = '+ Add Track (max 9)';
+    btn.textContent = '+ Add Track (max ' + MAX_TRACKS + ')';
   } else {
     btn.disabled = false;
-    btn.textContent = '+ Add Track (' + TRACKS.length + '/9)';
+    btn.textContent = '+ Add Track (' + TRACKS.length + '/' + MAX_TRACKS + ')';
   }
 }
 
@@ -749,13 +750,7 @@ TITLE: [album title]
 1: [Track Title] | [2 sentence song description]
 2: [Track Title] | [2 sentence song description]
 3: [Track Title] | [2 sentence song description]
-${activeCount >= 4 ? `4: [Track Title] | [2 sentence song description]` : ''}
-${activeCount >= 5 ? `5: [Track Title] | [2 sentence song description]` : ''}
-${activeCount >= 6 ? `6: [Track Title] | [2 sentence song description]` : ''}
-${activeCount >= 7 ? `7: [Track Title] | [2 sentence song description]` : ''}
-${activeCount >= 8 ? `8: [Track Title] | [2 sentence song description]` : ''}
-${activeCount >= 9 ? `9: [Track Title] | [2 sentence song description]` : ''}
-
+${Array.from({length: 17}, (_, i) => `${activeCount >= i + 4 ? i + 4 + ': [Track Title] | [2 sentence song description]' : ''}`).filter(Boolean).join('\n')}
 Do NOT add any other text, explanations, or formatting. ONLY output the lines above with the brackets replaced.`;
 
       try {

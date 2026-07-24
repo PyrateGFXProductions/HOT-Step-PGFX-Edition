@@ -428,7 +428,30 @@ function updateSeek(){
 const params = new URLSearchParams(location.search);
 if (params.has('id')){
   S.songId = params.get('id');
-  loadAudio('/api/songs/' + encodeURIComponent(S.songId) + '/audio', params.get('title') || 'Track');
+  /* Fetch song metadata to get the real audio_url, then load */
+  var _urlSongId = params.get('id');
+  var _urlToken = null;
+  try { _urlToken = JSON.parse(localStorage.getItem('ace-settings')||'{}').token || null; } catch(e){}
+  if (!_urlToken) { try { _urlToken = JSON.parse(localStorage.getItem('hs-auth')||'{}').token || null; } catch(e){} }
+  if (!_urlToken) { try { var ks=['hs-album-token','hs-token','auth-token','ace-token']; for(var k=0;k<ks.length;k++){var v=localStorage.getItem(ks[k]);if(v){_urlToken=v;break;}}} catch(e){} }
+  var _urlHeaders = {'Content-Type':'application/json'};
+  if (_urlToken) _urlHeaders['Authorization'] = 'Bearer ' + _urlToken;
+  fetch('/api/songs/' + encodeURIComponent(_urlSongId), {headers:_urlHeaders})
+    .then(function(r){if(!r.ok)throw new Error('fetch song '+r.status);return r.json();})
+    .then(function(data){
+      var audioUrl = data.audio_url || data.mastered_audio_url || '';
+      if (audioUrl && !audioUrl.startsWith('http') && !audioUrl.startsWith('/')) audioUrl = '/audio/' + audioUrl;
+      if (audioUrl && !audioUrl.startsWith('http') && audioUrl.startsWith('/')) audioUrl = audioUrl;
+      if (audioUrl) {
+        loadAudio(audioUrl, params.get('title') || data.title || 'Track');
+      } else {
+        loadAudio('/audio/' + encodeURIComponent(_urlSongId) + '.wav', params.get('title') || 'Track');
+      }
+    })
+    .catch(function(e){
+      console.warn('[Viz] Failed to fetch song metadata:', e.message, '- trying direct audio URL');
+      loadAudio('/audio/' + encodeURIComponent(_urlSongId) + '.wav', params.get('title') || 'Track');
+    });
 } else if (params.has('src')){
   loadAudio(params.get('src'), params.get('title') || 'Track');
 }
@@ -1219,15 +1242,52 @@ function renderPlaylist(){
 /* Load playlist from server */
 async function loadPlaylist(){
   try{
-    var resp=await fetch('/api/songs');
+    /* Get auth token from localStorage (main app stores it) */
+    var token=null;
+    try{
+      /* Try common token keys used by the React app */
+      var keys=['hs-album-token','hs-token','auth-token','ace-token'];
+      for(var k=0;k<keys.length;k++){
+        var v=localStorage.getItem(keys[k]);
+        if(v){token=v;break;}
+      }
+      /* Also check if it's inside a JSON settings blob */
+      if(!token){
+        try{var s=JSON.parse(localStorage.getItem('ace-settings')||'{}');if(s.token)token=s.token;}catch(ex){}
+      }
+      if(!token){
+        try{var s2=JSON.parse(localStorage.getItem('hs-auth')||'{}');if(s2.token)token=s2.token;}catch(ex){}
+      }
+    }catch(ex){}
+    var headers={'Content-Type':'application/json'};
+    if(token)headers['Authorization']='Bearer '+token;
+    var resp=await fetch('/api/songs',{headers:headers});
+    if(!resp.ok){
+      /* Try without auth (some deployments have auth disabled) */
+      resp=await fetch('/api/songs');
+    }
     if(!resp.ok)return;
     var data=await resp.json();
     var songs=data.songs||data||[];
-    S.playlist=songs.map(function(s){return{
-      id:s.id, title:s.title||s.name||'Untitled',
-      src:'/api/songs/'+s.id+'/audio',
-      img:s.cover_image_url||s.image_url||''
-    };});
+    S.playlist=songs.map(function(s){
+      /* Use mastered audio if available, otherwise original */
+      var audioUrl=s.mastered_audio_url||s.audio_url||'';
+      /* If audioUrl is just a filename (no / prefix), prepend /audio/ */
+      if(audioUrl && !audioUrl.startsWith('http') && !audioUrl.startsWith('/')){
+        audioUrl='/audio/'+encodeURIComponent(audioUrl);
+      } else if(audioUrl && audioUrl.startsWith('/audio/')){
+        /* Already correct */
+      } else if(audioUrl && audioUrl.startsWith('http')){
+        /* Full URL, use as-is */
+      } else {
+        audioUrl='';
+      }
+      return{
+        id:s.id, title:s.title||s.name||'Untitled',
+        src:audioUrl,
+        img:s.cover_url||s.cover_image_url||s.image_url||''
+      };
+    }).filter(function(s){return !!s.src;});
     renderPlaylist();
   }catch(e){console.warn('Playlist load failed:',e);}
 }
@@ -1246,22 +1306,37 @@ loadPlaylist().then(function(){
       playPlaylistIndex(idx);
     } else {
       /* Playlist may still be loading — try direct audio URL */
-      var audioUrl='/api/songs/'+encodeURIComponent(songId)+'/audio';
-      loadAudio(audioUrl,songTitle||'Playing...');
-      if(audioEl){
-        audioEl.onended=onAudioEnd;
-        audioEl.ontimeupdate=onAudioTimeUpdate;
-      }
-      S.songId=songId;
+      /* We need to look up the song to get its audio_url */
+      (async function(){
+        try{
+          var token=null;
+          try{var keys=['hs-album-token','hs-token','auth-token','ace-token'];for(var k=0;k<keys.length;k++){var v=localStorage.getItem(keys[k]);if(v){token=v;break;}}}catch(ex){}
+          if(!token){try{var s=JSON.parse(localStorage.getItem('ace-settings')||'{}');if(s.token)token=s.token;}catch(ex){}}
+          if(!token){try{var s2=JSON.parse(localStorage.getItem('hs-auth')||'{}');if(s2.token)token=s2.token;}catch(ex){}}
+          var headers={'Content-Type':'application/json'};if(token)headers['Authorization']='Bearer '+token;
+          var resp=await fetch('/api/songs/'+encodeURIComponent(songId),{headers:headers});
+          if(resp.ok){
+            var data=await resp.json();
+            var song=data.song||data;
+            var audioUrl=song.mastered_audio_url||song.audio_url||'';
+            if(audioUrl && !audioUrl.startsWith('http') && !audioUrl.startsWith('/')) audioUrl='/audio/'+encodeURIComponent(audioUrl);
+            if(audioUrl){
+              loadAudio(audioUrl,songTitle||song.title||'Playing...');
+              if(audioEl){audioEl.onended=onAudioEnd;audioEl.ontimeupdate=onAudioTimeUpdate;}
+              S.songId=songId;
+            }
+          }
+        }catch(ex){console.warn('Direct song load failed:',ex);}
+      })();
     }
-    /* Auto-open playlist panel for quick access */
-    setTimeout(function(){playlistPanel.classList.add('open');},500);
-  } else {
-    /* No song specified — show playlist and welcome */
-    playlistPanel.classList.add('open');
+  } else if(S.playlist.length>0){
+    /* No song specified — auto-play first song */
+    playPlaylistIndex(0);
   }
+  /* Auto-open playlist panel for quick access */
+  setTimeout(function(){playlistPanel.classList.add('open');},500);
   /* Clean up URL params to avoid re-triggering on refresh */
-  if(songId){
+  if(songId || S.playlist.length>0){
     window.history.replaceState({},'',window.location.pathname);
   }
 });

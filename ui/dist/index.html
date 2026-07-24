@@ -36,105 +36,19 @@
         document.body.appendChild(btn);
       })();
     </script>
-    <!-- Visualizer Floating Button & In-Page Picture-in-Picture Dock -->
+    <!-- Visualizer Floating Button — opens in new tab (iframes block autoplay) -->
     <script>
       (function() {
         var vizHref = '/visualizer.html';
         var currentSongId = null;
         var currentSongTitle = '';
-        var isOpen = false;
+        var vizTab = null;
 
         /* Extract song ID from audio src pattern: /api/songs/{id}/audio */
         function extractSongId(src) {
           if (!src) return null;
           var m = src.match(/\/api\/songs\/([^/]+)\/audio/);
           return m ? decodeURIComponent(m[1]) : null;
-        }
-
-        /* Build floating inline Visualizer Dock container */
-        var dock = document.createElement('div');
-        dock.id = 'hs-viz-dock';
-        dock.style.cssText = 'position:fixed;bottom:168px;right:16px;width:380px;height:240px;border-radius:16px;background:rgba(15,15,22,0.92);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.15);box-shadow:0 12px 40px rgba(0,0,0,0.6);display:none;flex-direction:column;overflow:hidden;z-index:99999;transition:all 0.3s cubic-bezier(0.16,1,0.3,1);';
-
-        /* Header bar */
-        var header = document.createElement('div');
-        header.style.cssText = 'height:36px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:space-between;padding:0 12px;cursor:move;user-select:none;border-bottom:1px solid rgba(255,255,255,0.08);';
-        
-        var titleSpan = document.createElement('span');
-        titleSpan.style.cssText = 'font-size:12px;font-weight:600;color:#06b6d4;display:flex;align-items:center;gap:6px;font-family:sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;';
-        titleSpan.innerHTML = '🎛️ <span id="hs-viz-title">Visualizer</span>';
-        
-        var actions = document.createElement('div');
-        actions.style.cssText = 'display:flex;align-items:center;gap:8px;';
-
-        /* Helper for icon buttons */
-        function createHeaderBtn(icon, title, onClick) {
-          var b = document.createElement('button');
-          b.innerHTML = icon;
-          b.title = title;
-          b.style.cssText = 'background:none;border:none;color:#a1a1aa;cursor:pointer;font-size:13px;padding:2px 4px;border-radius:4px;transition:color 0.2s;';
-          b.onmouseenter = function() { this.style.color = '#fff'; };
-          b.onmouseleave = function() { this.style.color = '#a1a1aa'; };
-          b.onclick = onClick;
-          return b;
-        }
-
-        /* ↗ Popout button */
-        var popoutBtn = createHeaderBtn('↗', 'Open in Separate Window / Tab', function(e) {
-          e.stopPropagation();
-          window.open(vizHref, '_blank');
-        });
-
-        /* ⛶ Fullscreen button */
-        var fsBtn = createHeaderBtn('⛶', 'Fullscreen Visualizer', function(e) {
-          e.stopPropagation();
-          if (dock.requestFullscreen) dock.requestFullscreen();
-          else if (iframe.requestFullscreen) iframe.requestFullscreen();
-        });
-
-        /* ⚙️ Settings button */
-        var settingsBtn = createHeaderBtn('⚙️', 'Visualizer Settings', function(e) {
-          e.stopPropagation();
-          window.open('/visualizer.html', '_blank');
-        });
-
-        /* ✖ Close button */
-        var closeBtn = createHeaderBtn('✖', 'Close Visualizer Overlay', function(e) {
-          e.stopPropagation();
-          toggleDock(false);
-        });
-
-        actions.appendChild(popoutBtn);
-        actions.appendChild(fsBtn);
-        actions.appendChild(settingsBtn);
-        actions.appendChild(closeBtn);
-        header.appendChild(titleSpan);
-        header.appendChild(actions);
-
-        /* Iframe Body */
-        var iframe = document.createElement('iframe');
-        iframe.style.cssText = 'flex:1;width:100%;border:none;background:#000;';
-        iframe.allow = 'autoplay';
-
-        dock.appendChild(header);
-        dock.appendChild(iframe);
-        document.body.appendChild(dock);
-
-        /* Toggle Dock Function */
-        function toggleDock(show) {
-          isOpen = (typeof show === 'boolean') ? show : !isOpen;
-          if (isOpen) {
-            if (!iframe.src || iframe.src === 'about:blank' || iframe.src !== window.location.origin + vizHref) {
-              iframe.src = vizHref;
-            }
-            dock.style.display = 'flex';
-            btn2.style.background = 'linear-gradient(135deg,#ec4899,#f43f5e)';
-            btn2.title = 'Minimize Visualizer Overlay';
-          } else {
-            dock.style.display = 'none';
-            btn2.style.background = 'linear-gradient(135deg,#0891b2,#06b6d4)';
-            btn2.title = 'Visualizer — click to toggle inline visualizer';
-          }
         }
 
         /* Watch for audio elements and src changes */
@@ -153,21 +67,11 @@
                 currentSongTitle = titleEl ? titleEl.textContent.trim() : '';
                 vizHref = '/visualizer.html?id=' + encodeURIComponent(id)
                   + (currentSongTitle ? '&title=' + encodeURIComponent(currentSongTitle) : '');
-                
-                var titleDisplay = document.getElementById('hs-viz-title');
-                if (titleDisplay) titleDisplay.textContent = currentSongTitle || 'Visualizer';
-                
-                if (isOpen) {
-                  iframe.src = vizHref;
-                }
                 btn2.style.boxShadow = '0 4px 14px rgba(6,182,212,0.6)';
                 btn2.title = 'Visualize: ' + (currentSongTitle || id);
               }
             }
-            a.addEventListener('play', function() {
-              onSrc();
-              if (!isOpen) toggleDock(true); /* Auto-open on play if closed */
-            });
+            a.addEventListener('play', function() { onSrc(); });
             a.addEventListener('loadeddata', onSrc);
             if (a.src) onSrc();
           });
@@ -176,7 +80,7 @@
         /* Create Floating Action Button */
         var btn2 = document.createElement('a');
         btn2.href = 'javascript:void(0)';
-        btn2.title = 'Visualizer — toggle inline visualizer';
+        btn2.title = 'Visualizer — click to open visualizer in new tab';
         btn2.textContent = '🎛️';
         btn2.style.cssText = 'position:fixed;bottom:112px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0891b2,#06b6d4);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;text-decoration:none;z-index:9999;box-shadow:0 4px 14px rgba(6,182,212,0.4);transition:all 0.2s;cursor:pointer;';
         btn2.onmouseenter = function() { this.style.transform = 'scale(1.1)'; this.style.boxShadow = '0 6px 20px rgba(6,182,212,0.6)'; };
@@ -184,32 +88,19 @@
         btn2.onclick = function(e) {
           e.preventDefault();
           watchAudio();
-          toggleDock();
-        };
-        document.body.appendChild(btn2);
-
-        /* Draggable Header logic */
-        var isDragging = false, dragX = 0, dragY = 0;
-        header.onmousedown = function(e) {
-          if (e.target.tagName === 'BUTTON') return;
-          isDragging = true;
-          dragX = e.clientX - dock.offsetLeft;
-          dragY = e.clientY - dock.offsetTop;
-          dock.style.transition = 'none';
-        };
-        document.onmousemove = function(e) {
-          if (!isDragging) return;
-          dock.style.left = (e.clientX - dragX) + 'px';
-          dock.style.top = (e.clientY - dragY) + 'px';
-          dock.style.right = 'auto';
-          dock.style.bottom = 'auto';
-        };
-        document.onmouseup = function() {
-          if (isDragging) {
-            isDragging = false;
-            dock.style.transition = 'all 0.3s cubic-bezier(0.16,1,0.3,1)';
+          /* Build URL with song ID if available */
+          var href = currentSongId
+            ? '/visualizer.html?id=' + encodeURIComponent(currentSongId) + (currentSongTitle ? '&title=' + encodeURIComponent(currentSongTitle) : '')
+            : '/visualizer.html';
+          /* Try to reuse existing tab, otherwise open new */
+          if (vizTab && !vizTab.closed) {
+            vizTab.location.href = href;
+            vizTab.focus();
+          } else {
+            vizTab = window.open(href, 'hotstep-visualizer');
           }
         };
+        document.body.appendChild(btn2);
 
         /* Poll for audio elements */
         setInterval(watchAudio, 2000);
