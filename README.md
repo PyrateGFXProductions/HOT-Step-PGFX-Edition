@@ -5,7 +5,11 @@
 
 [![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/pyrategfxproductions)
 
+<<<<<<< HEAD
 ![PyrateGFX Productions](ui/dist/PGFX_HOT-Step_logo.png)
+=======
+![PyrateGFX Productions](/ui/dist/PGFX_HOT-Step_logo.png)
+>>>>>>> ffc6a143f168cdb4965a9e0d9ced25fbc59d9cab
 
 ---
 
