@@ -44742,6 +44742,195 @@ var GENRE_VOCABULARY_MODULES = {
       "guitar": "charango", "flute": "quena", "drums": "bombo",
       "synth": "zampoña", "rock": "folk", "pop": "folk"
     }
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // DUBSTEP (English) — bass music vocabulary, wobble/growl/reese terminology
+  // ════════════════════════════════════════════════════════════════════════════════
+  dubstep: {
+    whitelist: [
+      // BASS & SOUND DESIGN
+      "wobble", "wub", "growl", "reese", "sub-bass", "bass drop", "bass cannon",
+      "wobble bass", "growl bass", "reese bass", "808", "sub", "lfo", "modulate",
+      "oscillator", "filter", "cutoff", "resonance", "frequency", "sweep",
+      "tear", "tearout", "brostep", "filthy", "grimy", "gnarly",
+      // DUBSTEP STRUCTURE
+      "drop", "build", "buildup", "build-up", "breakdown", "break", "drop out",
+      "half-time", "double-time", "snare roll", "riser", "downlifter",
+      "bass drop", "kick drum", "snare", "hi-hat", "clap", "crash",
+      // ATMOSPHERE & ENERGY
+      "heavy", "massive", "crushing", "destructive", "raw", "dark", "gritty",
+      "filthy", "nasty", "dirty", "grimy", "underground", "warehouse",
+      "bass weight", "sound system", "stacks", "speaker", "system",
+      "pressure", "vibration", "rumble", "shake", "quake", "tremor",
+      "energy", "intensity", "power", "force", "impact", "explosion",
+      // UK DUBSTEP / BROSTEP CULTURE
+      "bassline", "UK garage", "grime", "skeng", "riddim", "rhythm",
+      "selector", "MC", "MCing", "mic", "hype", "crowd",
+      "festival", "rave", "warehouse", "lockdown", "set",
+      // ELECTRONIC / PRODUCTION
+      "synth", "synthesizer", "analog", "digital", "processing",
+      "mastering", "mixing", "engineer", "producer", "beatmaker",
+      "Ableton", "FL Studio", "Reason", "Serum", "Massive", "FM8",
+      // DUBSTEP EMOTIONS & ATTITUDE
+      "aggressive", "fierce", "unrelenting", "merciless", "ruthless",
+      "defiant", "rebellious", "antiestablishment", "underground",
+      "headbang", "mosh", "rave", "dance", "jump", "bounce"
+    ],
+    blacklist: [
+      // Soft/gentle words — antithetical to dubstep's aggression
+      "gentle", "soft", "tender", "sweet", "calm", "serene", "tranquil", "peaceful",
+      "whisper", "breeze", "butterfly", "rainbow", "sunshine", "happiness", "joy",
+      "smile", "laugh", "cuddle", "embrace", "cute", "adorable", "lovely", "pretty",
+      // Country/folk words
+      "cowboy", "ranch", "farm", "barn", "saddle", "horse", "banjo", "fiddle",
+      // Patois words — English dubstep should NOT use Patois
+      "mi", "yuh", "im", "shi", "wi", "unu", "dem", "di", "inna", "pon", "fi",
+      "wid", "nuh", "nah", "tek", "gyal", "mon", "bwai", "irie", "jah", "bless",
+      // Tech/AI slop
+      "algorithm", "neural", "quantum", "hologram", "blockchain", "metaverse",
+      // Generic AI-poetic slop
+      "neon", "ethereal", "shimmering", "cascade", "kaleidoscope", "tapestry",
+      "phantom", "ghostly", "wailing", "howling", "flickering", "drenched",
+      "echo-drenched", "silhouette", "embers", "void"
+    ],
+    lineRules: { preferShortLines: true, maxSyllables: 10, allowShouting: true },
+    replacements: {
+      "computer": "speaker", "internet": "the bass", "phone": "system",
+      "office": "warehouse", "boss": "selector", "work": "grind",
+      "gentle": "filthy", "soft": "heavy", "sweet": "nasty", "calm": "aggressive",
+      "calm": "furious", "peace": "bass", "love": "wobble", "hate": "filth",
+      "beautiful": "massive", "ugly": "grimy", "quiet": "silent", "loud": "crushing",
+      "friend": "crew", "enemy": "opps", "man": "MC", "woman": "rave girl",
+      "happy": "hyped", "sad": "down", "angry": "furious", "scared": "shook",
+      "sing": "hype", "dance": "headbang", "walk": "stomp", "run": "charge",
+      "music": "bass", "song": "track", "melody": "wobble",
+      "night": "rave", "day": "set time", "year": "era",
+      "city": "warehouse district", "town": "scene", "home": "studio",
+      "good": "filthy", "bad": "nasty", "great": "massive",
+      "terrible": "weak", "awful": "wack", "amazing": "heaving",
+      "strong": "heavy", "weak": "lightweight", "fast": "rapid", "slow": "half-time",
+      "big": "massive", "small": "lil", "new": "fresh", "old": "vintage",
+      "fire": "drop", "water": "bass", "earth": "floor", "wind": "sweep",
+      "rain": "bass rain", "snow": "frost", "storm": "bass storm",
+      "sun": "system", "moon": "night", "star": "MC",
+      "truth": "real", "lie": "cap", "secret": "lowkey"
+    }
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // DUBSTEP (Patois) — Jamaican Patois + UK bass culture fusion
+  // ════════════════════════════════════════════════════════════════════════════════
+  dubstep_patois: {
+    whitelist: [
+      // CORE PATOIS PRONOUNS (shared with reggae module)
+      "mi", "yuh", "im", "shi", "wi", "unu", "dem",
+      "di", "inna", "pon", "fi", "wid", "a", "bout", "ovah", "outta",
+      "nuh", "nah", "tek", "gi", "seh", "guh", "deh",
+      "gyal", "mon", "bwai", "pickney", "bredren", "likkle", "ting",
+      "yah", "yard", "nutten", "smadi", "sinting",
+      "wha", "weh", "enuh", "zeen", "dun", "know",
+      // DUBSTEP BASS VOCABULARY (from English dubstep)
+      "wobble", "wub", "growl", "reese", "sub-bass", "bass drop", "bass cannon",
+      "wobble bass", "growl bass", "tearout", "filthy", "grimy", "gnarly",
+      "drop", "build", "buildup", "breakdown", "half-time",
+      "snare roll", "riser", "bass weight", "pressure", "vibration",
+      "rumble", "shake", "quake", "massive", "crushing", "heavy",
+      // JAMAICAN SOUND SYSTEM / DANCEHALL CULTURE (bridges dubstep to Patois)
+      "sound system", "soundboy", "selector", "toaster", "MC", "mc",
+      "riddim", "big chune", "pull up", "wheel", "forward",
+      "shell dung", "shell down", "tun di place", "run di place",
+      "buss", "mash", "dash", "bashment", "massive",
+      "selectah", "riddim", "booyaka", "rudeboy", "rudegal",
+      // RAGGA / DANCEHALL ENERGY (high-energy Patois over bass music)
+      "hot steppa", "bad man", "don dada", "bad bwai",
+      "gyalis", "badmind", "stush", "hotting", "crucial",
+      "dutty", "mad ting", "yea mon", "bred",
+      "lock off", "nuh play", "irie ting",
+      "bad from born", "from long time", "pon di ting",
+      "tun up", "buss a blank", "gaza mi seh",
+      "touch di road", "run di place",
+      // EVERYDAY PATOIS (conversational)
+      "wah gwaan", "mi deh yah", "nuff respect", "big up",
+      "bless up", "blessings", "walk good", "likkle more",
+      "cool runnings", "feel no way", "yuh dun know",
+      "tek care", "mek we", "come yah",
+      "mash up", "mash it up", "bun bad mind",
+      // PATOIS RAGGA-DUBSTEP ENERGY
+      "massive", "large", "hortical", "crucial",
+      "pull up di tune", "wheel and come again",
+      "bass pon di head", "drop pon dem",
+      "shell di place", "run di place",
+      "natty dread", "sound clash", "mic check"
+    ],
+    blacklist: [
+      // Standard English pronouns — use Patois equivalents
+      "I", "me", "my", "you", "your", "he", "him", "his", "she", "her",
+      "we", "us", "our", "they", "them", "their",
+      "the", "in", "on", "at", "to", "for", "with", "from",
+      // Country/folk words
+      "cowboy", "ranch", "farm", "barn", "saddle", "horse", "banjo",
+      // Tech/AI slop
+      "algorithm", "neural", "quantum", "hologram", "blockchain", "metaverse",
+      // Generic AI-poetic slop
+      "neon", "ethereal", "shimmering", "cascade", "kaleidoscope", "tapestry",
+      "phantom", "ghostly", "wailing", "howling", "flickering", "drenched",
+      "echo-drenched", "silhouette", "embers", "void"
+    ],
+    lineRules: { allowPatois: true, preferPatois: true, preferShortLines: true, maxSyllables: 10, allowShouting: true, allowSlang: true },
+    replacements: {
+      // Patois grammar conversions (same core as reggae module)
+      "i": "mi", "me": "mi", "my": "mi", "you": "yuh", "your": "yuh",
+      "he": "im", "him": "im", "his": "im", "she": "shi", "her": "har",
+      "we": "wi", "us": "wi", "our": "fi wi",
+      "they": "dem", "them": "dem", "their": "fi dem",
+      "this": "dis", "that": "dat", "these": "dem", "those": "dem",
+      "here": "deh", "there": "deh", "where": "weh", "when": "wen",
+      "what": "wha", "who": "huu", "why": "wai", "how": "ou",
+      "the": "di", "in": "inna", "on": "pon", "at": "a",
+      "to": "fi", "for": "fi", "with": "wid", "from": "ova",
+      "out of": "outta", "about": "bout", "before": "befo",
+      "after": "afta",
+      // Common verbs
+      "give": "gi", "take": "tek", "make": "meck", "go": "guh",
+      "come": "kum", "say": "seh", "tell": "seh", "want": "wah",
+      "run": "ron", "walk": "walk", "talk": "taak", "think": "tink",
+      "know": "kno", "understand": "overstand",
+      "sing": "chant", "dance": "wine", "fight": "fight",
+      "break": "buss", "burn": "bun", "kill": "kill", "die": "dead",
+      "love": "luv", "hit": "lick", "turn": "tun", "stop": "stop",
+      // Common nouns
+      "girl": "gyal", "boy": "bwai", "man": "mon", "woman": "gyal",
+      "friend": "bredren", "people": "dem", "children": "pickney",
+      "child": "pickney", "baby": "pickney", "youth": "yute",
+      "person": "smadi", "something": "sinting", "nothing": "nutten",
+      "everything": "ebriting", "everyone": "ebribadi", "nobody": "nobadi",
+      "home": "yard", "house": "yard", "street": "road",
+      "water": "waata", "money": "coil", "work": "wuk",
+      "world": "world", "time": "time", "day": "day", "night": "night",
+      "morning": "mawnin", "evening": "evenin",
+      // Common adjectives
+      "good": "irie", "bad": "bred", "big": "big", "small": "likkle",
+      "little": "likkle", "new": "nuyu", "old": "ole", "hot": "hat",
+      "beautiful": "irie", "ugly": "ugly", "dirty": "dutty",
+      "very": "likkle", "really": "truu", "always": "alltime",
+      "never": "neva", "now": "now", "later": "lata", "soon": "soon",
+      "enough": "nuff", "because": "coz", "yes": "yeh", "no": "nuh",
+      "okay": "zeen",
+      // Technology → Patois equivalents
+      "computer": "dub machine", "internet": "worldwide", "phone": "telephone",
+      "text": "word", "email": "letter", "website": "corner",
+      "app": "tune", "server": "sound system",
+      // Bass music → Patois style
+      "computer": "sound system", "speaker": "box", "studio": "yard",
+      "concert": "session", "rave": "session", "festival": "big dance",
+      "producer": "selector", "engineer": "selector",
+      // Emotions → Patois
+      "happy": "irie", "sad": "down", "angry": "mad",
+      "hate": "badmind", "fear": "fraid",
+      "truth": "real", "lie": "story",
+      "what's up": "wah gwaan", "how are you": "how yuh duh",
+      "no problem": "no bother", "of course": "dun know",
+      "take care": "tek care", "see you later": "likkle more"
+    }
   }
 };
 
@@ -45016,6 +45205,38 @@ var GENRE_SLOP_REPLACEMENTS = {
     "love": "love", "hate": "despise", "fear": "dread",
     "truth": "honest word", "lie": "tall tale", "secret": "whisper",
     "good": "good", "bad": "ill", "right": "right", "wrong": "wrong"
+  },
+  dubstep: {
+    "gentle": "filthy", "soft": "heavy", "sweet": "nasty", "calm": "aggressive",
+    "beautiful": "massive", "ugly": "grimy", "quiet": "silent", "loud": "crushing",
+    "neon": "bass", "ethereal": "underground", "shimmering": "wobbling",
+    "cascade": "drop", "phantom": "bass ghost", "ghostly": "eerie",
+    "wailing": "screeching", "howling": "roaring", "flickering": "throbbing",
+    "drenched": "soaked", "void": "abyss", "embers": "embers",
+    "office": "warehouse", "meeting": "set", "boss": "selector",
+    "city": "warehouse", "town": "scene", "country": "bass nation",
+    "house": "warehouse", "building": "club", "room": "booth",
+    "car": "system", "truck": "rig", "bus": "bass bus",
+    "happy": "hyped", "sad": "down", "angry": "furious",
+    "love": "wobble", "hate": "filth", "fear": "drop",
+    "truth": "real", "lie": "cap", "secret": "drop secret",
+    "good": "filthy", "bad": "nasty", "right": "proper", "wrong": "wack"
+  },
+  dubstep_patois: {
+    "gentle": "filthy", "soft": "heavy", "sweet": "nasty", "calm": "aggressive",
+    "beautiful": "massive", "ugly": "dutty", "quiet": "silent", "loud": "crushing",
+    "neon": "bass", "ethereal": "irie", "shimmering": "wobbling",
+    "cascade": "drop", "phantom": "duppy bass", "ghostly": "dutty",
+    "wailing": "screeching", "howling": "roaring", "flickering": "throbbing",
+    "drenched": "soaked", "void": "abyss", "embers": "ash",
+    "office": "yard", "meeting": "session", "boss": "selector",
+    "city": "town", "town": "yard", "country": "island",
+    "house": "yard", "building": "sound", "room": "booth",
+    "car": "motor", "truck": "rig", "bus": "route taxi",
+    "happy": "irie", "sad": "down", "angry": "mad",
+    "love": "luv", "hate": "badmind", "fear": "fraid",
+    "truth": "real", "lie": "story", "secret": "nutten",
+    "good": "irie", "bad": "bred", "right": "proper", "wrong": "wrong"
   }
 };
 // replaceSlopWords accepts either a single genreKey (string) or an array of keys.
@@ -45061,13 +45282,22 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
     const lines = result.split("\n");
     const lastNonEmptyIdx = lines.length - 1 - [...lines].reverse().findIndex(l => l.trim());
     const lastNonEmpty = lines[lastNonEmptyIdx]?.trim() || "";
-    const hasOutroSection = /^\[Outro\]$/i.test(lastNonEmpty);
-    const allOutroSections = lines.filter(l => /^\[Outro\]/i.test(l.trim()));
+    // UPDATED: Detect any tag starting with [Outro, allowing for descriptions like [Outro: Fade]
+    const hasOutroSection = /^\[Outro(\s*[:\-].*)?\]$/i.test(lastNonEmpty);
+    const allOutroSections = lines.filter(l => /^\[Outro/i.test(l.trim()));
     // Check if the last [Outro] section has any lyric lines after it
     let outroHasLyrics = false;
     if (hasOutroSection) {
       const outroIdx = lastNonEmptyIdx;
-      const linesAfterOutro = lines.slice(outroIdx + 1).filter(l => l.trim() && !/^\[.+\]$/.test(l.trim()));
+      // Find the ACTUAL start of the last outro section to count its lyrics
+      let startOfLastOutro = 0;
+      for(let i = lines.length - 1; i >= 0; i--) {
+        if (/^\[Outro/i.test(lines[i].trim())) {
+          startOfLastOutro = i;
+          break;
+        }
+      }
+      const linesAfterOutro = lines.slice(startOfLastOutro + 1).filter(l => l.trim() && !/^\[.+\]$/.test(l.trim()));
       outroHasLyrics = linesAfterOutro.length >= 2;
     }
     if (!hasOutroSection || !outroHasLyrics) {
@@ -45159,6 +45389,105 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
     const label = genreKeys.length > 1 ? `multi-genre [${genreKeys.join("+")}]` : genreKeys[0];
     if (changes) console.log(`[SlopReplacer] Applied genre-specific slop replacement for ${label}`);
   }
+  // Step 6: Syllable Density Enforcement — restructure lines that exceed genre syllable limits
+  // Reads maxSyllables from the merged genre module's lineRules.
+  // Attempts to trim dense lines by removing filler words, then splitting at natural boundaries.
+  if (genreKeys.length > 0) {
+    const merged = genreKeys.length > 1 ? mergeGenreModules(genreKeys) : (genreKeys.length === 1 ? GENRE_VOCABULARY_MODULES[genreKeys[0]] : null);
+    const maxSyl = merged?.lineRules?.maxSyllables;
+    if (typeof maxSyl === 'number' && maxSyl > 0) {
+      const lines = result.split('\n');
+      const restructured = [];
+      let denseFixed = 0;
+      let denseSkipped = 0;
+      let worstLine = '';
+      let worstCount = 0;
+
+      // Filler words safe to remove (articles, auxiliary verbs, weak prepositions)
+      const FILLER_WORDS = new Set(['a', 'an', 'the', 'is', 'are', 'was', 'were', 'been', 'being',
+        'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'shall', 'should',
+        'may', 'might', 'can', 'could', 'must', 'that', 'which', 'who', 'whom',
+        'very', 'really', 'just', 'also', 'even', 'still', 'already', 'always']);
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || /^\[.+\]$/.test(trimmed)) { restructured.push(line); continue; }
+
+        const words = trimmed.match(/[a-zA-Z']+/g);
+        if (!words) { restructured.push(line); continue; }
+        const sylCount = words.reduce((acc, w) => acc + countSyllables(w), 0);
+
+        if (sylCount <= maxSyl) {
+          restructured.push(line);
+          continue;
+        }
+
+        // Attempt 1: Remove filler words to reduce syllable count
+        const allWords = trimmed.split(/(\s+)/); // preserve whitespace
+        const withoutFillers = allWords.filter(w => {
+          const clean = w.replace(/[^a-zA-Z']/g, '').toLowerCase();
+          return !FILLER_WORDS.has(clean) || w.length <= 1;
+        });
+        const trimmedResult = withoutFillers.join('').replace(/ {2,}/g, ' ').trim();
+        const trimmedWords = trimmedResult.match(/[a-zA-Z']+/g) || [];
+        const trimmedSyl = trimmedWords.reduce((acc, w) => acc + countSyllables(w), 0);
+
+        if (trimmedSyl <= maxSyl && trimmedResult.length > 10) {
+          // Filler removal worked
+          restructured.push(line.replace(trimmed, trimmedResult));
+          denseFixed++;
+          console.log(`[SyllableDensity] Trimmed ${sylCount}→${trimmedSyl} syl: "${trimmed.slice(0, 40)}..." → "${trimmedResult.slice(0, 40)}..."`);
+          continue;
+        }
+
+        // Attempt 2: Split at natural phrase boundary (comma, dash, " and ", " but ", " or ")
+        const splitPoints = [];
+        const commaMatches = [...trimmed.matchAll(/,\s*/g)];
+        for (const m of commaMatches) splitPoints.push({ pos: m.index, type: ',' });
+        const andMatches = [...trimmed.matchAll(/\s+and\s+/gi)];
+        for (const m of andMatches) splitPoints.push({ pos: m.index + 1, type: ' and ' });
+        const butMatches = [...trimmed.matchAll(/\s+but\s+/gi)];
+        for (const m of butMatches) splitPoints.push({ pos: m.index + 1, type: ' but ' });
+        const dashMatches = [...trimmed.matchAll(/\s*[—–-]\s*/g)];
+        for (const m of dashMatches) splitPoints.push({ pos: m.index, type: ' - ' });
+
+        if (splitPoints.length > 0) {
+          // Pick the split point closest to the middle
+          const mid = trimmed.length / 2;
+          splitPoints.sort((a, b) => Math.abs(a.pos - mid) - Math.abs(b.pos - mid));
+          const best = splitPoints[0];
+          const part1 = trimmed.slice(0, best.pos).trim();
+          const part2 = trimmed.slice(best.pos + best.type.length).trim();
+          const p1Words = (part1.match(/[a-zA-Z']+/g) || []);
+          const p2Words = (part2.match(/[a-zA-Z']+/g) || []);
+          const p1Syl = p1Words.reduce((a, w) => a + countSyllables(w), 0);
+          const p2Syl = p2Words.reduce((a, w) => a + countSyllables(w), 0);
+
+          if (p1Syl <= maxSyl && p2Syl <= maxSyl && part1.length > 5 && part2.length > 5) {
+            restructured.push(part1);
+            restructured.push(part2);
+            denseFixed++;
+            console.log(`[SyllableDensity] Split ${sylCount} syl (${p1Syl}+${p2Syl}): "${trimmed.slice(0, 40)}..."`);
+            continue;
+          }
+        }
+
+        // Could not restructure — keep original and log warning
+        restructured.push(line);
+        denseSkipped++;
+        if (sylCount > worstCount) { worstCount = sylCount; worstLine = trimmed.slice(0, 60); }
+      }
+
+      result = restructured.join('\n');
+      if (denseFixed > 0 || denseSkipped > 0) {
+        const label = genreKeys.length > 1 ? `multi-genre [${genreKeys.join("+")}]` : genreKeys[0];
+        const parts = [];
+        if (denseFixed > 0) parts.push(`${denseFixed} trimmed/split`);
+        if (denseSkipped > 0) parts.push(`${denseSkipped} over-limit (untrimmable, worst: ${worstCount} syl)`);
+        console.log(`[SyllableDensity] ${label} (${maxSyl} syl limit): ${parts.join(', ')}`);
+      }
+    }
+  }
   return result;
 }
 
@@ -45199,7 +45528,9 @@ function resolveGenreFromStyles(genres) {
     "klezmer": ["klezmer", "eastern european jewish", "jewish folk", "clarinet folk", "wedding band eastern european", "romani folk"],
     "mariachi": ["mariachi", "mexican folk", "mexican traditional", "ranchera", "son jalisciense", "corrido", "huapango", "mexican band"],
     "bhangra": ["bhangra", "punjabi folk", "punjab folk", "indian folk dance", "punjabi music", "giddha"],
-    "andean": ["andean", "andean folk", "quechua music", "charango music", "quena music", "andes music", "inca music", "south american folk", "latin folk andean"]
+    "andean": ["andean", "andean folk", "quechua music", "charango music", "quena music", "andes music", "inca music", "south american folk", "latin folk andean"],
+    "dubstep": ["dubstep", "brostep", "riddim dubstep", "tearout", "uk dubstep", "deep dubstep", "melodic dubstep", "english dubstep"],
+    "dubstep_patois": ["dubstep (patois)", "patois dubstep", "jamaican dubstep", "dancehall dubstep", "ragga dubstep", "dubstep patois", "raggamuffin dubstep"]
   };
   const genresLower = genres.map(g => g.toLowerCase().trim());
   const matched = [];
@@ -45312,7 +45643,10 @@ const GENRE_BPM_RANGES = {
   "klezmer": [100, 180],
   "mariachi": [100, 150],
   "bhangra": [100, 150],
-  "andean": [70, 120]
+  "andean": [70, 120],
+  // Dubstep
+  "dubstep": [130, 150],
+  "dubstep_patois": [130, 150]
 };
 
 // ── clampBpmForGenre ───────────────────────────────────────────────────────────
@@ -45405,12 +45739,12 @@ function mergeGenreModules(genreKeys) {
         }
       }
     }
-    // LineRules: primary gets all rules; secondary genres only contribute additive boolean rules
+    // LineRules: primary gets all rules; secondary genres only contribute additive rules
     if (mod.lineRules) {
       if (i === 0) {
         Object.assign(merged.lineRules, mod.lineRules);
       } else {
-        // Additive rules only — secondary genres can enable features but not disable primary's
+        // Additive boolean rules — secondary genres can enable features but not disable primary's
         if (mod.lineRules.allowPatois) merged.lineRules.allowPatois = true;
         if (mod.lineRules.allowRomanizedKorean) merged.lineRules.allowRomanizedKorean = true;
         if (mod.lineRules.allowSlantRhyme) merged.lineRules.allowSlantRhyme = true;
@@ -45418,6 +45752,22 @@ function mergeGenreModules(genreKeys) {
         if (mod.lineRules.preferShortLines) merged.lineRules.preferShortLines = true;
         if (mod.lineRules.preferMetered) merged.lineRules.preferMetered = true;
         if (mod.lineRules.preferCaps) merged.lineRules.preferCaps = true;
+        if (mod.lineRules.allowAdLibs) merged.lineRules.allowAdLibs = true;
+        if (mod.lineRules.allowCallResponse) merged.lineRules.allowCallResponse = true;
+        if (mod.lineRules.allowCallAndResponse) merged.lineRules.allowCallAndResponse = true;
+        if (mod.lineRules.allowShouting) merged.lineRules.allowShouting = true;
+        if (mod.lineRules.allowScratchEffects) merged.lineRules.allowScratchEffects = true;
+        if (mod.lineRules.allowDuetVocals) merged.lineRules.allowDuetVocals = true;
+        if (mod.lineRules.allowRefrain) merged.lineRules.allowRefrain = true;
+        if (mod.lineRules.allowSlang) merged.lineRules.allowSlang = true;
+        if (mod.lineRules.preferPatois) merged.lineRules.preferPatois = true;
+        if (mod.lineRules.preferBilingual) merged.lineRules.preferBilingual = true;
+        // Numeric rules: use the STRICTEST (lowest) value across all genres
+        if (typeof mod.lineRules.maxSyllables === 'number') {
+          if (typeof merged.lineRules.maxSyllables !== 'number' || mod.lineRules.maxSyllables < merged.lineRules.maxSyllables) {
+            merged.lineRules.maxSyllables = mod.lineRules.maxSyllables;
+          }
+        }
       }
     }
   }
@@ -45577,11 +45927,11 @@ var GENRE_STRUCTURE_TEMPLATES = {
   // ════════════════════════════════════════════════════════════════════════════════
   hiphop: {
     structure: "I-V-C-V-C-V-C-O",
-    description: "Hip-Hop typically uses: Intro → Verse → Chorus → Verse → Chorus → Verse → Chorus → Outro. More verses than other genres. The chorus is often a simple repeated phrase.",
-    verseLines: "8 lines (longer than other genres); dense, rhythmic, wordplay-heavy",
-    chorusLines: "4 lines; simple, repetitive, catchy",
-    bridgeNotes: "Bridge is uncommon in hip-hop. If used, it's often a beat switch or tempo change.",
-    hookStyle: "Simple, repetitive, chant-like; often a single phrase repeated 2-4 times"
+    description: "Hip-Hop typically uses: Intro → Verse → Chorus → Verse → Chorus → Verse → Chorus → Outro. More verses than other genres. The chorus is often a simple repeated phrase. LINE DENSITY MATTERS: each line should be 8-14 syllables maximum. Lines longer than 14 syllables sound rushed and cluttered — the listener can't process the wordplay. Leave breathing room between bars. A bar that's too dense kills the flow. Think: Biggie's verse on 'Juicy' — every line lands because there's space around the words.",
+    verseLines: "8 lines; dense but NOT cluttered — 8-14 syllables per line max. Each line should have room to breathe. If a line exceeds 14 syllables, split it into two lines or cut words. Wordplay is king, but wordplay only works when the listener can hear it.",
+    chorusLines: "4 lines; simple, repetitive, catchy. 6-10 syllables per line. The chorus should be EASY to sing along — if it's too dense, nobody can repeat it.",
+    bridgeNotes: "Bridge is uncommon in hip-hop. If used, it's often a beat switch or tempo change. Keep bridge lines even shorter (6-8 syllables) for contrast.",
+    hookStyle: "Simple, repetitive, chant-like; often a single phrase repeated 2-4 times. Short lines that stick in the listener's head."
   },
   trap: {
     structure: "I-V-C-V-C-Hook-C-Outro",
@@ -45657,6 +46007,33 @@ var GENRE_STRUCTURE_TEMPLATES = {
     chorusLines: "4 lines; both DJs scratch together in unison, or one scratches while the other cuts. The chorus is where both energies merge.",
     bridgeNotes: "DJ Battle is THE SECTION — the climax. Both DJs trade scratch patterns back and forth. Each round escalates. The crowd reacts. Short phrases like 'top that', 'follow that', 'your turn', 'my turn' can frame the battle. Use [DJ1] and [DJ2] markers if possible to indicate who's scratching.",
     hookStyle: "Dual scratch hook — both DJs scratching in unison, layered, complex. Think: two turntables weaving together into one massive scratch pattern. Crowd hype phrases: 'put your hands up', 'rewind', 'wheel and come again'."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // DUET / PORNOGRAPHIC / PORNGROOVE — vocal-forward, sparse genres
+  // ════════════════════════════════════════════════════════════════════════════════
+  duet: {
+    structure: "I-V1-V2-C-V1-V2-C-Outro",
+    description: "Duet: Intro → Verse 1 (first vocalist) → Verse 2 (second vocalist, responding) → Chorus (both voices together) → Verse 1 → Verse 2 → Chorus → Outro. Two distinct voices trading verses. The contrast between voices IS the hook. LINE DENSITY: 6-10 syllables per line — the interplay between voices needs space. Each vocalist should have a distinct energy and perspective.",
+    verseLines: "4 lines per vocalist; 6-10 syllables per line. Each voice brings a different perspective, energy, or tone. The verses should feel like a conversation, not two monologues.",
+    chorusLines: "4 lines; both voices together — harmonized, call-and-response, or singing the same words with different energy. 6-8 syllables per line.",
+    bridgeNotes: "Bridge might be both voices in unison, a key change, or a spoken word section where the two characters confront each other.",
+    hookStyle: "The interplay between two voices is the hook. Harmonized lines, call-and-response, or a phrase that one voice starts and the other finishes."
+  },
+  porn: {
+    structure: "I-V-C-V-C-IL-C-Outro",
+    description: "SFW Porn Groove / Sensual Lounge: Intro (slow, sensual bass groove) → Verse (smooth, low-energy) → Chorus (catchy, melodic) → Verse → Chorus → Interlude (instrumental groove, bass-heavy) → Chorus → Outro. The grooves are SLOW and SENSUAL — 70s porn soundtrack vibe. Bass-driven, minimal percussion, lush strings. LINE DENSITY: 6-10 syllables per line. The delivery should be smooth, unhurried, almost whispered. Less words, more groove.",
+    verseLines: "4 lines; smooth, sensual, low-energy delivery. 6-10 syllables per line. Think Barry White, not Eminem. The bass groove carries the verse — vocals sit on top, not dominate.",
+    chorusLines: "4 lines; melodic, catchy, smooth. 6-8 syllables per line. The chorus should feel like a slow exhale.",
+    bridgeNotes: "Interlude — instrumental groove section. Bass, strings, minimal percussion. The groove IS the bridge.",
+    hookStyle: "Smooth, melodic, sensual. A phrase that lingers like smoke. 'Let me love you tonight', 'slow groove', 'bass and strings' energy."
+  },
+  porngroove: {
+    structure: "I-V-C-V-C-IL-C-Outro",
+    description: "70s Porn Groove / Erotic Funk / Sensual Lounge: Same structure as porn module — the groove architecture is identical. Slow, bass-heavy, sensual instrumentation. LINE DENSITY: 6-10 syllables per line. Delivery is smooth, confident, unhurried. The groove does the heavy lifting.",
+    verseLines: "4 lines; smooth, sensual, confident delivery. 6-10 syllables per line. Think Isaac Hayes, Marvin Gaye, Barry White. The bass groove is the foundation — vocals ride it, not fight it.",
+    chorusLines: "4 lines; melodic, catchy, sensual. 6-8 syllables per line. Designed for slow dancing or late-night listening.",
+    bridgeNotes: "Interlude — instrumental groove. Bass, wah-wah guitar, strings, minimal drums. The groove tells the story.",
+    hookStyle: "Smooth, sensual, confident. A phrase that oozes. 'Slow jam', 'bedroom groove', 'bass and soul' energy."
   },
   // ════════════════════════════════════════════════════════════════════════════════
   // BLUES — 6 subgenres with distinct structures
@@ -45877,6 +46254,25 @@ var GENRE_STRUCTURE_TEMPLATES = {
     chorusLines: "4 lines; festive, communal, designed for fiesta singing.",
     bridgeNotes: "Instrumental break - quena (flute) or zampoña (panpipes) solo. The Andes breathe here.",
     hookStyle: "The charango's shimmering strings and quena's breathy melody create the Andean sound."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // DUBSTEP — English and Patois variants
+  // ════════════════════════════════════════════════════════════════════════════════
+  dubstep: {
+    structure: "I-Build-Drop-V-Build-Drop-Bridge-Drop-Outro",
+    description: "English Dubstep: Intro (atmospheric build, filtered synths) → Build (rising tension, snare rolls, pitch sweep) → Drop (heavy wobble bass, sub-bass, half-time drums at ~140 BPM) → Verse (stripped-back, vocal-focused) → Build → Drop (bigger, more layered) → Bridge (breakdown, atmospheric) → Drop (final, maximum intensity) → Outro (deconstruction, fade or abrupt stop). THE DROP IS EVERYTHING. Half-time feel at 140 BPM (feels like 70 BPM). Wobble bass, sub-bass, reese bass, tear-out synths. Aggressive, physical, bass-heavy. All lyrics in standard English. LINE DENSITY: Dubstep verses are SPARSE — 6-10 syllables per line maximum. The bass does the talking. Less words = more impact. If a line has more than 10 syllables, cut it down. The vocal should feel like it's riding the bass, not fighting it.",
+    verseLines: "4 lines; SPARSE — 6-10 syllables per line. Confident, rhythmic, leaving space for the bass to breathe. Clean English delivery. Think: 'Bass cannon, firing tonight' — short, punchy, devastating.",
+    chorusLines: "Chorus is often the DROP itself — instrumental, no vocals. If vocals appear, they're sparse hooks or vocal chops — 4-8 syllables max. The BASS is the chorus.",
+    bridgeNotes: "Breakdown — atmospheric, stripped-back, often just pads and filtered vocals. Creates contrast before the final drop hits even harder. Bridge lines: 6-8 syllables, whispered or filtered.",
+    hookStyle: "The BASS is the hook. Wobble bass, growl bass, sub-bass drops. If there's a vocal hook, it's a short, punchy phrase — 'bass cannon', 'drop the bass', 'wobble'. 4-6 syllables max."
+  },
+  dubstep_patois: {
+    structure: "I-Build-Drop-V-Build-Drop-Bridge-Drop-Outro",
+    description: "Patois Dubstep: Same heavy bass architecture as English dubstep, but with Jamaican Patois vocals — the MC rides the riddim. Intro (echo-laden build, dub effects) → Build (risers, snare rolls) → Drop (heavy wobble, sub-bass, half-time drums at ~140 BPM) → Verse (Patois MC delivery, toasting/ragga style over the drop) → Build → Drop (wider, more aggressive) → Bridge (dub breakdown — echo, reverb, space) → Drop (final, maximum weight) → Outro (dub delay tail, echo fade). ALL lyrics in Jamaican Patois. LINE DENSITY: Same as English dubstep — SPARSE. 6-10 syllables per line. The Patois MC rides the bass with fewer words, more attitude. 'Mi seh di bass a drop pon yuh head' — every word counts.",
+    verseLines: "4 lines; SPARSE — 6-10 syllables per line. Ragga-toasting style over heavy bass, full Patois dialect. 'Mi' not 'I', 'di' not 'the', 'pon' not 'on'. Aggressive Patois delivery. Less is more.",
+    chorusLines: "Chorus is the DROP — instrumental wobble bass. If vocals, short Patois hook phrases: 'bass drop pon dem', 'wobble pon di riddim', 'shell di place'. 4-6 syllables max.",
+    bridgeNotes: "Dub breakdown — heavy echo/delay on Patois vocal snippets, space, reverb. The dub engineer's moment — sparse, atmospheric, with reverb-drenched vocal fragments.",
+    hookStyle: "The BASS is the hook, but the Patois MC makes it DUBSTEP. Short, aggressive Patois phrases over wobble bass. 'Pull up!', 'wheel and come again!', 'bass cannon pon di head!' 4-6 syllables."
   }
 };
 
@@ -45908,13 +46304,15 @@ function analyzeLyricsQuality(lyrics, genreKeyOrKeys, bpm, subject) {
     "metal", "death metal", "black metal", "thrash metal", "doom metal", "progressive metal", "power metal", "symphonic metal", "groove metal",
     "hiphop", "hip-hop", "rap", "trap", "drill", "grime", "boom bap", "conscious hip-hop", "gangsta rap", "mumble rap", "lo-fi hip-hop",
     "blues", "delta blues", "chicago blues", "texas blues", "blues rock", "piano blues", "acoustic blues", "electric blues",
-    "punk", "punk rock", "pop punk", "post-punk", "hardcore punk", "ska punk", "anarcho-punk", "garage punk"
+    "punk", "punk rock", "pop punk", "post-punk", "hardcore punk", "ska punk", "anarcho-punk", "garage punk",
+    "dubstep", "dubstep_patois"
   ]);
   const NO_CHORUS_GENRES = new Set([
     "blues", "delta blues", "chicago blues", "texas blues", "blues rock", "piano blues", "acoustic blues", "electric blues",
     "hiphop", "hip-hop", "rap", "trap", "drill", "grime", "boom bap", "conscious hip-hop", "gangsta rap",
     "folk", "indie folk", "folk rock", "celtic folk", "traditional folk", "singer-songwriter", "americana", "country folk", "bluegrass",
-    "metal", "doom metal", "black metal", "progressive metal", "thrash metal"
+    "metal", "doom metal", "black metal", "progressive metal", "thrash metal",
+    "dubstep", "dubstep_patois"
   ]);
   // Primary genre (first) dictates structural rules — not ANY genre in the mix
   const primaryGenre = genreKeys.length > 0 ? genreKeys[0] : null;
@@ -135991,6 +136389,51 @@ router6.get("/storm/control", (req, res) => {
     ...getStreamControl(streamId)
   });
 });
+// ── GET /api/generate/defaults ──────────────────────────────────────────────
+// Returns the server's current model selections and quality defaults.
+// Used by Album Creator and other batch pages to ensure they generate with
+// the same models and quality settings as the main HOT-Step page.
+router6.get("/defaults", async (_req, res) => {
+  try {
+    const props = await aceClient.props();
+    const ditModels = props.models?.dit || [];
+    const lmModels = props.models?.lm || [];
+    const vaeModels = props.models?.vae || [];
+    const embeddingModels = props.models?.embedding || [];
+    // Apply quality defaults to an empty params object to get the defaults
+    const qualityDefaults = applyQualityDefaults({});
+    // Remove internal tracking field
+    delete qualityDefaults._qualityDefaultApplied;
+    res.json({
+      models: {
+        dit: ditModels,
+        lm: lmModels,
+        vae: vaeModels,
+        embedding: embeddingModels,
+      },
+      // First available model of each type as the server default
+      defaults: {
+        ditModel: ditModels[0] || "",
+        lmModel: lmModels[0] || "",
+        vaeModel: vaeModels[0] || "",
+        embeddingModel: embeddingModels[0] || "",
+      },
+      // Quality defaults from applyQualityDefaults
+      qualityDefaults,
+    });
+  } catch (err) {
+    // Fallback: return quality defaults even if ace-server is down
+    const qualityDefaults = applyQualityDefaults({});
+    delete qualityDefaults._qualityDefaultApplied;
+    res.json({
+      models: { dit: [], lm: [], vae: [], embedding: [] },
+      defaults: { ditModel: "", lmModel: "", vaeModel: "", embeddingModel: "" },
+      qualityDefaults,
+      aceServerDown: true,
+      error: err.message,
+    });
+  }
+});
 var generate_default = router6;
 
 // server/src/routes/models.ts
@@ -152375,6 +152818,8 @@ init_config();
 var OllamaProvider = class extends LLMProvider {
   id = "ollama";
   name = "Ollama (Local)";
+  _cachedModels = null;
+  _cacheTime = 0;
   get defaultModel() {
     return config.lireek.ollamaModel;
   }
@@ -152383,20 +152828,26 @@ var OllamaProvider = class extends LLMProvider {
   }
   async getLocalModels() {
     try {
-      const resp = await fetch(`${config.lireek.ollamaBaseUrl}/api/tags`, { signal: AbortSignal.timeout(3e3) });
-      if (!resp.ok) return [];
+      const resp = await fetch(`${config.lireek.ollamaBaseUrl}/api/tags`, { signal: AbortSignal.timeout(1e4) });
+      if (!resp.ok) return this._cachedModels || [];
       const data2 = await resp.json();
       this.availableModels = data2.models?.map((m) => m.name) || [];
+      if (this.availableModels.length > 0) {
+        this._cachedModels = this.availableModels;
+        this._cacheTime = Date.now();
+      }
       return this.availableModels;
     } catch {
-      return [];
+      return this._cachedModels || [];
     }
   }
   async toInfoAsync() {
-    const models = await this.getLocalModels();
+    // Use cached models if fetched within last 5 minutes
+    const cached = this._cachedModels && (Date.now() - this._cacheTime < 5 * 60 * 1000);
+    const models = cached ? this._cachedModels : await this.getLocalModels();
     return {
       ...this.toInfo(),
-      models: models.length ? models : [this.defaultModel],
+      models: models.length ? models : this.defaultModel ? [this.defaultModel] : [],
       default_model: models.length ? models[0] : this.defaultModel
     };
   }
@@ -152482,6 +152933,8 @@ init_config();
 var LMStudioProvider = class extends LLMProvider {
   id = "lmstudio";
   name = "LM Studio";
+  _cachedModels = null;
+  _cacheTime = 0;
   get defaultModel() {
     return config.lireek.lmstudioModel;
   }
@@ -152491,17 +152944,22 @@ var LMStudioProvider = class extends LLMProvider {
   async getLocalModels() {
     try {
       const baseUrl = config.lireek.lmstudioBaseUrl.replace("/v1", "");
-      const resp = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(3e3) });
-      if (!resp.ok) return [];
+      const resp = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(1e4) });
+      if (!resp.ok) return this._cachedModels || [];
       const data2 = await resp.json();
       this.availableModels = data2.data?.map((m) => m.id).sort().reverse() || [];
+      if (this.availableModels.length > 0) {
+        this._cachedModels = this.availableModels;
+        this._cacheTime = Date.now();
+      }
       return this.availableModels;
     } catch {
-      return [];
+      return this._cachedModels || [];
     }
   }
   async toInfoAsync() {
-    const models = await this.getLocalModels();
+    const cached = this._cachedModels && (Date.now() - this._cacheTime < 5 * 60 * 1000);
+    const models = cached ? this._cachedModels : await this.getLocalModels();
     return {
       ...this.toInfo(),
       models: models.length ? models : this.defaultModel ? [this.defaultModel] : [],
@@ -152651,6 +153109,8 @@ var UnslothProvider = class extends LLMProvider {
 init_config();
 var OpenAICompatProvider = class extends LLMProvider {
   id = "openai-compat";
+  _cachedModels = null;
+  _cacheTime = 0;
   get name() {
     return config.lireek.openaiCompatName || "OpenAI Compatible";
   }
@@ -152667,17 +153127,22 @@ var OpenAICompatProvider = class extends LLMProvider {
       if (config.lireek.openaiCompatApiKey) {
         headers["Authorization"] = `Bearer ${config.lireek.openaiCompatApiKey}`;
       }
-      const resp = await fetch(`${baseUrl}/models`, { headers, signal: AbortSignal.timeout(3e3) });
-      if (!resp.ok) return [];
+      const resp = await fetch(`${baseUrl}/models`, { headers, signal: AbortSignal.timeout(1e4) });
+      if (!resp.ok) return this._cachedModels || [];
       const data2 = await resp.json();
       this.availableModels = data2.data?.map((m) => m.id).sort().reverse() || [];
+      if (this.availableModels.length > 0) {
+        this._cachedModels = this.availableModels;
+        this._cacheTime = Date.now();
+      }
       return this.availableModels;
     } catch {
-      return [];
+      return this._cachedModels || [];
     }
   }
   async toInfoAsync() {
-    const models = await this.getRemoteModels();
+    const cached = this._cachedModels && (Date.now() - this._cacheTime < 5 * 60 * 1000);
+    const models = cached ? this._cachedModels : await this.getRemoteModels();
     return {
       ...this.toInfo(),
       models: models.length ? models : this.defaultModel ? [this.defaultModel] : [],
@@ -152722,6 +153187,8 @@ init_config();
 var LlamaCppProvider = class extends LLMProvider {
   id = "llamacpp";
   name = "llama.cpp";
+  _cachedModels = null;
+  _cacheTime = 0;
   get defaultModel() {
     return config.lireek.llamacppModel;
   }
@@ -152731,17 +153198,22 @@ var LlamaCppProvider = class extends LLMProvider {
   async getLocalModels() {
     try {
       const baseUrl = config.lireek.llamacppBaseUrl.replace(/\/+$/, "");
-      const resp = await fetch(`${baseUrl}/models`, { signal: AbortSignal.timeout(3e3) });
-      if (!resp.ok) return [];
+      const resp = await fetch(`${baseUrl}/models`, { signal: AbortSignal.timeout(1e4) });
+      if (!resp.ok) return this._cachedModels || [];
       const data2 = await resp.json();
       this.availableModels = data2.data?.map((m) => m.id).sort().reverse() || [];
+      if (this.availableModels.length > 0) {
+        this._cachedModels = this.availableModels;
+        this._cacheTime = Date.now();
+      }
       return this.availableModels;
     } catch {
-      return [];
+      return this._cachedModels || [];
     }
   }
   async toInfoAsync() {
-    const models = await this.getLocalModels();
+    const cached = this._cachedModels && (Date.now() - this._cacheTime < 5 * 60 * 1000);
+    const models = cached ? this._cachedModels : await this.getLocalModels();
     return {
       ...this.toInfo(),
       models: models.length ? models : this.defaultModel ? [this.defaultModel] : [],
@@ -152803,7 +153275,7 @@ function getProvider(name) {
   return provider;
 }
 async function listProviders() {
-  const PROVIDER_TIMEOUT_MS = 5e3;
+  const PROVIDER_TIMEOUT_MS = 2e4;
   const promises = Object.values(providers).map(async (p) => {
     try {
       if (p instanceof GeminiProvider || p instanceof OllamaProvider || p instanceof LMStudioProvider || p instanceof UnslothProvider || p instanceof LlamaCppProvider || p instanceof OpenAICompatProvider) {
@@ -152993,7 +153465,14 @@ function fixSectionLabels(text3) {
     // Folk specific labels
     "air": "Interlude",
     "reel": "Interlude",
-    "jig": "Interlude"
+    "jig": "Interlude",
+    // Dubstep / EDM specific labels
+    "build": "Bridge",
+    "build 2": "Bridge",
+    "pre-chorus": "Chorus",
+    "drop 2": "Chorus",
+    "drop 3": "Chorus",
+    "break": "Interlude"
   };
   const lines2 = text3.split("\n");
   const result = [];
@@ -153028,18 +153507,22 @@ function enforceLineCounts(text3, genreKeys) {
   const VERSE_VALID = /* @__PURE__ */ new Set([4, 8]);
   const CHORUS_VALID = /* @__PURE__ */ new Set([4, 6, 8]);
   // Genres that legitimately use 5-6 line verses (not just 4 or 8)
+  // SYNCED with analyzeLyricsQuality FLEXIBLE_VERSE_GENRES (2026-07-22)
   const FLEXIBLE_VERSE_GENRES = new Set([
-    "metal", "doom metal", "black metal", "progressive metal", "symphonic metal",
-    "hiphop", "hip-hop", "rap", "trap", "drill", "grime", "boom bap",
-    "blues", "delta blues", "chicago blues",
-    "punk", "post-punk", "hardcore punk", "anarcho-punk"
+    "metal", "death metal", "black metal", "thrash metal", "doom metal", "progressive metal", "power metal", "symphonic metal", "groove metal",
+    "hiphop", "hip-hop", "rap", "trap", "drill", "grime", "boom bap", "conscious hip-hop", "gangsta rap", "mumble rap", "lo-fi hip-hop",
+    "blues", "delta blues", "chicago blues", "texas blues", "blues rock", "piano blues", "acoustic blues", "electric blues",
+    "punk", "punk rock", "pop punk", "post-punk", "hardcore punk", "ska punk", "anarcho-punk", "garage punk",
+    "dubstep", "dubstep_patois"
   ]);
   // Genres that legitimately use no chorus (refrain-based structure)
+  // SYNCED with analyzeLyricsQuality NO_CHORUS_GENRES (2026-07-22)
   const NO_CHORUS_GENRES = new Set([
-    "blues", "delta blues", "chicago blues", "texas blues", "blues rock",
-    "hiphop", "hip-hop", "rap", "trap", "drill", "grime",
-    "folk", "traditional folk", "celtic folk",
-    "metal", "doom metal", "black metal", "progressive metal"
+    "blues", "delta blues", "chicago blues", "texas blues", "blues rock", "piano blues", "acoustic blues", "electric blues",
+    "hiphop", "hip-hop", "rap", "trap", "drill", "grime", "boom bap", "conscious hip-hop", "gangsta rap",
+    "folk", "indie folk", "folk rock", "celtic folk", "traditional folk", "singer-songwriter", "americana", "country folk", "bluegrass",
+    "metal", "doom metal", "black metal", "progressive metal", "thrash metal",
+    "dubstep", "dubstep_patois"
   ]);
   // Primary genre (first) dictates structural rules — not ANY genre in the mix
   const gKeys = genreKeys ? (Array.isArray(genreKeys) ? genreKeys : [genreKeys]) : [];

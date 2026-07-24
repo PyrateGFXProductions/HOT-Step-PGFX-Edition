@@ -105,5 +105,327 @@
         }
       })();
     </script>
+    <!-- Album Batch: Monkey-patch fetch to capture jobIds from POST /api/generate.
+         This runs BEFORE React loads so we intercept ALL generation requests. -->
+    <script>
+      (function() {
+        var _origFetch = window.fetch;
+        window.__abPendingJobId = null;
+        window.__abCapturedParams = null;
+        window.fetch = function() {
+          var url = arguments[0];
+          var opts = arguments[1] || {};
+          var method = opts.method || 'GET';
+          var isGenerate = method === 'POST' && typeof url === 'string' && url.indexOf('/api/generate') !== -1;
+          if (isGenerate) {
+            try { window.__abCapturedParams = JSON.parse(opts.body); } catch(e) {}
+            var chain = _origFetch.apply(this, arguments);
+            var clonedResp = chain.then(function(resp) {
+              var c = resp.clone();
+              c.json().then(function(data) {
+                if (data && data.jobId) { window.__abPendingJobId = data.jobId; }
+              }).catch(function(){});
+              return resp;
+            });
+            return chain;
+          }
+          return _origFetch.apply(this, arguments);
+        };
+      })();
+    </script>
+    <!-- Album Batch Handler v3 — ONLY uses params captured from a real manual generation.
+         NO server defaults, NO applyQualityDefaults fallback, NO guessing.
+         The user MUST generate one song manually first so the monkey-patch captures
+         their exact settings (solver, scheduler, guidance, DCW, etc.).
+         Only prompt fields (caption, lyrics, title, etc.) are overridden per track. -->
+    <script>
+      (function() {
+        var raw = localStorage.getItem('hs-album-pending');
+        if (!raw) return;
+        var tracks;
+        try { tracks = JSON.parse(raw); } catch(e) { return; }
+        if (!Array.isArray(tracks) || tracks.length === 0) return;
+        /* DO NOT remove hs-album-pending until generation actually starts.
+           This way if there's no template, the panel reappears on next page load. */
+
+        /* Build floating panel */
+        var panel = document.createElement('div');
+        panel.id = 'album-batch-panel';
+        panel.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:440px;max-height:80vh;overflow-y:auto;background:#18181b;border:1px solid rgba(168,85,247,0.3);border-radius:16px;box-shadow:0 25px 60px rgba(0,0,0,0.7);z-index:100000;padding:24px;font-family:system-ui,sans-serif;color:#e4e4e7;';
+        document.body.appendChild(panel);
+
+        /* Backdrop — click to dismiss */
+        var backdrop = document.createElement('div');
+        backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;cursor:pointer;';
+        backdrop.onclick = function() { if (!generating) { panel.remove(); backdrop.remove(); } };
+        document.body.appendChild(backdrop);
+
+        var TOKEN = localStorage.getItem('hs-album-token') || '';
+        var generating = false;
+        var cancelled = false;
+        var templateReady = false;
+
+        function render() {
+          var done = tracks.filter(function(t) { return t._status === 'done'; }).length;
+          var err = tracks.filter(function(t) { return t._status === 'error'; }).length;
+          var total = tracks.length;
+
+          var html = '<div style="margin-bottom:16px;font-size:15px;font-weight:700;background:linear-gradient(135deg,#c084fc,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Album Batch (' + total + ' tracks)</div>';
+
+          if (!generating && done === 0 && err === 0) {
+            if (!templateReady) {
+              html += '<div style="font-size:12px;color:#f59e0b;margin-bottom:12px;">\u26A0 No generation settings captured yet. Please generate ONE song manually on the main page first (this captures your exact settings), then reload this page.</div>';
+              html += '<button id="ab-retry-template" style="width:100%;padding:8px 16px;border-radius:8px;border:none;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;">Retry (Check for Settings)</button>';
+            } else {
+              html += '<div style="font-size:12px;color:#a1a1aa;margin-bottom:16px;">The Album Creator prepared ' + total + ' tracks. Click generate to produce audio using your current HOT-Step settings.</div>';
+              html += '<div style="font-size:10px;color:#71717a;margin-bottom:12px;">Using captured settings. Generate Album will use EXACTLY the same pipeline settings as your last manual generation.</div>';
+            }
+          } else if (generating) {
+            html += '<div style="font-size:12px;color:#3b82f6;margin-bottom:12px;">Generating... ' + done + '/' + total + ' complete' + (err > 0 ? ', ' + err + ' failed' : '') + '</div>';
+          } else if (done > 0 || err > 0) {
+            html += '<div style="font-size:12px;color:#22c55e;margin-bottom:12px;">Complete! ' + done + '/' + total + ' generated' + (err > 0 ? ', ' + err + ' failed' : '') + '</div>';
+          }
+
+          for (var i = 0; i < tracks.length; i++) {
+            var t = tracks[i];
+            var statusColor = '#71717a';
+            var statusIcon = '\u25CB';
+            if (t._status === 'generating') { statusColor = '#3b82f6'; statusIcon = '\u25C9'; }
+            else if (t._status === 'done') { statusColor = '#22c55e'; statusIcon = '\u2713'; }
+            else if (t._status === 'error') { statusColor = '#ef4444'; statusIcon = '\u2717'; }
+            html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">';
+            html += '<span style="color:' + statusColor + ';font-size:12px;width:16px;">' + statusIcon + '</span>';
+            html += '<span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (t.title || 'Track ' + (i+1)) + '</span>';
+            if (t._stage) html += '<span style="font-size:10px;color:#71717a;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + t._stage + '</span>';
+            if (t._audioUrl) html += '<a href="' + t._audioUrl + '" target="_blank" style="font-size:10px;color:#a855f7;text-decoration:none;">\u25B6</a>';
+            html += '</div>';
+          }
+
+          html += '<div style="margin-top:16px;display:flex;gap:8px;">';
+          if (!generating) {
+            html += '<button id="ab-generate" style="flex:1;padding:8px 16px;border-radius:8px;border:none;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;font-size:13px;font-weight:600;cursor:pointer;' + (templateReady ? '' : 'opacity:0.5;cursor:not-allowed;') + '">Generate Album</button>';
+            html += '<button id="ab-dismiss" style="padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.05);color:#a1a1aa;font-size:13px;cursor:pointer;">Dismiss</button>';
+          } else {
+            html += '<button id="ab-cancel" style="flex:1;padding:8px 16px;border-radius:8px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.15);color:#ef4444;font-size:13px;font-weight:600;cursor:pointer;">Cancel</button>';
+          }
+          html += '</div>';
+
+          panel.innerHTML = html;
+
+          /* Wire up buttons */
+          var genBtn = document.getElementById('ab-generate');
+          if (genBtn) genBtn.onclick = function() { if (templateReady) startGeneration(); };
+          var disBtn = document.getElementById('ab-dismiss');
+          if (disBtn) disBtn.onclick = function() { panel.remove(); backdrop.remove(); };
+          var canBtn = document.getElementById('ab-cancel');
+          if (canBtn) canBtn.onclick = function() { cancelled = true; };
+          var retryBtn = document.getElementById('ab-retry-template');
+          if (retryBtn) retryBtn.onclick = function() { tryLoadTemplate(); };
+        }
+
+        function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+        /* Poll job status until complete */
+        async function pollJob(jobId) {
+          var TIMEOUT = 15 * 60 * 1000;
+          var start = Date.now();
+          while (!cancelled) {
+            await sleep(2000);
+            if (Date.now() - start > TIMEOUT) throw new Error('Timed out after 15 minutes');
+            var resp = await fetch('/api/generate/status/' + jobId, {
+              headers: { 'Authorization': 'Bearer ' + TOKEN }
+            });
+            var st = await resp.json();
+            if (st.status === 'succeeded') return st;
+            if (st.status === 'failed' || st.status === 'cancelled') {
+              throw new Error(st.error || 'Generation ' + st.status);
+            }
+          }
+          throw new Error('Cancelled');
+        }
+
+        /* Load generation params template — ONLY from real captured params.
+           Priority:
+             1. window.__abCapturedParams (captured this session via monkey-patch)
+             2. localStorage['hs-album-params-template'] (saved from a previous session)
+           NO server defaults. NO applyQualityDefaults fallback. */
+        function tryLoadTemplate() {
+          /* Priority 1: Just captured this session */
+          if (window.__abCapturedParams) {
+            console.log('[AlbumBatch] Using just-captured params from this session');
+            console.log('[AlbumBatch] Captured settings: solver=' + (window.__abCapturedParams.inferMethod || '(default)') +
+              ' scheduler=' + (window.__abCapturedParams.scheduler || '(default)') +
+              ' guidance=' + (window.__abCapturedParams.guidanceMode || window.__abCapturedParams.guidanceScale || '(default)') +
+              ' steps=' + (window.__abCapturedParams.inferenceSteps || '(default)') +
+              ' dcwEnabled=' + window.__abCapturedParams.dcwEnabled +
+              ' dcwMode=' + (window.__abCapturedParams.dcwMode || '(default)') +
+              ' dcwScaler=' + (window.__abCapturedParams.dcwScaler || '(default)'));
+            templateReady = true;
+            render();
+            return;
+          }
+
+          /* Priority 2: Saved template from previous session */
+          try {
+            var saved = localStorage.getItem('hs-album-params-template');
+            if (saved) {
+              var parsed = JSON.parse(saved);
+              if (parsed && typeof parsed === 'object') {
+                console.log('[AlbumBatch] Using saved params template from localStorage');
+                console.log('[AlbumBatch] Saved settings: solver=' + (parsed.inferMethod || '(default)') +
+                  ' scheduler=' + (parsed.scheduler || '(default)') +
+                  ' guidance=' + (parsed.guidanceMode || parsed.guidanceScale || '(default)') +
+                  ' steps=' + (parsed.inferenceSteps || '(default)') +
+                  ' dcwEnabled=' + parsed.dcwEnabled +
+                  ' dcwMode=' + (parsed.dcwMode || '(default)') +
+                  ' dcwScaler=' + (parsed.dcwScaler || '(default)'));
+                templateReady = true;
+                render();
+                return;
+              }
+            }
+          } catch(e) {}
+
+          /* No template — refuse to generate without real settings */
+          console.warn('[AlbumBatch] No captured params available. The batch handler will NOT use server defaults (applyQualityDefaults would override your settings).');
+          console.warn('[AlbumBatch] User must: 1) Generate one song manually on the main page, 2) Reload this page.');
+          templateReady = false;
+          render();
+        }
+
+        /* Get the params for a track. ONLY uses captured params — never invents settings. */
+        function getParamsForTrack(track) {
+          var base = null;
+
+          /* Try just-captured first */
+          if (window.__abCapturedParams) {
+            base = window.__abCapturedParams;
+            /* Save for future sessions */
+            try { localStorage.setItem('hs-album-params-template', JSON.stringify(base)); } catch(e) {}
+            console.log('[AlbumBatch] Using just-captured params, saved to localStorage');
+          } else {
+            /* Use saved template */
+            try {
+              var saved = localStorage.getItem('hs-album-params-template');
+              if (saved) base = JSON.parse(saved);
+            } catch(e) {}
+          }
+
+          if (!base) throw new Error('No generation params template available — cannot generate without real settings');
+
+          /* Deep copy to avoid mutation */
+          var params = JSON.parse(JSON.stringify(base));
+
+          /* Override ONLY prompt fields from track data — ALL generation settings stay untouched */
+          params.prompt = track.caption || params.prompt || '';
+          params.caption = track.caption || params.caption || '';
+          params.lyrics = track.lyrics || params.lyrics || '';
+          params.title = track.title || params.title || '';
+          params.source = 'album-batch';
+
+          /* Override per-track optional fields if provided */
+          if (track.bpm) params.bpm = track.bpm;
+          if (track.duration) params.duration = track.duration;
+          if (track.keyScale) params.keyScale = track.keyScale;
+          if (track.timeSignature) params.timeSignature = track.timeSignature;
+          if (track.vocalLanguage) params.vocalLanguage = track.vocalLanguage;
+
+          /* Force random seed for each track */
+          params.randomSeed = true;
+          params.seed = undefined;
+
+          /* Ensure batch size is 1 for album tracks */
+          params.batchSize = 1;
+
+          return params;
+        }
+
+        async function startGeneration() {
+          if (generating || !templateReady) return;
+          generating = true;
+          cancelled = false;
+
+          /* NOW we can safely remove hs-album-pending since we're actually generating */
+          localStorage.removeItem('hs-album-pending');
+          render();
+
+          console.log('[AlbumBatch] Starting generation of ' + tracks.length + ' tracks via API-direct');
+
+          for (var i = 0; i < tracks.length; i++) {
+            if (cancelled) break;
+            var t = tracks[i];
+            t._status = 'generating';
+            t._stage = 'Preparing params...';
+            render();
+
+            try {
+              var params = getParamsForTrack(t);
+              console.log('[AlbumBatch] Track ' + (i+1) + ': POST /api/generate — source=' + params.source +
+                ' inferMethod=' + params.inferMethod + ' scheduler=' + params.scheduler +
+                ' guidanceMode=' + params.guidanceMode + ' guidanceScale=' + params.guidanceScale +
+                ' inferenceSteps=' + params.inferenceSteps +
+                ' dcwEnabled=' + params.dcwEnabled + ' dcwMode=' + params.dcwMode +
+                ' dcwScaler=' + params.dcwScaler);
+
+              t._stage = 'Submitting...';
+              render();
+
+              /* Submit generation request */
+              var resp = await fetch('/api/generate', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ' + TOKEN
+                },
+                body: JSON.stringify(params)
+              });
+
+              if (!resp.ok) {
+                var errData = await resp.json().catch(function() { return {}; });
+                throw new Error(errData.error || 'Generation request failed (' + resp.status + ')');
+              }
+
+              var jobData = await resp.json();
+              var jobId = jobData.jobId;
+              if (!jobId) throw new Error('No jobId returned from server');
+
+              t._jobId = jobId;
+              t._stage = 'Queued...';
+              render();
+              console.log('[AlbumBatch] Track ' + (i+1) + ': jobId=' + jobId);
+
+              /* Poll for completion */
+              t._stage = 'Generating...';
+              render();
+
+              var result = await pollJob(jobId);
+              t._audioUrl = (result.result && result.result.audioUrls && result.result.audioUrls[0]) || '';
+              t._masteredUrl = (result.result && result.result.masteredAudioUrl) || '';
+              t._status = 'done';
+              t._stage = 'Complete';
+              render();
+              console.log('[AlbumBatch] Track ' + (i+1) + ' complete: ' + (t.title || 'Untitled'));
+
+              /* Brief pause between tracks */
+              await sleep(1000);
+
+            } catch(e) {
+              t._status = 'error';
+              t._stage = 'Failed: ' + e.message;
+              render();
+              console.error('[AlbumBatch] Track ' + (i+1) + ' failed:', e);
+            }
+          }
+
+          generating = false;
+          render();
+          var finalDone = tracks.filter(function(t) { return t._status === 'done'; }).length;
+          console.log('[AlbumBatch] Batch complete: ' + finalDone + '/' + tracks.length + ' succeeded');
+        }
+
+        /* Initialize: try to load template, then render */
+        tryLoadTemplate();
+      })();
+    </script>
   </body>
 </html>

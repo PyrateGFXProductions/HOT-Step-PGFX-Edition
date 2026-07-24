@@ -299,6 +299,10 @@ const S = {
   playlist: [], plIndex: -1, plShuffle: false, plRepeat: false,
 };
 
+let globalTime = 0;
+let beatImpact = 0; // 0 to 1, decays over time
+let avgEnergy = 0.1; // For auto-normalization
+
 /* ═══════════════════════════════════════════════════════════════════════
    DOM
    ═══════════════════════════════════════════════════════════════════════ */
@@ -339,20 +343,45 @@ function loadAudio(url, title){
   initAudio();
   if (audioEl){ audioEl.pause(); audioEl.removeAttribute('src'); audioEl.load(); }
   if (sourceNode){ try{ sourceNode.disconnect(); }catch(e){} }
+  
   welcome.classList.add('hidden');
+  
   audioEl = new Audio();
   audioEl.crossOrigin = 'anonymous';
   audioEl.preload = 'auto';
   audioEl.src = url;
-  sourceNode = audioCtx.createMediaElementSource(audioEl);
-  sourceNode.connect(analyser);
-  analyser.connect(destNode);
-  /* Connect audio to Butterchurn if Milkdrop is ready */
-  if(butterchurnViz){try{butterchurnViz.connectAudio(sourceNode);}catch(e){}}
+
+  // Error handling for audio loading
+  audioEl.addEventListener('error', function(e) {
+    console.error('Audio loading failed:', e);
+    alert('Failed to load audio file. Please try another.');
+    welcome.classList.remove('hidden');
+  });
+
+  try {
+    sourceNode = audioCtx.createMediaElementSource(audioEl);
+    sourceNode.connect(analyser);
+    analyser.connect(destNode);
+    if(butterchurnViz){try{butterchurnViz.connectAudio(sourceNode);}catch(e){}}
+  } catch (e) {
+    console.error('Audio graph connection failed:', e);
+  }
+
   audioEl.volume = parseFloat(volEl.value);
-  audioEl.play().catch(function(){});
-  S.playing = true;
-  updatePlayBtn();
+  
+  // Handle autoplay restrictions
+  const playPromise = audioEl.play();
+  if (playPromise !== undefined) {
+    playPromise.then(() => {
+      S.playing = true;
+      updatePlayBtn();
+    }).catch(error => {
+      console.warn('Autoplay blocked by browser. User interaction required.');
+      S.playing = false;
+      updatePlayBtn();
+    });
+  }
+  
   $('track-title').innerHTML = title || '<span class="dim">Playing</span>';
   S.songTitle = title || '';
   S.songSrc = url;
@@ -451,12 +480,18 @@ function detectBeat(now){
   for(var i=hL;i<=hH&&i<freqData.length;i++){hE+=freqData[i];hC++;}
   kickE=kC?kE/kC/255:0; snareE=sC?sE/sC/255:0; hihatE=hC?hE/hC/255:0;
   var total=kickE*0.6+snareE*0.3+hihatE*0.1;
+  
+  // Auto-normalization
+  avgEnergy = avgEnergy * 0.995 + total * 0.005;
+  var normTotal = total / (avgEnergy + 0.01);
+
   runningEnergy+=(total-runningEnergy)*0.05;
   isBeat=false; beatEnergy=0;
   if (total > runningEnergy * S.sensitivity && (now-lastBeatTime)>MIN_BEAT_MS){
     isBeat=true;
     beatEnergy=Math.min(1,(total-runningEnergy*S.sensitivity)/(runningEnergy+0.01));
     lastBeatTime=now;
+    beatImpact = 1.0; // Spike for visuals
     beatHistory.push(now);
     if(beatHistory.length>30)beatHistory.shift();
     if(beatHistory.length>=3){
@@ -465,6 +500,8 @@ function detectBeat(now){
       bpm=Math.round(60000/iv[Math.floor(iv.length/2)]);
       if(bpm<40||bpm>220)bpm=0;
     }
+  }
+}
   }
 }
 
@@ -1376,40 +1413,56 @@ document.addEventListener('keydown',function(e){
    MAIN LOOP
    ═══════════════════════════════════════════════════════════════════════ */
 var globalTime=0, lastFrame=0;
-function frame(now){
-  requestAnimationFrame(frame);
-  var dt=now-lastFrame; lastFrame=now;
-  globalTime+=0.016;
-  detectBeat(now);
-  if(isBeat){bpmDisp.style.color='var(--accent)';setTimeout(function(){bpmDisp.style.color='';},80);}
-  bpmVal.textContent=bpm>0?bpm:'--';
-  updateSeek();
-
-  /* Render current mode */
-  if(S.mode===10){
-    renderMilkdrop(dt);
+function loop(t){
+  globalTime += 0.016;
+  beatImpact *= 0.92; // Smooth decay of beat impact
+  
+  detectBeat(performance.now());
+  
+  // 1. Clear & Reset (Ghosting Effect)
+  ctx.save();
+  if (S.mode === 10) {
+    // Milkdrop handles its own clearing
   } else {
-    renderers[S.mode](dt);
-
-    /* Blend mode overlay (skip if next mode is Milkdrop — different canvas) */
-    if(S.blend>0){
-      var nextMode=(S.mode+1)%MODES.length;
-      if(nextMode!==10){
-        ctx.globalAlpha=S.blend;
-        renderers[nextMode](dt);
-        ctx.globalAlpha=1;
-      }
-    }
-
-    /* Global scanline overlay */
-    if(S.scanlines&&S.mode!==4&&S.mode!==9){
-      ctx.globalAlpha=0.03;ctx.fillStyle='#000';
-      for(var sl=0;sl<H;sl+=3)ctx.fillRect(0,sl,W,1);
-      ctx.globalAlpha=1;
-    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = `rgba(0,0,0,${S.bgOpacity > 0 ? S.bgOpacity : 0.15})`;
+    ctx.fillRect(0, 0, W, H);
   }
+
+  // 2. Select & Run Renderer
+  if (S.mode === 10) {
+    if (milkdropVisible) {
+      glCanvas.style.display = 'block';
+      canvas.style.display = 'none';
+    } else {
+      glCanvas.style.display = 'none';
+      canvas.style.display = 'block';
+    }
+  } else {
+    glCanvas.style.display = 'none';
+    canvas.style.display = 'block';
+    
+    // Reset style state to prevent bleeding
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+
+    const renderer = renderers[S.mode];
+    if (renderer) renderer(t);
+  }
+
+  // 3. Post-processing: Scanlines
+  if (S.scanlines && S.mode !== 10) {
+    ctx.globalAlpha = 0.05;
+    ctx.fillStyle = '#000';
+    for (let i = 0; i < H; i += 4) ctx.fillRect(0, i, W, 1);
+    ctx.globalAlpha = 1;
+  }
+
+  updateSeek();
+  requestAnimationFrame(loop);
 }
-requestAnimationFrame(frame);
+ctx.restore();
 
 })();
 </script>

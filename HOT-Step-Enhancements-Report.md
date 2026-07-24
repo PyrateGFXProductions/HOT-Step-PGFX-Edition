@@ -36,9 +36,8 @@ The modified `server.mjs` grew from **294,865 lines** to **~299,000 lines** (net
 11. [44+ Genre Structure Templates](#11-44-genre-structure-templates)
 12. [3-Act Story Structure Rule](#12-3-act-story-structure-rule)
 13. [Narrative Coherence Rule](#13-narrative-coherence-rule)
-14. [ALL CAPS Placement Fix](#14-all-caps-placement-fix)
-15. [Grease Spot Rule with Existential Exception](#15-grease-spot-rule-with-exception)
-16. ["VARIETY IS SURVIVAL" Instruction](#16-variety-is-survival-instruction)
+14. [Grease Spot Rule with Existential Exception](#14-grease-spot-rule-with-exception)
+15. ["VARIETY IS SURVIVAL" Instruction](#15-variety-is-survival-instruction)
 17. [Metal Vocabulary Safety](#17-metal-vocabulary-safety)
 18. [Subject-Aware Vocabulary Lock](#18-subject-aware-vocabulary-lock)
 19. [Duration-Verse Count Matching](#19-duration-verse-count-matching)
@@ -195,13 +194,9 @@ Every image in every verse must connect to the subject. If the subject is "the l
 
 ---
 
-### 14. ALL CAPS Placement Fix
+### 14. ALL CAPS Placement Fix (REMOVED)
 
-**Location**: All 3 prompts
-
-**Before** (wrong): "Vary the position of ALL CAPS" — implying it should be on different lines in different verses.
-
-**After** (correct): "Vary WHETHER a verse gets ALL CAPS at all." Release naturally lands on the last line (that's correct). The variety is in which verses get the payoff and which stay entirely lowercase (sustained tension, denied release).
+**Status**: Removed from documentation. The ALL CAPS convention was implemented as a lyric-writing technique to signal emotional intensity, but the ACE-Step engine does not interpret letter casing as a vocal dynamics cue. ALL CAPS text passes through the entire pipeline intact but produces the same vocal output as lowercase — the engine has no mechanism to map casing to loudness or emotional intensity. The feature remains in the prompt instructions as a lyric-writing guide (it does no harm) but is no longer documented as producing a perceptible audio effect.
 
 ---
 
@@ -217,7 +212,7 @@ The Grease Spot Rule forces concrete nouns to fight AI slop. **New exception**: 
 
 **Location**: Both system prompts
 
-Explicit warning: "Real songs are NOT repetitive in structure. If every verse has the same length, same cadence, same ALL CAPS placement, the listener gets bored." Instructs the LLM to vary verse lengths, imagery types, emotional intensities, and line lengths.
+Explicit warning: "Real songs are NOT repetitive in structure. If every verse has the same length, same cadence, the listener gets bored." Instructs the LLM to vary verse lengths, imagery types, emotional intensities, and line lengths.
 
 ---
 
@@ -309,7 +304,7 @@ Extracts key words from the subject, checks if they appear in lyrics. <20% cover
 For each verse, checks if content words cluster around a thematic theme using 6 clusters (light, darkness, decay, nature, objects, emotion). <15% of words in any cluster = -8 points per verse.
 
 #### Check #13: 3-Act Story Progression
-Measures intensity across verses (ALL CAPS ratio + syllable density). Range < 0.15 = no emotional arc (-10 points). Peak in Verse 1 = wrong climax placement (-8 points).
+Measures intensity across verses (syllable density and thematic progression). Range < 0.15 = no emotional arc (-10 points). Peak in Verse 1 = wrong climax placement (-8 points).
 
 #### Check #14: Outro Check
 (See Section 20f above)
@@ -873,7 +868,7 @@ Genre blend rule also adapts:
 11. **Outro enforcement**: Add Step 2b (auto-insertion) to `processLyricsWithGenre()`. Add OUTRO RULE to all 3 prompts. Add outro quality check (#14) to `analyzeLyricsQuality()`.
 12. **Dub notation preservation**: Add `PRESERVED_EFFECT_WORDS` Set and modify `stripParentheticalInstructions()` to preserve single-word effects.
 13. **Quality analyzer**: Add subject parameter to `analyzeLyricsQuality()`. Add checks #11 (Subject Relevance), #12 (Narrative Coherence), #13 (3-Act Progression), #14 (Outro Check).
-14. **Prompts**: Add 3-Act Story Structure, Narrative Coherence, ALL CAPS fix, Grease Spot exception, VARIETY IS SURVIVAL, OUTRO RULE, DJ/Dual DJ tag examples, Traditional/World genre structure hints, and traditional genre tag examples for the 4 remaining genres to all prompt locations.
+14. **Prompts**: Add 3-Act Story Structure, Narrative Coherence, Grease Spot exception, VARIETY IS SURVIVAL, OUTRO RULE, DJ/Dual DJ tag examples, Traditional/World genre structure hints, and traditional genre tag examples for the 4 remaining genres to all prompt locations.
 15. **Blend instructions**: Update `buildGenreStructureHint()` to explicitly state primary dictates structure. Add DJ genre blend rule for turntablism + other genres.
 16. **Patois optional**: Split Patois override into mandatory (Patois variant selected) and optional (base reggae genre). When a non-English language is selected alongside a Patois variant, enter bilingual code-switching mode instead of forcing 100% Patois.
 17. **Line rule processing**: Add `allowScratchEffects` and `allowDuetVocals` to genre hint injection in `/llm` route.

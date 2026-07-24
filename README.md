@@ -5,7 +5,7 @@
 
 [![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/pyrategfxproductions)
 
-![PyrateGFX Productions](https://github.com/user-attachments/assets/PyrateGFXProductions.jpg)
+![PyrateGFX Productions](\ui\dist\PGFX_HOT-Step_logo.png)
 
 ---
 
@@ -32,7 +32,6 @@ Every genre now has its own structural grammar — verse/chorus/bridge line coun
 ### Narrative Intelligence
 - **3-Act Story Structure**: Every song progresses through Setup → Conflict → Resolution.
 - **Narrative Coherence Enforcement**: Every image must connect to the subject.
-- **ALL CAPS Emotional Release**: Placement varies across verses for dynamic impact.
 - **Subject-Aware Vocabulary Protection**: Words in your subject are never replaced by the slop filter.
 - **Mandatory Outro**: Every song ends with a proper 3-4 line wind-down — never an abrupt stop.
 

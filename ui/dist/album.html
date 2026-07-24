@@ -147,6 +147,7 @@
   <div class="spacer"></div>
   <button class="btn btn-secondary btn-sm" onclick="addTrack()" id="add-track-btn">+ Add Track</button>
   <button class="btn btn-danger btn-sm" onclick="cancelAll()" id="cancel-btn" style="display:none;">Cancel All</button>
+  <button class="btn btn-secondary btn-sm" onclick="clearForm()" id="clear-btn" title="Clear all tracks and album info">🗑️ Clear</button>
   <button class="btn btn-primary" onclick="generateAlbum()" id="generate-btn">Generate Album</button>
 </div>
 
@@ -172,7 +173,7 @@ let CANCEL_FLAG = false;
 
 const GENRE_LIST = [
   'Rock','Pop','Hip-Hop','R&B','Country','Folk','Jazz','Blues','Classical',
-  'Electronic','Dance','Techno','House','Trance','Drum & Bass','Dubstep','Lo-Fi',
+  'Electronic','Dance','Techno','House','Trance','Drum & Bass','Dubstep','Dubstep (Patois)','Lo-Fi',
   'Metal','Punk','Grunge','Indie','Alternative','Reggae','Dub','Ska','Dancehall',
   'Reggae (Patois)','Dub (Patois)','Dancehall (Patois)',
   'Latin','Salsa','Reggaeton','Bachata','Cumbia',
@@ -282,6 +283,16 @@ async function init() {
     }
   } catch(e) {}
 
+  // Validate saved provider against available providers
+  if (PROVIDERS.length > 0) {
+    const validProvider = PROVIDERS.find(p => (p.id || p.name) === SELECTED_PROVIDER);
+    if (!validProvider) {
+      // Saved provider not found — reset to first available
+      SELECTED_PROVIDER = PROVIDERS[0].id || PROVIDERS[0].name || '';
+      SELECTED_MODEL = PROVIDERS[0].default_model || '';
+    }
+  }
+
   if (TRACKS.length === 0) {
     for (let i = 0; i < 9; i++) TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
   }
@@ -303,9 +314,10 @@ function saveConfig() {
 function render() {
   const app = $('app');
   const provOpts = PROVIDERS.map(p => {
-    const name = p.id || p.name || 'unknown';
+    const id = p.id || p.name || 'unknown';
+    const displayName = p.name || id;
     const models = (p.models || []).map(m => typeof m === 'string' ? m : (m.id || m.name || ''));
-    return {name, models, available: p.available};
+    return {id, displayName, models, available: p.available};
   });
 
   app.innerHTML = `
@@ -341,34 +353,38 @@ function render() {
             oninput="ALBUM_GENRE=this.value;saveConfig()">
         </div>
         <div class="form-group">
-          <label>LLM Provider</label>
-          <select onchange="SELECTED_PROVIDER=this.value;const opt=this.options[this.selectedIndex];SELECTED_MODEL=opt?.dataset?.model||'';saveConfig()">
-            ${provOpts.map(p => `<option value="${esc(p.name)}" data-model="${esc(p.models[0]||'')}" ${p.name===SELECTED_PROVIDER?'selected':''}${!p.available?' style="color:var(--text3)"':''}>${esc(p.name)}${!p.available?' (no API key)':''}${p.models.length?' — '+p.models[0]:''}</option>`).join('')}
+          <label>LLM Provider & Model</label>
+          <select onchange="const v=this.value;if(v==='__custom__'){SELECTED_PROVIDER=SELECTED_PROVIDER;SELECTED_MODEL='';this.nextElementSibling.style.display='block'}else{this.nextElementSibling.style.display='none';const parts=v.split('|||');SELECTED_PROVIDER=parts[0];SELECTED_MODEL=parts[1]||''}saveConfig()">
+            ${(() => {
+              const opts = [];
+              for (const p of PROVIDERS) {
+                const provId = p.id || p.name || 'unknown';
+                const provName = p.name || provId;
+                if (p.models && p.models.length > 0) {
+                  for (const m of p.models) {
+                    const val = `${provId}|||${m}`;
+                    const isSel = provId === SELECTED_PROVIDER && m === SELECTED_MODEL;
+                    opts.push(`<option value="${esc(val)}" ${isSel?'selected':''}${!p.available?' style="color:var(--text3)"':''}>${esc(provName)} — ${esc(m)}${!p.available?' (unavailable)':''}</option>`);
+                  }
+                } else {
+                  const val = `${provId}|||`;
+                  const isSel = provId === SELECTED_PROVIDER && !SELECTED_MODEL;
+                  opts.push(`<option value="${esc(val)}" ${isSel?'selected':''}${!p.available?' style="color:var(--text3)"':''}>${esc(provName)}${!p.available?' (unavailable)':''}</option>`);
+                }
+              }
+              const anySel = PROVIDERS.some(p => (p.id||p.name) === SELECTED_PROVIDER);
+              opts.push(`<option value="__custom__" ${!anySel?'selected':''}>Custom provider/model...</option>`);
+              return opts.join('');
+            })()}
           </select>
+          <input type="text" value="${esc(SELECTED_PROVIDER && SELECTED_MODEL ? SELECTED_PROVIDER+':'+SELECTED_MODEL : SELECTED_PROVIDER || SELECTED_MODEL || '')}" placeholder="e.g. ollama:gemma4:12b, openai:gpt-4o" style="display:${PROVIDERS.some(p=>(p.id||p.name)===SELECTED_PROVIDER)?'none':'block'};margin-top:4px;"
+            oninput="const v=this.value;const ci=v.indexOf(':');if(ci>0){SELECTED_PROVIDER=v.substring(0,ci);SELECTED_MODEL=v.substring(ci+1)}else{SELECTED_PROVIDER=v;SELECTED_MODEL=''}saveConfig()">
         </div>
         <div class="form-group">
           <label>Language</label>
           <select onchange="SELECTED_LANG=this.value;saveConfig()">
             ${LANGUAGES.map(l => `<option value="${l.code}" ${l.code===SELECTED_LANG?'selected':''}>${l.name}</option>`).join('')}
           </select>
-        </div>
-      </div>
-      <div class="form-row single">
-        <div class="form-group">
-          <label>Model (select from list or type custom)</label>
-          ${(() => {
-            const selProv = PROVIDERS.find(p => (p.id||p.name) === SELECTED_PROVIDER);
-            const models = selProv ? (selProv.models||[]) : [];
-            if (models.length > 0) {
-              return `<select onchange="SELECTED_MODEL=this.value==='__custom__'?'':this.value;saveConfig();if(this.value==='__custom__'){this.nextElementSibling.style.display='block'}else{this.nextElementSibling.style.display='none'}">
-                ${models.map(m => `<option value="${esc(m)}" ${m===SELECTED_MODEL?'selected':''}>${esc(m)}</option>`).join('')}
-                <option value="__custom__" ${!models.includes(SELECTED_MODEL)?'selected':''}>Custom model name...</option>
-              </select>
-              <input type="text" value="${esc(!models.includes(SELECTED_MODEL)?SELECTED_MODEL:'')}" placeholder="Type custom model name" style="display:${!models.includes(SELECTED_MODEL)?'block':'none'};margin-top:4px;"
-                oninput="SELECTED_MODEL=this.value;saveConfig()">`;
-            }
-            return `<input type="text" value="${esc(SELECTED_MODEL)}" placeholder="e.g. gpt-4o, claude-sonnet-4-20250514, gemma4:12b" oninput="SELECTED_MODEL=this.value;saveConfig()">`;
-          })()}
         </div>
       </div>
       <div class="form-row single" style="margin-top:8px;">
@@ -500,6 +516,75 @@ function addTrack() {
   toggleTrack(TRACKS.length - 1);
 }
 
+// ── LLM Response Parser ──────────────────────────────────────────────────────
+function parseLLMAlbumResponse(raw) {
+  if (!raw) return null;
+
+  // Strategy 1: Try JSON extraction (handles markdown-wrapped JSON too)
+  let cleaned = raw.replace(/```(?:json)?\s*([\s\S]*?)\s*```/g, '$1').trim();
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    try {
+      const json = JSON.parse(cleaned.substring(start, end + 1));
+      if (json.tracks && Array.isArray(json.tracks)) return json;
+      // Handle { theme, title, tracks: [...] } or { album: { tracks: [...] } }
+      const tracks = json.tracks || json.album?.tracks || json.songs;
+      if (tracks && Array.isArray(tracks) && tracks.length > 0) {
+        return { theme: json.theme || json.description || '', title: json.title || json.albumTitle || '', tracks };
+      }
+    } catch (e) {}
+  }
+
+  // Strategy 2: Line-by-line structured parsing (THEME:, TITLE:, N: Track | Subject)
+  const tracks = [];
+  let theme = '', title = '';
+  const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    if (/^THEME:\s*/i.test(line)) { theme = line.replace(/^THEME:\s*/i, '').trim(); continue; }
+    if (/^TITLE:\s*/i.test(line)) { title = line.replace(/^TITLE:\s*/i, '').trim(); continue; }
+    // Match: "1: Track Name | Description" or "1. Track Name - Description" or "1) Track Name: Description"
+    const m = line.match(/^(\d+)[.:)\]\-]\s*(.+)/);
+    if (m) {
+      const content = m[2];
+      const pipeSplit = content.split('|');
+      if (pipeSplit.length > 1) tracks.push({ title: pipeSplit[0].trim(), subject: pipeSplit.slice(1).join('|').trim() });
+      else {
+        // Try splitting on " - " or ": " as alternative separators
+        const dashSplit = content.split(/\s*[-–—]\s+/);
+        if (dashSplit.length >= 2) tracks.push({ title: dashSplit[0].trim(), subject: dashSplit.slice(1).join(' - ').trim() });
+        else tracks.push({ title: '', subject: content.trim() });
+      }
+    }
+  }
+  if (tracks.length > 0) return { theme, title, tracks };
+
+  // Strategy 3: Relaxed parsing — look for any numbered or bulleted list items
+  const relaxedTracks = [];
+  for (const line of lines) {
+    // Skip headers/meta
+    if (/^(theme|title|album|track|genre|style|tracklist|here|sure|of course|absolutely)/i.test(line)) continue;
+    // Match: "- Track Name: Description" or "• Track Name — Description" or just "Track Name: Description"
+    const bulletMatch = line.match(/^[\-\*•]\s*(.+)/);
+    const numberedMatch = line.match(/^(?:track\s*)?(\d+)[.:)\]]\s*(.+)/i);
+    const colonMatch = line.match(/^([A-Z][A-Za-z\s'&\-]+?):\s*(.+)/);
+    if (numberedMatch) {
+      const content = numberedMatch[2];
+      const parts = content.split(/[|:\-–—]/);
+      relaxedTracks.push({ title: (parts[0] || '').trim(), subject: (parts.slice(1).join(' ').trim() || parts[0] || '').trim() });
+    } else if (bulletMatch) {
+      const content = bulletMatch[1];
+      const parts = content.split(/[|:\-–—]/);
+      relaxedTracks.push({ title: (parts[0] || '').trim(), subject: (parts.slice(1).join(' ').trim() || parts[0] || '').trim() });
+    } else if (colonMatch && colonMatch[1].length < 40 && colonMatch[2].length > 10) {
+      relaxedTracks.push({ title: colonMatch[1].trim(), subject: colonMatch[2].trim() });
+    }
+  }
+  if (relaxedTracks.length >= 2) return { theme: '', title: '', tracks: relaxedTracks };
+
+  return null;
+}
+
 // ── Random Subject ──────────────────────────────────────────────────────
 async function generateSubject(i) {
   if (!SELECTED_PROVIDER || !TOKEN) return alert('Select an LLM provider first');
@@ -571,69 +656,57 @@ CRITICAL RULES:
       })
     });
 
-    // Parse the response — line-based format: THEME:/TITLE:/N: Title | Subject
-    let concept = null;
     const raw = result.lyrics || '';
-    console.log('[AutoFill] Raw LLM response:', raw.substring(0, 500));
+    let concept = parseLLMAlbumResponse(raw);
 
-    // Strategy 1: Parse our line-based format (THEME:/TITLE:/N: Title | Subject)
-    {
-      const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
-      const theme = lines.find(l => /^THEME:\s*/i.test(l))?.replace(/^THEME:\s*/i, '').trim() || '';
-      const title = lines.find(l => /^TITLE:\s*/i.test(l))?.replace(/^TITLE:\s*/i, '').trim() || '';
-      const tracks = [];
-      for (const line of lines) {
-        const m = line.match(/^(\d+):\s*(.+)/);
-        if (m) {
-          const parts = m[2].split('|').map(s => s.trim());
-          tracks.push({ title: parts[0] || '', subject: parts.slice(1).join(' | ') || parts[0] || '' });
+    // Retry once with a simpler prompt if parsing fails
+    if (!concept || !concept.tracks || concept.tracks.length === 0) {
+      console.warn('[AutoFill] First parse failed. Raw response:', raw.slice(0, 500));
+      if (btn) btn.textContent = '⏳ Retrying with simpler prompt...';
+
+      const retryPrompt = `You are making a ${ALBUM_GENRE} album with ${activeCount} tracks.
+
+Return EXACTLY this format, nothing else. Replace the bracketed content:
+
+THEME: [one sentence album concept]
+TITLE: [album title]
+1: [Track Title] | [2 sentence song description]
+2: [Track Title] | [2 sentence song description]
+3: [Track Title] | [2 sentence song description]
+${activeCount >= 4 ? `4: [Track Title] | [2 sentence song description]` : ''}
+${activeCount >= 5 ? `5: [Track Title] | [2 sentence song description]` : ''}
+${activeCount >= 6 ? `6: [Track Title] | [2 sentence song description]` : ''}
+${activeCount >= 7 ? `7: [Track Title] | [2 sentence song description]` : ''}
+${activeCount >= 8 ? `8: [Track Title] | [2 sentence song description]` : ''}
+${activeCount >= 9 ? `9: [Track Title] | [2 sentence song description]` : ''}
+
+Do NOT add any other text, explanations, or formatting. ONLY output the lines above with the brackets replaced.`;
+
+      try {
+        const retryResult = await api('/api/inspire/llm', {
+          method: 'POST',
+          body: JSON.stringify({
+            provider: SELECTED_PROVIDER,
+            model: SELECTED_MODEL || undefined,
+            genres: [ALBUM_GENRE],
+            subject: `Design a ${ALBUM_GENRE} album concept with ${activeCount} different tracks`,
+            language: SELECTED_LANG,
+            systemPrompt: retryPrompt
+          })
+        });
+        const retryRaw = retryResult.lyrics || '';
+        concept = parseLLMAlbumResponse(retryRaw);
+        if (!concept || !concept.tracks || concept.tracks.length === 0) {
+          console.error('[AutoFill] Retry also failed. Raw:', retryRaw.slice(0, 500));
+          throw new Error('Could not parse album concept after 2 attempts. Try a different provider/model, or fill tracks manually.');
         }
-      }
-      if (tracks.length > 0) concept = { theme, title, tracks };
-    }
-
-    // Strategy 2: try JSON (some models output JSON anyway)
-    if (!concept) {
-      try { concept = JSON.parse(raw); } catch {}
-    }
-
-    // Strategy 3: extract JSON from markdown code blocks
-    if (!concept) {
-      const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (m) try { concept = JSON.parse(m[1]); } catch {}
-    }
-
-    // Strategy 4: find outermost { ... } in the text
-    if (!concept) {
-      const start = raw.indexOf('{');
-      const end = raw.lastIndexOf('}');
-      if (start >= 0 && end > start) {
-        try { concept = JSON.parse(raw.substring(start, end + 1)); } catch {}
+      } catch (retryErr) {
+        if (retryErr.message.includes('Could not parse')) throw retryErr;
+        // LLM call itself failed on retry
+        throw new Error('LLM failed: ' + retryErr.message + '. Try a different provider or model.');
       }
     }
 
-    // Strategy 5: brute-force — extract any "number: Title | Subject" lines
-    if (!concept || !concept.tracks) {
-      const tracks = [];
-      const lines = raw.split('\n');
-      for (const line of lines) {
-        const m = line.trim().match(/^(\d+)[.:)\]]\s*(.+)/);
-        if (m) {
-          const parts = m[2].split('|').map(s => s.trim());
-          tracks.push({ title: parts[0] || '', subject: parts.slice(1).join(' | ') || parts[0] || '' });
-        }
-      }
-      if (tracks.length >= 2) {
-        concept = { theme: '', title: '', tracks };
-      }
-    }
-
-    if (!concept || !concept.tracks || !Array.isArray(concept.tracks) || concept.tracks.length === 0) {
-      console.error('[AutoFill] All parse strategies failed. Raw response:', raw);
-      throw new Error('Could not parse album concept. Check the browser console (F12) for the raw LLM response. Try a different provider or fill tracks manually.');
-    }
-
-    // Apply results
     if (concept.theme) ALBUM_THEME = concept.theme;
     if (concept.title && !ALBUM_TITLE) ALBUM_TITLE = concept.title;
 
@@ -642,7 +715,7 @@ CRITICAL RULES:
       const t = concept.tracks[i];
       if (t.title) TRACKS[i].title = t.title;
       if (t.subject) TRACKS[i].subject = t.subject;
-      TRACKS[i].lyrics = '';          // clear so generateAlbum will re-LLM
+      TRACKS[i].lyrics = '';
       TRACKS[i]._expanded = false;
     }
 
@@ -651,7 +724,18 @@ CRITICAL RULES:
     toggleTrack(0);
 
   } catch(e) {
-    alert('Auto-fill failed: ' + e.message);
+    const msg = e.message || String(e);
+    let hint = '';
+    if (msg.includes('Unknown LLM provider')) {
+      hint = '\n\nTip: The provider name must match a registered provider. Check the LLM Provider dropdown.';
+    } else if (msg.includes('fetch') || msg.includes('network') || msg.includes('ECONNREFUSED')) {
+      hint = '\n\nTip: Make sure the LLM server is running and accessible.';
+    } else if (msg.includes('timed out') || msg.includes('timeout')) {
+      hint = '\n\nTip: The LLM took too long. Try a faster model or check your connection.';
+    } else if (msg.includes('Could not parse')) {
+      hint = '\n\nTip: The LLM returned content in an unexpected format. Try a different model (larger models follow instructions better), or fill tracks manually.';
+    }
+    alert('Auto-fill failed: ' + msg + hint);
     console.error('Auto-fill error:', e);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = origText || '✨ Auto-Fill Album'; }
@@ -713,37 +797,8 @@ RULES:
       })
     });
 
-    // Parse — same line-based format as autoFill
-    let concept = null;
     const raw = result.lyrics || '';
-    console.log('[Shuffle] Raw LLM response:', raw.substring(0, 500));
-
-    // Strategy 1: line-based format (N: Title | Subject)
-    {
-      const tracks = [];
-      for (const line of raw.split('\n')) {
-        const m = line.trim().match(/^(\d+)[.:)\]]\s*(.+)/);
-        if (m) {
-          const parts = m[2].split('|').map(s => s.trim());
-          tracks.push({ title: parts[0] || '', subject: parts.slice(1).join(' | ') || parts[0] || '' });
-        }
-      }
-      if (tracks.length > 0) concept = { tracks };
-    }
-
-    // Strategy 2: JSON
-    if (!concept) try { concept = JSON.parse(raw); } catch {}
-    // Strategy 3: JSON in code blocks
-    if (!concept) {
-      const m = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (m) try { concept = JSON.parse(m[1]); } catch {}
-    }
-    // Strategy 4: outermost { ... }
-    if (!concept) {
-      const start = raw.indexOf('{');
-      const end = raw.lastIndexOf('}');
-      if (start >= 0 && end > start) try { concept = JSON.parse(raw.substring(start, end + 1)); } catch {}
-    }
+    const concept = parseLLMAlbumResponse(raw);
 
     if (!concept || !concept.tracks || !Array.isArray(concept.tracks)) {
       console.error('[Shuffle] All parse strategies failed. Raw:', raw);
@@ -773,9 +828,11 @@ RULES:
 }
 
 // ── Generate Album ──────────────────────────────────────────────────────
+// Phase 1: Generate lyrics for all tracks (prompt management — this is the Album Creator's job)
+// Phase 2: Save completed track list and hand off to main page for audio generation
 async function generateAlbum() {
   if (GENERATING) return;
-  
+
   // Validate
   const activeTracks = TRACKS.filter(t => t.subject || t.lyrics);
   if (activeTracks.length === 0) return alert('Configure at least one track with a subject or lyrics.');
@@ -788,17 +845,18 @@ async function generateAlbum() {
   $('add-track-btn').disabled = true;
   updateOverall();
 
-  // Process tracks sequentially
+  let lyricsFailed = false;
+
+  // ── PHASE 1: Generate lyrics for all tracks (prompt management) ──
   for (let i = 0; i < TRACKS.length; i++) {
     const t = TRACKS[i];
     if (!t.subject && !t.lyrics) continue;
     if (CANCEL_FLAG) break;
 
-    // Expand this track
     toggleTrack(i);
 
     try {
-      // Step 1: Generate lyrics via LLM (if not provided)
+      // Generate lyrics via LLM if not already provided
       if (!t.lyrics) {
         t._status = 'generating';
         t._stage = 'Generating lyrics via LLM...';
@@ -810,17 +868,57 @@ async function generateAlbum() {
         const subjectWithTheme = ALBUM_THEME
           ? (t.subject ? `${t.subject} (Album theme: ${ALBUM_THEME})` : ALBUM_THEME)
           : t.subject;
-        const llmResult = await api('/api/inspire/llm', {
-          method: 'POST',
-          body: JSON.stringify({
-            provider: SELECTED_PROVIDER,
-            model: SELECTED_MODEL || undefined,
-            genres: genres,
-            subject: subjectWithTheme,
-            language: SELECTED_LANG
-          })
-        });
-        
+
+        // Retry loop: try up to 2 times if LLM returns empty/poor lyrics
+        let llmResult = null;
+        let lyricsValid = false;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            llmResult = await api('/api/inspire/llm', {
+              method: 'POST',
+              body: JSON.stringify({
+                provider: SELECTED_PROVIDER,
+                model: SELECTED_MODEL || undefined,
+                genres: genres,
+                subject: subjectWithTheme,
+                language: SELECTED_LANG
+              })
+            });
+          } catch (llmErr) {
+            console.error(`Track ${i+1} LLM call failed (attempt ${attempt}):`, llmErr.message);
+            if (attempt === 1) {
+              t._stage = `LLM error, retrying... (${llmErr.message})`;
+              render();
+              toggleTrack(i);
+              await sleep(2000);
+              continue;
+            }
+            throw new Error(`LLM provider failed: ${llmErr.message}. Check your provider settings and model.`);
+          }
+
+          const rawLyrics = (llmResult.lyrics || '').trim();
+          const sectionCount = (rawLyrics.match(/\[[\w\s\d]+\]/gi) || []).length;
+          const lineCount = rawLyrics.split('\n').filter(l => l.trim() && !l.trim().match(/^\[[\w\s\d]+\]$/)).length;
+          const wordCount = rawLyrics.split(/\s+/).filter(w => w.length > 0).length;
+
+          if (rawLyrics.length > 50 && sectionCount >= 2 && lineCount >= 8 && wordCount >= 30) {
+            lyricsValid = true;
+            break;
+          }
+
+          console.warn(`Track ${i+1} lyrics too sparse (attempt ${attempt}): ${sectionCount} sections, ${lineCount} lines, ${wordCount} words`);
+          if (attempt === 1) {
+            t._stage = 'Lyrics too sparse, retrying with simpler prompt...';
+            render();
+            toggleTrack(i);
+            await sleep(1000);
+          }
+        }
+
+        if (!lyricsValid || !llmResult) {
+          throw new Error('LLM returned empty or unreadable lyrics. Try a different provider/model, or write lyrics manually.');
+        }
+
         t.lyrics = llmResult.lyrics || '';
         t.title = t.title || llmResult.title || '';
         t._caption = llmResult.caption || genres.join(', ');
@@ -828,106 +926,94 @@ async function generateAlbum() {
         t._key = llmResult.key;
         t._duration = llmResult.duration;
         t._timeSignature = llmResult.timeSignature;
-        t._lyrics = llmResult.lyrics; // Store for display
-      } else {
-        t._caption = t.genreOverride || ALBUM_GENRE || 'Rock';
       }
 
-      if (CANCEL_FLAG) break;
+      // Validate lyrics quality
+      const finalLyricCheck = (t.lyrics || '').trim();
+      if (finalLyricCheck.length < 30 || (finalLyricCheck.match(/\[[\w\s\d]+\]/gi) || []).length < 2) {
+        throw new Error('Lyrics are too short or missing section headers.');
+      }
 
-      // Step 2: Submit to audio engine
-      t._stage = 'Submitting to audio engine...';
-      t._progress = 5;
+      t._status = 'ready';
+      t._stage = 'Lyrics ready';
+      t._progress = 100;
       render();
       toggleTrack(i);
 
-      const genParams = {
-        prompt: t._caption || t.genreOverride || ALBUM_GENRE || '',
-        lyrics: t.lyrics,
-        title: t.title || t.subject || `Track ${i+1}`,
-        caption: t._caption || '',
-        songDescription: t._caption || '',
-        randomSeed: true,
-        source: 'album',
-        vocalLanguage: SELECTED_LANG,
-      };
-      if (t._bpm) genParams.bpm = t._bpm;
-      // Ensure minimum 180s so the song has room for the outro — LLMs often omit duration
-      genParams.duration = t._duration || 180;
-      if (t._key) genParams.keyScale = t._key;
-      if (t._timeSignature) genParams.timeSignature = t._timeSignature;
-
-      const subResult = await api('/api/generate', { method:'POST', body: JSON.stringify(genParams) });
-      const jobId = subResult.jobId;
-      if (!jobId) throw new Error('No jobId returned');
-      t._jobId = jobId;
-      t._status = 'queued';
-      t._stage = 'Queued...';
-      render();
-      toggleTrack(i);
-
-      // Step 3: Poll until done
-      let timedOut = false;
-      const startTime = Date.now();
-      const TIMEOUT_MS = 15 * 60 * 1000; // 15 min per track
-
-      while (!CANCEL_FLAG) {
-        await sleep(2000);
-        
-        if (Date.now() - startTime > TIMEOUT_MS) {
-          throw new Error('Generation timed out after 15 minutes');
-        }
-
-        try {
-          const status = await api(`/api/generate/status/${jobId}`);
-          
-          t._stage = status.stage || 'Generating...';
-          t._progress = status.progress != null ? (status.progress > 1 ? status.progress/100 * 100 : status.progress * 100) : t._progress;
-          render();
-          toggleTrack(i);
-
-          if (status.status === 'succeeded') {
-            t._audioUrl = status.result?.audioUrls?.[0] || '';
-            t._songId = status.result?.songIds?.[0];
-            t._masteredUrl = status.result?.masteredAudioUrl || '';
-            t._finalDuration = status.result?.duration;
-            t._status = 'completed';
-            t._stage = 'Complete!';
-            t._progress = 100;
-            render();
-            toggleTrack(i);
-            break;
-          }
-
-          if (status.status === 'failed' || status.status === 'cancelled') {
-            throw new Error(status.error || `Generation ${status.status}`);
-          }
-        } catch(e) {
-          if (e.message.includes('timed out') || e.message.includes('Generation')) throw e;
-          // Transient error, keep polling
-          console.warn('Poll error:', e.message);
-        }
-      }
     } catch(e) {
       t._status = 'error';
       t._error = e.message;
-      t._stage = 'Failed';
+      t._stage = 'Failed: ' + e.message;
       render();
       toggleTrack(i);
       console.error(`Track ${i+1} failed:`, e);
+      lyricsFailed = true;
     }
   }
 
-  GENERATING = false;
-  CANCEL_FLAG = false;
-  $('generate-btn').disabled = false;
-  $('cancel-btn').style.display = 'none';
-  $('add-track-btn').disabled = false;
-  updateOverall();
+  if (CANCEL_FLAG || lyricsFailed) {
+    GENERATING = false;
+    CANCEL_FLAG = false;
+    $('generate-btn').disabled = false;
+    $('cancel-btn').style.display = 'none';
+    $('add-track-btn').disabled = false;
+    updateOverall();
+    if (lyricsFailed) alert('Some tracks failed lyric generation. Fix errors and try again.');
+    return;
+  }
+
+  // ── PHASE 2: Save track list and hand off to main page ──
+  // The Album Creator is a PROMPT MANAGER. It creates the data and hands
+  // it to the main page's existing generation pipeline. Zero duplication.
+  const pendingTracks = [];
+  for (const t of TRACKS) {
+    if (!t.lyrics) continue;
+    const trackGenre = t.genreOverride || ALBUM_GENRE || 'Rock';
+    const lyricsPreview = (t.lyrics || '').split('\n')
+      .filter(l => l.trim() && !l.trim().startsWith('['))
+      .slice(0, 6).join(' / ');
+    const captionParts = [
+      `${trackGenre} song`,
+      t.title ? `titled "${t.title}"` : '',
+      t.subject ? `about ${t.subject}` : '',
+      t._bpm ? `BPM: ${t._bpm}` : '',
+      t._key ? `Key: ${t._key}` : '',
+      t._timeSignature ? `Time: ${t._timeSignature}` : '',
+      lyricsPreview ? `Lyrics theme: ${lyricsPreview}` : '',
+    ].filter(Boolean);
+    pendingTracks.push({
+      title: t.title || t.subject || `Track`,
+      lyrics: t.lyrics,
+      caption: captionParts.join('. ') + '.',
+      bpm: t._bpm || undefined,
+      duration: t._duration || 180,
+      keyScale: t._key || undefined,
+      timeSignature: t._timeSignature || undefined,
+      vocalLanguage: SELECTED_LANG,
+    });
+  }
+
+  localStorage.setItem('hs-album-pending', JSON.stringify(pendingTracks));
+  console.log(`[Album] Saved ${pendingTracks.length} tracks to localStorage. Redirecting to main page for audio generation.`);
+  window.location.href = '/';
 }
 
 function cancelAll() {
   CANCEL_FLAG = true;
+}
+
+function clearForm() {
+  if (GENERATING) return alert('Cannot clear while generating. Cancel first.');
+  if (!confirm('Clear all album info and tracks? This cannot be undone.')) return;
+  ALBUM_TITLE = '';
+  ALBUM_THEME = '';
+  ALBUM_GENRE = '';
+  SELECTED_LANG = 'en';
+  TRACKS = [];
+  for (let i = 0; i < 9; i++) TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
+  localStorage.removeItem('hs-album-config');
+  saveConfig();
+  render();
 }
 
 function updateOverall() {
