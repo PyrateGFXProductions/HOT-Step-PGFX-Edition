@@ -44995,7 +44995,7 @@ var LANGUAGE_FALLBACK_MAP = {
 // subject parameter (optional): the user's song subject — words appearing in the subject
 // are PROTECTED and will not be replaced. This prevents the vocabulary lock from destroying
 // subject-relevant words (e.g., "sun" in a song about "the last hour of daylight").
-function enforceVocabularyLock(lyrics, genreKeyOrKeys, subject) {
+function enforceVocabularyLock(lyrics, genreKeyOrKeys, subject, wantsPatois) {
   const genreKeys = Array.isArray(genreKeyOrKeys) ? genreKeyOrKeys : (genreKeyOrKeys ? [genreKeyOrKeys] : []);
   const mod = genreKeys.length > 1 ? mergeGenreModules(genreKeys) : (genreKeys.length === 1 ? GENRE_VOCABULARY_MODULES[genreKeys[0]] : null);
   if (!mod || !mod.replacements) return lyrics;
@@ -45266,7 +45266,7 @@ function replaceSlopWords(lyrics, genreKeyOrKeys) {
 // When an array is provided, it merges vocabulary and slop replacements from all genres.
 // subject parameter (optional): the user's song subject — words appearing in the subject
 // are PROTECTED from vocabulary replacements to preserve subject relevance.
-function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subject) {
+function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subject, wantsPatois) {
   const genreKeys = Array.isArray(genreKeyOrKeys) ? genreKeyOrKeys : (genreKeyOrKeys ? [genreKeyOrKeys] : []);
   let result = lyrics;
   // Step 0: Strip parenthetical instructions (CRITICAL — ACE-Step sings anything in parentheses)
@@ -297119,10 +297119,20 @@ router21.post("/llm", async (req, res) => {
         if (mergedMod.lineRules.preferCaps) genreHints.push("ALL CAPS USE — THE PRINCIPLE (CRITICAL): ALL CAPS creates emotional contrast. A line in caps hits HARDER when the lines around it are lowercase. If EVERY line is caps, NO line stands out — the effect is destroyed. Use ALL CAPS sparingly: only on the single most intense line per verse or section (usually the last line, or the line with the strongest image). Think of it like a dynamics marking in a score — you don't play fortissimo the entire song, you save it for the climax. Example: three lowercase lines building tension, THEN one ALL CAPS line that breaks the pattern and hits the listener. That's how real metal vocalists deliver their most devastating lines.");
         if (mergedMod.lineRules.allowRomanizedKorean) genreHints.push("Mix romanized Korean with English for authentic K-Pop feel");
         if (mergedMod.lineRules.allowPatois) {
+          // Only trigger bilingual/Patois hints if the user actually selected a (Patois) genre variant.
+          // The reggae module has allowPatois=true for ALL reggae-family genres, but plain "Reggae"
+          // or "Dub" without (Patois) should NOT force bilingual code-switching on non-English languages.
+          const genreWantsPatois = genres.some(g => g.toLowerCase().includes("patois"));
           const userLangCode2 = (language || "en").toLowerCase();
           const nonPatoisLangCodes2 = ["en", "jam", "jmc", "jmd"];
-          const isBilingualHints = !nonPatoisLangCodes2.includes(userLangCode2);
-          if (isBilingualHints) {
+          if (!genreWantsPatois) {
+            // Plain reggae-family genre (no Patois variant) — suggest Patois as optional flavor only
+            if (userLangCode2 !== "en") {
+              genreHints.push(`REGGAE FLAVOR (OPTIONAL): You may weave Jamaican Patois words naturally into the ${LANGUAGE_NAMES[userLangCode2] || userLangCode2} lyrics for reggae authenticity, but the primary language should remain ${LANGUAGE_NAMES[userLangCode2] || userLangCode2}. Do NOT force bilingual code-switching — keep it natural and optional.`);
+            } else {
+              genreHints.push("REGGAE FLAVOR (OPTIONAL): You may use Jamaican Patois words and phrases for authenticity, but standard English is also perfectly valid. If you use Patois, commit fully to the dialect. If English, keep it warm and rhythmic.");
+            }
+          } else if (!nonPatoisLangCodes2.includes(userLangCode2)) {
             const hintTargetLang = LANGUAGE_NAMES[userLangCode2] || userLangCode2;
             genreHints.push(`BILINGUAL MODE: Weave Jamaican Patois naturally into ${hintTargetLang} lyrics. The primary language is ${hintTargetLang} — Patois is the secondary layer. Mix both languages within lines, not just across sections.`);
             genreHints.push("PATISO PRONOUNS TO DROP INTO ${hintTargetLang}: mi (I/me/my), yuh (you/your), im (he/him/she/her), wi (we/us), dem (they/them).");
