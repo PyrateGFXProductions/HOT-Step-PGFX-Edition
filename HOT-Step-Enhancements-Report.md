@@ -1,14 +1,14 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 23, 2026 (updated — Phase 4: Album Batch Handler v3, Artist/Album Metadata, ZIP Download, Album Music Video Pipeline added)  
+**Report Date**: July 23, 2026 (updated — Phase 5: Album Library with Right-Click Download Menus added)  
 **Modified Files**: `server/server.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`
 
 ---
 
 ## Summary
 
-This report documents all enhancements made to the HOT-Step CPP codebase. The work spans four major phases:
+This report documents all enhancements made to the HOT-Step CPP codebase. The work spans five major phases:
 
 **Phase 1** (July 18–20): Anti-AI slop vocabulary, genre-adaptive structure rules, Patois dialect integration, new genre profiles (acapella, duet, adult/sensual), and lyric quality evaluation improvements.
 
@@ -18,7 +18,9 @@ This report documents all enhancements made to the HOT-Step CPP codebase. The wo
 
 **Phase 4** (July 23): Artist name & album title metadata with auto-fill, persistent LLM metadata across sessions, ZIP download with folder organization, album music video pipeline with lyric-driven image generation and beat-synced video rendering *WIP*, two new server endpoints (cover art sections, album video generation), static video serving route.
 
-The modified `server.mjs` grew from **294,865 lines** to **~299,500 lines** (net addition of ~4,635 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler v3).
+**Phase 5** (July 23): Album Library with right-click context menus for bulk downloads, server-side album grouping API, album ZIP download endpoint (wav/mp3/flac/opus), floating library button with modal panel, unreleased tracks section.
+
+The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net addition of ~5,135 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler + album library panel).
 
 ---
 
@@ -76,6 +78,12 @@ The modified `server.mjs` grew from **294,865 lines** to **~299,500 lines** (net
 42. [Cover Art Sections Endpoint](#42-cover-art-sections-endpoint)
 43. [Album Video Generation Endpoint](#43-album-video-generation-endpoint)
 44. [Static Video Serving Route](#44-static-video-serving-route)
+
+### Phase 5 — Album Library with Right-Click Download Menus
+45. [Album Grouping API](#45-album-grouping-api)
+46. [Album ZIP Download Endpoint](#46-album-zip-download-endpoint)
+47. [Album Library Floating Panel](#47-album-library-floating-panel)
+48. [Right-Click Context Menus for Downloads](#48-right-click-context-menus-for-downloads)
 
 ---
 
@@ -1046,6 +1054,87 @@ app.use("/temp/video", express.static(VIDEO_TEMP_DIR, {
 ```
 
 **Location**: `server/server.mjs`, after the `/references` static route
+
+---
+
+## Phase 5 — Album Library with Right-Click Download Menus
+
+### 45. Album Grouping API
+
+**New endpoint**: `GET /api/songs/albums`
+
+**Problem**: The React app's library lists songs individually with no way to group or browse by album. Album metadata exists in `generation_params` and `metadata_overrides` but is not surfaced for bulk operations.
+
+**Solution**: New endpoint that reads all user songs and groups them by album name:
+- **Album detection**: Extracts `album` from `generation_params` JSON or `metadata_overrides` JSON
+- **Data structure**: Returns `{ albums: [{ name, artist, coverUrl, songs: [{ id, title, audio_url, cover_url, duration, ... }] }] }`
+- **Sorting**: Albums sorted by track count (most tracks first)
+- **Cover art**: First available cover art URL used as album cover
+
+**Location**: `server/server.mjs`, `router3.get("/albums", ...)` — added after the last existing songs route, before `var songs_default`
+
+---
+
+### 46. Album ZIP Download Endpoint
+
+**New endpoint**: `GET /api/download/album-zip?album=<name>&format=<wav|mp3|flac|opus>`
+
+**Problem**: No way to download all tracks in an album as a single ZIP file with format conversion.
+
+**Solution**: Server-side ZIP generation using `archiver` (already bundled for stem-studio):
+- **Format support**: WAV, MP3, FLAC, Opus — with full ffmpeg conversion + ID3/Vorbis metadata embedding
+- **Track numbering**: Zero-padded filenames (`01 - Track Title.mp3`)
+- **Metadata**: Each file includes title, artist, album, BPM, key, lyrics, cover art
+- **Streaming**: ZIP is streamed to the client (no disk storage for the full ZIP)
+- **Temp cleanup**: Converted files cleaned up after archive closes
+- **Filename**: `{artist} - {album}.{format}.zip`
+
+**Location**: `server/server.mjs`, `router10.get("/album-zip", ...)` — added after the existing `/:id` download route, before `var download_default`
+
+---
+
+### 47. Album Library Floating Panel
+
+**New UI**: Floating 🗂️ button (bottom-right, 164px from bottom) opens a modal album browser.
+
+**Features**:
+- **Album cards** with cover art thumbnail, name, artist, track count
+- **Expandable track listing** — click or chevron to expand/collapse
+- **Quick download button** on each album (📦 icon, downloads in user's preferred format from settings)
+- **Unreleased tracks section** — shows songs not assigned to any album
+- **Responsive modal** — centered, max 720px wide, scrollable body
+- **Loading states** — shows "Loading albums..." while fetching
+
+**Location**: `ui/dist/index.html`, new `<script>` block after the visualizer button script
+
+---
+
+### 48. Right-Click Context Menus for Downloads
+
+**New UI**: Custom right-click context menus (not native browser menus) with dark glass styling.
+
+**Album context menu** (right-click on album card or 📦 button):
+- ZIP: All Tracks (user's preferred format) — bold/purple highlight
+- ZIP: All Tracks as WAV
+- ZIP: All Tracks as MP3
+- ZIP: All Tracks as Opus
+- ZIP: All Tracks as FLAC
+- Track List — copies formatted list to clipboard
+
+**Song context menu** (right-click on any track row):
+- Download WAV
+- Download MP3
+- Download Opus
+- Download FLAC
+
+**Technical details**:
+- Menus positioned relative to click coordinates with edge-flip detection
+- Click-away-to-close behavior
+- Dark glass backdrop styling (rgba(24,24,27,0.97) + blur)
+- Keyboard-accessible: ESC or click anywhere closes
+- Exposed as `window.__albumLib` for reuse from batch handler
+
+**Location**: `ui/dist/index.html`, new `<script>` block with `window.__albumLib` global
 
 ---
 

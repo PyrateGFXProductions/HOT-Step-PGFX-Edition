@@ -132157,6 +132157,44 @@ async function extractDrumStemsBackground(songId, aceJobId, aceUrl) {
   }
   console.log(`[DrumStems] Song ${songId}: all drum stems processed`);
 }
+router3.get("/albums", (req, res) => {
+  try {
+    const userId = req.userId;
+    const songs = getDb().prepare("SELECT * FROM songs WHERE user_id = ? ORDER BY created_at DESC").all(userId);
+    const albumMap = {};
+    for (const song of songs) {
+      let album = "";
+      let artist = "";
+      try {
+        const gp = typeof song.generation_params === "string" ? JSON.parse(song.generation_params || "{}") : song.generation_params || {};
+        album = gp.album || "";
+        artist = gp.artist || gp.artistName || "";
+        if (!album && song.metadata_overrides) {
+          const ov = typeof song.metadata_overrides === "string" ? JSON.parse(song.metadata_overrides || "{}") : song.metadata_overrides || {};
+          if (ov.album) album = ov.album;
+        }
+      } catch {}
+      if (album && album.trim()) {
+        const key = album.trim().toLowerCase();
+        if (!albumMap[key]) {
+          albumMap[key] = { name: album.trim(), artist: artist || "", songs: [], coverUrl: song.cover_url || "" };
+        }
+        albumMap[key].songs.push({
+          id: song.id, title: song.title, audio_url: song.audio_url, cover_url: song.cover_url,
+          mastered_audio_url: song.mastered_audio_url, duration: song.duration, bpm: song.bpm,
+          key_scale: song.key_scale, time_signature: song.time_signature, caption: song.caption,
+          created_at: song.created_at
+        });
+        if (!albumMap[key].coverUrl && song.cover_url) albumMap[key].coverUrl = song.cover_url;
+      }
+    }
+    const albums = Object.values(albumMap).sort((a, b) => b.songs.length - a.songs.length);
+    res.json({ albums });
+  } catch (err) {
+    console.error("[Albums] Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 var songs_default = router3;
 
 // server/src/routes/generate.ts
@@ -137099,6 +137137,92 @@ router10.get("/:id", async (req, res) => {
     });
   } catch (err) {
     console.error(`[Download] Conversion failed:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+router10.get("/album-zip", async (req, res) => {
+  try {
+    const albumName = req.query.album;
+    const format = (req.query.format || "wav").toLowerCase();
+    const bitrate = parseInt(req.query.bitrate) || 192;
+    if (!albumName) {
+      res.status(400).json({ error: "Missing ?album= query parameter" });
+      return;
+    }
+    if (!["wav", "mp3", "flac", "opus"].includes(format)) {
+      res.status(400).json({ error: `Invalid format: ${format}` });
+      return;
+    }
+    const userId = req.userId;
+    const allSongs = getDb().prepare("SELECT * FROM songs WHERE user_id = ? ORDER BY created_at ASC").all(userId);
+    const albumSongs = allSongs.filter((s) => {
+      try {
+        const gp = typeof s.generation_params === "string" ? JSON.parse(s.generation_params || "{}") : s.generation_params || {};
+        const alb = (gp.album || "").trim().toLowerCase();
+        if (!alb && s.metadata_overrides) {
+          const ov = typeof s.metadata_overrides === "string" ? JSON.parse(s.metadata_overrides || "{}") : s.metadata_overrides || {};
+          if (ov.album) return ov.album.trim().toLowerCase() === albumName.trim().toLowerCase();
+        }
+        return alb === albumName.trim().toLowerCase();
+      } catch {
+        return false;
+      }
+    });
+    if (albumSongs.length === 0) {
+      res.status(404).json({ error: `No songs found for album: ${albumName}` });
+      return;
+    }
+    const cleanAlbum = albumName.replace(/[^a-zA-Z0-9 _()\-]/g, "").trim() || "Album";
+    let artistName = "";
+    try {
+      const gp0 = typeof albumSongs[0].generation_params === "string" ? JSON.parse(albumSongs[0].generation_params || "{}") : albumSongs[0].generation_params || {};
+      artistName = gp0.artist || gp0.artistName || "";
+    } catch {}
+    const archiverLib = require_archiver();
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${artistName ? artistName + " - " : ""}${cleanAlbum}.${format}.zip"`);
+    const archive = archiverLib("zip", { zlib: { level: 3 } });
+    archive.pipe(res);
+    let trackNum = 0;
+    for (const song of albumSongs) {
+      trackNum++;
+      const padded = String(trackNum).padStart(2, "0");
+      const songTitle = (song.title || "track").replace(/[^a-zA-Z0-9 _()\-]/g, "").trim() || "track";
+      const filename = `${padded} - ${songTitle}.${format}`;
+      const audioSource = song.mastered_audio_url || song.audio_url;
+      if (!audioSource) continue;
+      const audioFilename = path16.basename(audioSource);
+      const sourcePath = path16.join(config.data.audioDir, audioFilename);
+      if (!fs22.existsSync(sourcePath)) continue;
+      if (format === "wav" && sourcePath.endsWith(".wav")) {
+        archive.file(sourcePath, { name: filename });
+      } else {
+        const tempDir = path16.join(config.data.dir, "download_temp");
+        fs22.mkdirSync(tempDir, { recursive: true });
+        const tempFile = path16.join(tempDir, `album_${Date.now().toString(36)}_${trackNum}.${format}`);
+        try {
+          const meta = gatherSongMetadata(song);
+          await convertAudio(sourcePath, format, bitrate, tempFile, meta);
+          archive.file(tempFile, { name: filename });
+        } catch (convErr) {
+          console.error(`[AlbumZIP] Conversion failed for ${songTitle}:`, convErr.message);
+        }
+      }
+    }
+    archive.finalize();
+    archive.on("end", () => {
+      setTimeout(() => {
+        try {
+          const tempDir = path16.join(config.data.dir, "download_temp");
+          const tmpFiles = fs22.readdirSync(tempDir).filter((f) => f.startsWith("album_"));
+          for (const f of tmpFiles) {
+            try { fs22.unlinkSync(path16.join(tempDir, f)); } catch {}
+          }
+        } catch {}
+      }, 5000);
+    });
+  } catch (err) {
+    console.error("[AlbumZIP] Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

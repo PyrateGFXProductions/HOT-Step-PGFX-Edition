@@ -14,7 +14,7 @@
 This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music generation tool built on ACE-Step. The PGFX Edition transforms it from a capable inference wrapper into a full **music production system** with genre-aware song structure, narrative intelligence, and creative workflow tools.
 
 **Base**: HOT-Step CPP v1.1.4 (Windows x64, CUDA 13.1)
-**Enhancements**: 40+ sections of improvements across 4 phases
+**Enhancements**: 43+ sections of improvements across 5 phases
 
 ---
 
@@ -104,6 +104,22 @@ Eleven visualization modes powered by client-side beat detection:
 
 *Note: This feature requires the cover art models (FLUX.2-klein-4B) to be installed and ffmpeg.exe in the server directory. Video generation adds ~3 minutes per track (image generation + ffmpeg render). Full 9-track album video pipeline takes approximately 25-30 minutes.*
 
+### Album Library — Browse & Download
+A floating 🗂️ button (bottom-right) opens a modal album browser that:
+- **Groups songs by album** — detects album name from generation params or metadata overrides
+- **Album cards** — cover art, artist name, track count, expandable track listing
+- **Right-click context menus** on albums:
+  - ZIP download in your preferred format (WAV/MP3/Opus/FLAC)
+  - Track list copy to clipboard
+- **Right-click context menus** on individual tracks:
+  - Download as WAV, MP3, Opus, or FLAC
+- **Unreleased tracks section** — songs without an album assignment shown at the bottom
+- **Server-side ZIP creation** — uses `archiver` for efficient streaming ZIP with format conversion
+
+**API Endpoints:**
+- `GET /api/songs/albums` — groups all user songs by album name
+- `GET /api/download/album-zip?album=<name>&format=<wav|mp3|flac|opus>` — streams a ZIP of all tracks in the album
+
 ---
 
 ## How to Install
@@ -141,10 +157,10 @@ Eleven visualization modes powered by client-side beat detection:
 
 | File | Status | Size | Description |
 |------|--------|------|-------------|
-| `server/server.mjs` | Modified | ~299K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, video generation, album video pipeline *WIP*, cover art sections endpoint *WIP* |
+| `server/server.mjs` | Modified | ~299K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, video generation, album video pipeline *WIP*, cover art sections endpoint *WIP*, album ZIP download, album grouping API |
 | `ui/dist/album.html` | **New** | ~45 KB | Album Generator — 9-track workflow with auto-fill, genre dropdowns, artist name, album title, persistent metadata, ZIP download with folder organization |
 | `ui/dist/visualizer.html` | **New** | 43 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation |
-| `ui/dist/index.html` | Modified | ~7 KB | Added floating album + visualizer buttons, Album Batch Handler v3 (API-direct, 3-tier settings, video pipeline *WIP*, ZIP download with MP4 support) |
+| `ui/dist/index.html` | Modified | ~9 KB | Added floating album, visualizer & library buttons, Album Batch Handler v3, Album Library panel with right-click context menus for album/track downloads |
 | `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle with DJ/Turntablism genre group |
 
 ### Full Enhancement Report
@@ -177,7 +193,7 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, shuffle, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, MP4 video generator, album music video pipeline with lyric-driven image generation and beat-synced rendering *WIP*, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-4 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, shuffle, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, MP4 video generator, album music video pipeline with lyric-driven image generation and beat-synced rendering *WIP*, album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-5 enhancements.
 
 ---
 
