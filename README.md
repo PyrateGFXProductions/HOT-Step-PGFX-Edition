@@ -42,7 +42,7 @@ Every genre now has its own structural grammar — verse/chorus/bridge line coun
 
 ### 🌟 Album Creator
 *One of the standout features of the PGFX Edition!*
-It will create an album of 9+ tracks with a full story concept, either user-created or auto-generated with context based on the genre, from the first track to the last track.
+It will create an album of 9+ tracks with a full story concept from the first track to the last track, either user-created or auto-generated with context based on the genre.
 
 - Generate **9+ tracks** with per-track subject, title, genre override, and custom lyrics.
 - **AI Auto-Fill**: One-click generates a complete album concept with a story arc across all tracks.
