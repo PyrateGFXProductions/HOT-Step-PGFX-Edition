@@ -147,10 +147,12 @@
         /* Extract album metadata from first track that has it */
         var albumArtist = '';
         var albumTitle = '';
+        var albumGenre = '';
         for (var k = 0; k < tracks.length; k++) {
           if (tracks[k].artistName) albumArtist = tracks[k].artistName;
           if (tracks[k].albumTitle) albumTitle = tracks[k].albumTitle;
-          if (albumArtist && albumTitle) break;
+          if (tracks[k].albumGenre) albumGenre = tracks[k].albumGenre;
+          if (albumArtist && albumTitle && albumGenre) break;
         }
         if (!albumArtist) albumArtist = 'Unknown Artist';
         if (!albumTitle) albumTitle = 'Unknown Album';
@@ -202,6 +204,7 @@
         function render() {
           var done = tracks.filter(function(t) { return t._status === 'done'; }).length;
           var err = tracks.filter(function(t) { return t._status === 'error'; }).length;
+          var vidCount = tracks.filter(function(t) { return t._videoUrl; }).length;
           var total = tracks.length;
 
           var html = '<div style="margin-bottom:16px;font-size:15px;font-weight:700;background:linear-gradient(135deg,#c084fc,#ec4899);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">Album Batch (' + total + ' tracks)</div>';
@@ -219,7 +222,7 @@
           } else if (generating) {
             html += '<div style="font-size:12px;color:#3b82f6;margin-bottom:12px;">Generating... ' + done + '/' + total + ' complete' + (err > 0 ? ', ' + err + ' failed' : '') + '</div>';
           } else if (done > 0 || err > 0) {
-            html += '<div style="font-size:12px;color:#22c55e;margin-bottom:12px;">Complete! ' + done + '/' + total + ' generated' + (err > 0 ? ', ' + err + ' failed' : '') + '</div>';
+            html += '<div style="font-size:12px;color:#22c55e;margin-bottom:12px;">Complete! ' + done + '/' + total + ' generated' + (vidCount > 0 ? ' (' + vidCount + ' videos)' : '') + (err > 0 ? ', ' + err + ' failed' : '') + '</div>';
           }
 
           for (var i = 0; i < tracks.length; i++) {
@@ -232,7 +235,8 @@
             html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">';
             html += '<span style="color:' + statusColor + ';font-size:12px;width:16px;">' + statusIcon + '</span>';
             html += '<span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (String(i+1).padStart(2,'0') + '. ' + (t.title || 'Track ' + (i+1))) + '</span>';
-            if (t._stage) html += '<span style="font-size:10px;color:#71717a;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + t._stage + '</span>';
+            if (t._stage) html += '<span style="font-size:10px;color:#71717a;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + t._stage + '</span>';
+            if (t._videoUrl) html += '<a href="' + t._videoUrl + '" target="_blank" style="font-size:10px;color:#22c55e;text-decoration:none;" title="Watch video">\uD83C\uDFA5</a>';
             if (t._audioUrl) html += '<a href="' + t._audioUrl + '" target="_blank" style="font-size:10px;color:#a855f7;text-decoration:none;">\u25B6</a>';
             html += '</div>';
           }
@@ -265,6 +269,43 @@
         }
 
         function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+        /* Split lyrics into visual sections based on [Section] headers.
+           Each section becomes one image in the music video. */
+        function splitLyricsIntoSections(lyrics, trackTitle) {
+          if (!lyrics) return [];
+          var sections = [];
+          var sectionRegex = /\[([^\]]+)\]/g;
+          var lines = lyrics.split('\n');
+          var currentSection = null;
+          var currentLines = [];
+          for (var li = 0; li < lines.length; li++) {
+            var line = lines[li];
+            var headerMatch = line.match(/^\[([^\]]+)\]\s*$/);
+            if (headerMatch) {
+              if (currentSection && currentLines.length > 0) {
+                sections.push({ title: trackTitle + ' - ' + currentSection, lyrics: currentLines.join('\n').trim(), subject: currentSection });
+              }
+              currentSection = headerMatch[1].trim();
+              currentLines = [];
+            } else {
+              if (line.trim()) currentLines.push(line);
+            }
+          }
+          /* Push last section */
+          if (currentSection && currentLines.length > 0) {
+            sections.push({ title: trackTitle + ' - ' + currentSection, lyrics: currentLines.join('\n').trim(), subject: currentSection });
+          }
+          /* If no sections found, treat entire lyrics as one section */
+          if (sections.length === 0 && lyrics.trim().length > 20) {
+            sections.push({ title: trackTitle || 'Full Song', lyrics: lyrics.trim(), subject: trackTitle || 'song' });
+          }
+          /* Limit to max 8 sections (images) to keep video generation reasonable */
+          if (sections.length > 8) {
+            sections = sections.slice(0, 8);
+          }
+          return sections;
+        }
 
         /* Poll job status until complete */
         async function pollJob(jobId) {
@@ -647,9 +688,69 @@
               t._audioUrl = (result.result && result.result.audioUrls && result.result.audioUrls[0]) || '';
               t._masteredUrl = (result.result && result.result.masteredAudioUrl) || '';
               t._status = 'done';
-              t._stage = 'Complete';
+              t._stage = 'Audio complete';
               render();
-              console.log('[AlbumBatch] Track ' + (i+1) + ' complete: ' + (t.title || 'Untitled'));
+              console.log('[AlbumBatch] Track ' + (i+1) + ' audio complete: ' + (t.title || 'Untitled'));
+
+              /* ── VIDEO GENERATION: split lyrics → generate images → render video ── */
+              try {
+                var trackLyrics = t.lyrics || '';
+                if (trackLyrics.length > 50) {
+                  /* Split lyrics into sections by [Section] headers */
+                  var sections = splitLyricsIntoSections(trackLyrics, t.title);
+                  if (sections.length > 0) {
+                    t._stage = 'Generating images (' + sections.length + ')...';
+                    render();
+
+                    /* Generate images for each section */
+                    var imgResp = await fetch('/api/cover-art/generate-sections', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+                      body: JSON.stringify({ sections: sections, style: albumGenre || '', trackTitle: t.title || '' })
+                    });
+                    if (imgResp.ok) {
+                      var imgData = await imgResp.json();
+                      var imageUrls = (imgData.images || []).filter(function(img) { return img.url; }).map(function(img) { return img.url; });
+                      if (imageUrls.length > 0) {
+                        t._stage = 'Rendering video (' + imageUrls.length + ' images)...';
+                        render();
+                        console.log('[AlbumBatch] Track ' + (i+1) + ': Generating video with ' + imageUrls.length + ' images');
+
+                        /* Generate video */
+                        var videoResp = await fetch('/api/inspire/video/generate-album', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+                          body: JSON.stringify({ audioUrl: t._audioUrl, images: imageUrls })
+                        });
+                        if (videoResp.ok) {
+                          var videoData = await videoResp.json();
+                          t._videoUrl = videoData.videoPath || '';
+                          t._stage = 'Complete (+ video)';
+                          console.log('[AlbumBatch] Track ' + (i+1) + ' video: ' + t._videoUrl);
+                        } else {
+                          var vErr = await videoResp.json().catch(function() { return {}; });
+                          console.warn('[AlbumBatch] Track ' + (i+1) + ' video failed: ' + (vErr.error || videoResp.status));
+                          t._stage = 'Audio complete (video failed)';
+                        }
+                      } else {
+                        t._stage = 'Audio complete (no images)';
+                      }
+                    } else {
+                      var iErr = await imgResp.json().catch(function() { return {}; });
+                      console.warn('[AlbumBatch] Track ' + (i+1) + ' image gen failed: ' + (iErr.error || imgResp.status));
+                      t._stage = 'Audio complete (images failed)';
+                    }
+                  } else {
+                    t._stage = 'Audio complete';
+                  }
+                } else {
+                  t._stage = 'Audio complete';
+                }
+              } catch(vidErr) {
+                console.warn('[AlbumBatch] Track ' + (i+1) + ' video pipeline error:', vidErr);
+                t._stage = 'Audio complete (video error)';
+              }
+              render();
 
               /* Brief pause between tracks */
               await sleep(1000);
@@ -669,41 +770,57 @@
         }
 
         /* Download all completed tracks as a ZIP file with folder structure:
-           Artist Name/Album Title/01 - Track Title.wav */
+           Artist Name/Album Title/01 - Track Title.wav
+           Artist Name/Album Title/01 - Track Title.mp4 (if video generated) */
         async function downloadAlbumZip() {
           if (!window.JSZip) { alert('ZIP library is still loading. Please wait a moment and try again.'); return; }
           var doneTracks = tracks.filter(function(t) { return t._status === 'done' && t._audioUrl; });
           if (doneTracks.length === 0) { alert('No completed tracks to download.'); return; }
 
+          var hasVideos = doneTracks.some(function(t) { return t._videoUrl; });
           var zipBtn = document.getElementById('ab-download-zip');
           if (zipBtn) { zipBtn.disabled = true; zipBtn.textContent = '\u23F3 Preparing ZIP...'; }
 
           try {
             var zip = new JSZip();
-            var folderName = albumArtist + '/' + albumTitle;
             var folder = zip.folder(albumArtist).folder(albumTitle);
 
             /* Add metadata.txt */
             var metaLines = ['Album: ' + albumTitle, 'Artist: ' + albumArtist, 'Tracks: ' + doneTracks.length, ''];
             for (var m = 0; m < doneTracks.length; m++) {
               var mt = doneTracks[m];
-              metaLines.push(String(m+1).padStart(2,'0') + '. ' + (mt.title || 'Untitled'));
+              metaLines.push(String(m+1).padStart(2,'0') + '. ' + (mt.title || 'Untitled') + (mt._videoUrl ? ' [video]' : ''));
             }
             folder.file('metadata.txt', metaLines.join('\n'));
 
-            /* Fetch and add each audio file */
+            /* Fetch and add each audio + video file */
             for (var j = 0; j < doneTracks.length; j++) {
               var t = doneTracks[j];
-              if (zipBtn) zipBtn.textContent = '\u23F3 Fetching track ' + (j+1) + '/' + doneTracks.length + '...';
+              var trackNum = String(j+1).padStart(2,'0');
+              var trackName = trackNum + ' - ' + (t.title || 'Untitled');
+
+              /* Fetch audio */
+              if (zipBtn) zipBtn.textContent = '\u23F3 Fetching audio ' + (j+1) + '/' + doneTracks.length + '...';
               try {
                 var audioResp = await fetch(t._audioUrl);
                 var audioBlob = await audioResp.blob();
-                var trackNum = String(j+1).padStart(2,'0');
-                var trackName = trackNum + ' - ' + (t.title || 'Untitled') + '.wav';
-                folder.file(trackName, audioBlob);
+                folder.file(trackName + '.wav', audioBlob);
               } catch(fetchErr) {
-                console.error('[AlbumBatch] Failed to fetch track ' + (j+1) + ':', fetchErr);
-                folder.file(trackNum + ' - ' + (t.title || 'Untitled') + ' (FAILED).txt', 'Failed to download: ' + fetchErr.message);
+                console.error('[AlbumBatch] Failed to fetch audio ' + (j+1) + ':', fetchErr);
+                folder.file(trackName + ' (AUDIO FAILED).txt', 'Failed to download: ' + fetchErr.message);
+              }
+
+              /* Fetch video if available */
+              if (t._videoUrl) {
+                if (zipBtn) zipBtn.textContent = '\u23F3 Fetching video ' + (j+1) + '/' + doneTracks.length + '...';
+                try {
+                  var vidResp = await fetch(t._videoUrl);
+                  var vidBlob = await vidResp.blob();
+                  folder.file(trackName + '.mp4', vidBlob);
+                } catch(vidErr) {
+                  console.error('[AlbumBatch] Failed to fetch video ' + (j+1) + ':', vidErr);
+                  folder.file(trackName + ' (VIDEO FAILED).txt', 'Failed to download: ' + vidErr.message);
+                }
               }
             }
 
@@ -723,7 +840,7 @@
             URL.revokeObjectURL(link.href);
 
             if (zipBtn) { zipBtn.disabled = false; zipBtn.textContent = '\u2713 ZIP Downloaded!'; }
-            console.log('[AlbumBatch] ZIP downloaded: ' + zipName + ' (' + doneTracks.length + ' tracks)');
+            console.log('[AlbumBatch] ZIP downloaded: ' + zipName + ' (' + doneTracks.length + ' tracks' + (hasVideos ? ' + videos' : '') + ')');
 
           } catch(e) {
             console.error('[AlbumBatch] ZIP creation failed:', e);

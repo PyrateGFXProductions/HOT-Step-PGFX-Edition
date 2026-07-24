@@ -1,20 +1,24 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 21, 2026 (updated — Traditional/World Music Genres + Visualizer + Video Generator + Bilingual Patois + Album Auto-Fill added)  
+**Report Date**: July 23, 2026 (updated — Phase 4: Album Batch Handler v3, Artist/Album Metadata, ZIP Download, Album Music Video Pipeline added)  
 **Modified Files**: `server/server.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`
 
 ---
 
 ## Summary
 
-This report documents all enhancements made to the HOT-Step CPP codebase. The work spans two major phases:
+This report documents all enhancements made to the HOT-Step CPP codebase. The work spans four major phases:
 
 **Phase 1** (July 18–20): Anti-AI slop vocabulary, genre-adaptive structure rules, Patois dialect integration, new genre profiles (acapella, duet, adult/sensual), and lyric quality evaluation improvements.
 
 **Phase 2** (July 21): Multi-genre architecture overhaul, narrative coherence enforcement, outro fix, metal vocabulary safety, subject-aware processing, removal of unsupported genres, Patois made optional, bilingual Patois code-switching, Album Generator feature with AI auto-fill & shuffle, DJ/Dual DJ genre system, audio-reactive visualizer, MP4 video generator with beat-synced editing, and 4 traditional/world music genres (Klezmer, Mariachi, Bhangra, Andean) — 10 incompatible traditional genres (Gagaku, Min'yo, Enka, Korean Traditional, Carnatic, Hindustani, Gamelan, Balinese, Tuvan Throat Singing, Gnawa) were removed for structural incompatibility.
 
-The modified `server.mjs` grew from **294,865 lines** to **~299,000 lines** (net addition of ~4,135 lines). Three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons).
+**Phase 3** (July 22): Album Batch Handler v3 (API-direct architecture), 3-tier settings priority system, stale template protection, readSettingsFromStorage() for direct localStorage access.
+
+**Phase 4** (July 23): Artist name & album title metadata with auto-fill, persistent LLM metadata across sessions, ZIP download with folder organization, album music video pipeline with lyric-driven image generation and beat-synced video rendering *WIP*, two new server endpoints (cover art sections, album video generation), static video serving route.
+
+The modified `server.mjs` grew from **294,865 lines** to **~299,500 lines** (net addition of ~4,635 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler v3).
 
 ---
 
@@ -57,6 +61,21 @@ The modified `server.mjs` grew from **294,865 lines** to **~299,000 lines** (net
 31. [MP4 Video Generator with Beat-Synced Editing](#31-mp4-video-generator-with-beat-synced-editing)
 32. [Album Auto-Fill & Shuffle](#32-album-auto-fill--shuffle)
 33. [Traditional / World Music Genres (4 Genres)](#33-traditional--world-music-genres-4-genres)
+
+### Phase 3.5 — Album Batch Handler & Settings Pipeline
+34. [Album Batch Handler v3 (API-Direct)](#34-album-batch-handler-v3-api-direct)
+35. [3-Tier Settings Priority System](#35-3-tier-settings-priority-system)
+36. [Stale Template Protection](#36-stale-template-protection)
+37. [readSettingsFromStorage() — Direct localStorage Access](#37-readsettingsfromstorage--direct-localstorage-access)
+
+### Phase 4 — Album Metadata, ZIP Download & Music Video Pipeline *WIP*
+38. [Artist Name & Album Title with Auto-Fill](#38-artist-name--album-title-with-auto-fill)
+39. [Persistent LLM Metadata Across Sessions](#39-persistent-llm-metadata-across-sessions)
+40. [ZIP Download with Folder Organization](#40-zip-download-with-folder-organization)
+41. [Album Music Video Pipeline *WIP*](#41-album-music-video-pipeline-wip)
+42. [Cover Art Sections Endpoint](#42-cover-art-sections-endpoint)
+43. [Album Video Generation Endpoint](#43-album-video-generation-endpoint)
+44. [Static Video Serving Route](#44-static-video-serving-route)
 
 ---
 
@@ -845,6 +864,188 @@ Genre blend rule also adapts:
 2. BPM ranges are based on real-world practice, not Western defaults — bhangra's 100-150 BPM reflects its dance energy.
 3. Structure templates use cultural structure patterns rather than forcing Western verse-chorus forms.
 4. INSTAGEN tag examples give the LLM specific sonic vocabulary for each genre's production aesthetic.
+
+---
+
+## Phase 3.5 — Album Batch Handler & Settings Pipeline
+
+### 34. Album Batch Handler v3 (API-Direct)
+
+**Problem**: The original batch handler (v1) tried to read the React app's internal state, used `applyQualityDefaults` as a fallback (which injected incorrect settings like `dpm2m`/`sgm_uniform`), and v2 tried to click the UI button to capture params (unreliable, race-prone).
+
+**Solution**: Complete rewrite to API-direct architecture. The batch handler never touches the React app — it reads settings from multiple sources and makes direct `/api/generate` calls.
+
+**Location**: `ui/dist/index.html`, Album Batch Handler script block
+
+**Architecture**:
+- Fetch monkey-patch at page load captures POST /api/generate params and jobIds
+- `readSettingsFromStorage()` reads ~100 `hs-*` localStorage keys
+- `getParamsForTrack()` deep-copies base settings, overrides only prompt fields per track
+- Direct `fetch('/api/generate', ...)` calls — no UI interaction
+- Deferred `hs-album-pending` removal (only when generation actually starts)
+- Dismissible backdrop
+
+---
+
+### 35. 3-Tier Settings Priority System
+
+**Problem**: The batch handler needs the user's exact pipeline settings (solver, scheduler, guidance, DCW, etc.) but has no access to the React app's Zustand store.
+
+**Solution**: Three-tier priority with fallback chain:
+
+| Priority | Source | When Available | Accuracy |
+|----------|--------|----------------|----------|
+| 1 | Monkey-patch capture (`window.__abCapturedParams`) | User generated at least one track this session | Exact (captured from real POST body) |
+| 2 | Saved template (`hs-album-params-template` with `_src` marker) | Previous session with capture or localStorage reconstruction | Exact |
+| 3 | Direct localStorage read (`readSettingsFromStorage()`) | Always (React app persists to `hs-*` keys) | Exact (replicates `getGlobalParams()` logic) |
+
+**Location**: `ui/dist/index.html`, `tryLoadTemplate()` function
+
+---
+
+### 36. Stale Template Protection
+
+**Problem**: Old v1/v2 batch handlers saved templates without any marker, containing incorrect defaults from `applyQualityDefaults` (`dpm2m`, `sgm_uniform`, `apg`). These would be loaded and used, producing wrong audio.
+
+**Solution**: Templates are stamped with `_src` marker:
+- `_src: 'mp'` — captured from monkey-patch (most accurate)
+- `_src: 'ls'` — reconstructed from localStorage (also accurate)
+- No `_src` — stale template from v1/v2, auto-purged on page load
+
+**Location**: `ui/dist/index.html`, `tryLoadTemplate()` function, lines 162-175
+
+---
+
+### 37. readSettingsFromStorage() — Direct localStorage Access
+
+**Problem**: Even without a previous generation or saved template, the batch handler can get the user's exact settings from localStorage.
+
+**Solution**: `readSettingsFromStorage()` reads ~100 `hs-*` localStorage keys and replicates the `getGlobalParams()` logic from the React bundle:
+- Adapter blend computation (advanced mode, budget, per-adapter scaling)
+- DCW scaler computation (low × 0.05, high × 0.02)
+- Conditional fields (APG, spectral lifter, mastering, vocal naturalizer, etc.)
+- Trigger word extraction from adapter filenames
+
+**Location**: `ui/dist/index.html`, `readSettingsFromStorage()` function, lines 289-433
+
+---
+
+## Phase 4 — Album Metadata, ZIP Download & Music Video Pipeline *WIP*
+
+### 38. Artist Name & Album Title with Auto-Fill
+
+**Problem**: The Album Creator had no way to specify artist name or album title for organization and metadata purposes.
+
+**Solution**: Added artist name and album title fields with auto-fill logic:
+- **Auto-fill from saved username**: If `hs-username` localStorage key exists, uses that as artist name
+- **Random name generation**: If no saved username, generates names like "Neon Phoenix", "Velvet Drifter" (adjective + noun)
+- **Random album title**: Generates 2-4 word titles like "Echoes Renaissance", "Midnight Chronicles"
+- **🎲 buttons**: One-click random regeneration for both fields
+- **Persistence**: Saved to `hs-album-config` localStorage alongside existing settings
+- **Pass-through to batch handler**: Artist name, album title, and genre are included in each track's `hs-album-pending` data
+
+**Location**: `ui/dist/album.html`, global variables, `randomName()`, `randomAlbumTitle()`, `autoFillArtistName()`, `autoFillAlbumTitle()`, render function, `saveConfig()`
+
+---
+
+### 39. Persistent LLM Metadata Across Sessions
+
+**Problem**: LLM-generated metadata (`_bpm`, `_key`, `_duration`, `_timeSignature`, `_caption`) was stored only in memory. If the user navigated away after the LLM run but before clicking Generate, all metadata was lost.
+
+**Solution**: `saveConfig()` now persists all 5 LLM-generated fields per track:
+```javascript
+{subject, lyrics, title, genreOverride, bpm, key, duration, timeSignature, caption}
+```
+On page load, these are restored from localStorage, so metadata survives page reloads without needing to re-run the LLM.
+
+**Location**: `ui/dist/album.html`, `saveConfig()` function
+
+---
+
+### 40. ZIP Download with Folder Organization
+
+**Problem**: No way to download a completed album as organized files — tracks had to be downloaded individually.
+
+**Solution**: Client-side ZIP generation using JSZip (loaded from CDN):
+- **Folder structure**: `Artist Name/Album Title/01 - Track Title.wav`
+- **metadata.txt**: Includes album name, artist, track count, and numbered track listing
+- **Progress feedback**: Button shows fetching progress per track, then ZIP creation progress
+- **Video support**: If video files exist, includes `.mp4` alongside `.wav` per track
+- **Zero-padding**: Track numbers are zero-padded (01, 02, ..., 09) for correct file sorting
+
+**Location**: `ui/dist/index.html`, `downloadAlbumZip()` function, lines 771-843
+
+---
+
+### 41. Album Music Video Pipeline *WIP*
+
+**Problem**: No way to automatically generate music videos for album tracks using the existing cover art and video generation systems.
+
+**Solution**: After each track's audio completes in the batch handler:
+1. **Lyric splitting**: `splitLyricsIntoSections()` splits by `[Section]` headers (max 8 sections)
+2. **Image generation**: Calls `/api/cover-art/generate-sections` with each section's lyrics
+3. **Video rendering**: Calls `/api/inspire/video/generate-album` with audio URL + images
+4. **Result storage**: `_videoUrl` stored on track, shown as 🎥 link in panel
+5. **ZIP integration**: MP4 files included in album ZIP download
+
+**Per-track timing**: ~30s per image × 4 images = ~2 min image gen + ~1 min ffmpeg = ~3 min per track
+**Full 9-track album**: ~25-30 minutes total (runs per-track, not all at once)
+
+**Location**: `ui/dist/index.html`, `splitLyricsIntoSections()` function, video generation block in `startGeneration()`
+
+**Status**: *WIP — requires cover art models (FLUX.2-klein-4B) to be installed and ffmpeg.exe in the server directory.*
+
+---
+
+### 42. Cover Art Sections Endpoint
+
+**New endpoint**: `POST /api/cover-art/generate-sections`
+
+**Problem**: The existing cover art endpoint generates one image per song (requires songId). The video pipeline needs multiple images per track, one per lyric section.
+
+**Solution**: New endpoint that accepts sections directly, no songId required:
+- **Input**: `{ sections[{lyrics, title, subject}], style, trackTitle }`
+- **Processing**: Generates one image per section in parallel (max 3 concurrent to avoid OOM)
+- **Prompt building**: Uses existing `buildCoverArtPrompt()` to extract visual themes from each section's lyrics
+- **Output**: `{ images[{sectionIndex, url, prompt, durationMs}], total, succeeded, failed }`
+
+**Location**: `server/server.mjs`, `router22.post("/generate-sections", ...)`, added after `/generate/:jobId`
+
+---
+
+### 43. Album Video Generation Endpoint
+
+**New endpoint**: `POST /api/inspire/video/generate-album`
+
+**Problem**: The existing `/api/inspire/video/generate` requires a `songId` to look up the audio file in the database. The album batch handler uses API-direct mode and doesn't create song records.
+
+**Solution**: New endpoint that accepts audio URL + images directly:
+- **Input**: `{ audioUrl, images[] }` — resolves audio from `data/audio/` on disk
+- **Beat detection**: Runs `detectBeatsInAudio()` on the audio WAV
+- **Beat-synced durations**: Uses detected onset positions to determine image section boundaries (images change at musical phrase boundaries, not arbitrary timestamps)
+- **6 zoom directions**: center-in, center-out, left-pan, right-pan, top-pan, bottom-pan — cycled per image
+- **10 transition types**: fade, dissolve, fadeblack, fadewhite, smoothleft, smoothright, circlecrop, radial, pixelize, diagtl — cycled per transition
+- **Audio-reactive overlay**: Cyan waveform at bottom of frame
+- **Output**: `{ videoPath, duration, bpm, images }` — 1920×1080 H.264/AAC
+
+**Location**: `server/server.mjs`, `router21.post("/video/generate-album", ...)`, added after existing `/video/generate`
+
+---
+
+### 44. Static Video Serving Route
+
+**Problem**: Generated video files were saved to `temp/video/` but had no HTTP static route, making them inaccessible to the client.
+
+**Solution**: Added Express static middleware for `/temp/video/`:
+```javascript
+app.use("/temp/video", express.static(VIDEO_TEMP_DIR, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".mp4")) res.setHeader("Content-Type", "video/mp4");
+  }
+}));
+```
+
+**Location**: `server/server.mjs`, after the `/references` static route
 
 ---
 

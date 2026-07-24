@@ -297385,6 +297385,149 @@ router21.post("/video/generate", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// Enhanced album video generation: accepts audioUrl + images directly (no songId required).
+// Features: beat-synced image durations, varied transitions, zoom direction variety.
+router21.post("/video/generate-album", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const { audioUrl, images } = req.body;
+    if (!audioUrl || !images?.length) {
+      res.status(400).json({ error: "Missing audioUrl or images" });
+      return;
+    }
+    // Resolve audio file path from URL
+    const audioFilename = path4.basename(audioUrl);
+    const audioFilePath = path4.join(config.data.audioDir, audioFilename);
+    if (!fs5.existsSync(audioFilePath)) {
+      res.status(404).json({ error: "Audio file not found on disk: " + audioFilename });
+      return;
+    }
+    // Beat detection
+    let beatData;
+    try {
+      beatData = detectBeatsInAudio(audioFilePath);
+    } catch (e) {
+      console.warn(`[VideoGenAlbum] Beat detection failed: ${e.message}, using even splits`);
+      beatData = { beats: [], bpm: 0, duration: 0 };
+    }
+    let songDuration = beatData.duration;
+    if (!songDuration || songDuration <= 0) {
+      const wavInfo = parseWav(audioFilePath);
+      songDuration = wavInfo.samples.length / wavInfo.sampleRate;
+    }
+    const imageCount = Math.min(images.length, 12);
+    const outputFilename = `album_video_${Date.now()}_${v4_default().slice(0, 8)}.mp4`;
+    const outputPath = path4.join(VIDEO_TEMP_DIR, outputFilename);
+    const inputArgs = ["-i", audioFilePath];
+    // Resolve image paths and build input args
+    const resolvedImages = [];
+    for (let i = 0; i < imageCount; i++) {
+      let imgPath = images[i];
+      if (imgPath.startsWith("/")) imgPath = path4.join(config.data.dir, imgPath.substring(1));
+      else if (imgPath.startsWith("/audio/")) imgPath = path4.join(config.data.audioDir, path4.basename(imgPath));
+      resolvedImages.push(imgPath);
+      inputArgs.push("-loop", "1", "-t", String(songDuration), "-i", imgPath);
+    }
+    // Beat-synced image durations: use beat positions to determine section boundaries
+    const beats = beatData.beats || [];
+    const filterParts = [];
+    const zoomDirections = [
+      { z: "min(zoom+0.0005,1.15)", x: "iw/2-(iw/zoom/2)", y: "ih/2-(ih/zoom/2)" },     // zoom in center
+      { z: "if(lte(zoom,1.0),1.15,max(zoom-0.0005,1.0))", x: "iw/2-(iw/zoom/2)", y: "ih/2-(ih/zoom/2)" }, // zoom out center
+      { z: "min(zoom+0.0004,1.12)", x: "0", y: "ih/2-(ih/zoom/2)" },                       // zoom in left
+      { z: "min(zoom+0.0004,1.12)", x: "iw-iw/zoom", y: "ih/2-(ih/zoom/2)" },              // zoom in right
+      { z: "min(zoom+0.0005,1.15)", x: "iw/2-(iw/zoom/2)", y: "0" },                        // zoom in top
+      { z: "min(zoom+0.0005,1.15)", x: "iw/2-(iw/zoom/2)", y: "ih-ih/zoom" },              // zoom in bottom
+    ];
+    const transitions = ["fade", "dissolve", "fadeblack", "fadewhite", "smoothleft", "smoothright", "circlecrop", "radial", "pixelize", "diagtl"];
+    if (imageCount === 1) {
+      // Single image: full duration with zoom
+      const dur = Math.round(songDuration * 30);
+      const zDir = zoomDirections[0];
+      filterParts.push(
+        `[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,zoompan=z='${zDir.z}':x='${zDir.x}':y='${zDir.y}':d=${dur}:s=1920x1080:fps=30[zp0]`
+      );
+      filterParts.push(`[0:a]showwaves=s=1920x200:mode=cline:colors=cyan@0.5:rate=30[waves]`);
+      filterParts.push(`[zp0][waves]overlay=0:H-200:format=auto,format=yuv420p[out]`);
+    } else {
+      // Multi-image: beat-synced durations with varied transitions
+      // Calculate image durations based on beat positions
+      const imageDurations = [];
+      if (beats.length >= imageCount) {
+        // Use beat positions to create sections
+        const totalBeats = beats.length;
+        const beatsPerSection = Math.floor(totalBeats / imageCount);
+        for (let i = 0; i < imageCount; i++) {
+          const startBeat = i * beatsPerSection;
+          const endBeat = (i === imageCount - 1) ? totalBeats - 1 : (i + 1) * beatsPerSection;
+          const startTime = beats[startBeat] || 0;
+          const endTime = beats[endBeat] || songDuration;
+          imageDurations.push(endTime - startTime);
+        }
+      } else {
+        // Fallback: even distribution
+        const evenDur = songDuration / imageCount;
+        for (let i = 0; i < imageCount; i++) imageDurations.push(evenDur);
+      }
+      // Build zoompan filters with varied directions
+      for (let i = 0; i < imageCount; i++) {
+        const dur = Math.round(imageDurations[i] * 30);
+        const zDir = zoomDirections[i % zoomDirections.length];
+        const label = `zp${i}`;
+        filterParts.push(
+          `[${i + 1}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,zoompan=z='${zDir.z}':x='${zDir.x}':y='${zDir.y}':d=${dur}:s=1920x1080:fps=30[${label}]`
+        );
+      }
+      // Chain crossfades with varied transitions
+      let chainLabel = "zp0";
+      const crossfadeDur = 0.5;
+      for (let i = 1; i < imageCount; i++) {
+        // Calculate offset: cumulative duration minus crossfade overlaps
+        let offset = 0;
+        for (let j = 0; j < i; j++) offset += imageDurations[j];
+        offset -= crossfadeDur * i;
+        offset = Math.max(0.1, Math.round(offset * 1000) / 1000);
+        const trans = transitions[(i - 1) % transitions.length];
+        const outLabel = `xf${i}`;
+        filterParts.push(`[${chainLabel}][zp${i}]xfade=transition=${trans}:duration=${crossfadeDur}:offset=${offset}[${outLabel}]`);
+        chainLabel = outLabel;
+      }
+      filterParts.push(`[0:a]showwaves=s=1920x200:mode=cline:colors=cyan@0.5:rate=30[waves]`);
+      filterParts.push(`[${chainLabel}][waves]overlay=0:H-200:format=auto,format=yuv420p[out]`);
+    }
+    const filterComplex = filterParts.join(";");
+    const ffmpegPath = path4.join(__dirname, "ffmpeg.exe");
+    if (!fs5.existsSync(ffmpegPath)) {
+      res.status(500).json({ error: "ffmpeg.exe not found in server directory" });
+      return;
+    }
+    const args = [
+      ...inputArgs,
+      "-filter_complex", filterComplex,
+      "-map", "[out]", "-map", "0:a",
+      "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+      "-c:a", "aac", "-b:a", "192k",
+      "-shortest", "-y", outputPath
+    ];
+    console.log(`[VideoGenAlbum] Generating video (${songDuration.toFixed(1)}s, ${imageCount} images, ${beatData.bpm} BPM)`);
+    await new Promise((resolve2, reject) => {
+      execFile2(ffmpegPath, args, { timeout: 300000 }, (error, stdout, stderr) => {
+        if (error) {
+          console.error(`[VideoGenAlbum] ffmpeg error: ${error.message}`);
+          console.error(`[VideoGenAlbum] stderr: ${stderr}`);
+          reject(new Error(`ffmpeg failed: ${error.message}`));
+        } else { resolve2(); }
+      });
+    });
+    const videoUrl = `/temp/video/${outputFilename}`;
+    console.log(`[VideoGenAlbum] Video generated: ${outputPath}`);
+    res.json({ videoPath: videoUrl, duration: songDuration, bpm: beatData.bpm, images: imageCount });
+  } catch (err) {
+    console.error("[VideoGenAlbum] Failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 function parseStructuredLlmResponse(raw) {
   let cleaned = raw.replace(/^```(?:json)?\s*|\s*```$/gm, "").trim();
   try {
@@ -298066,6 +298209,56 @@ router22.get("/generate/:jobId", (req, res) => {
     error: job.error
   });
 });
+// Generate cover art images for lyric sections. No songId required.
+// Accepts { sections[{lyrics, title}], style, language }
+// Generates one image per section in parallel, returns image URLs.
+router22.post("/generate-sections", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const { sections, style, trackTitle } = req.body;
+    if (!sections?.length) {
+      res.status(400).json({ error: "Missing sections array" });
+      return;
+    }
+    const readiness = getCoverArtReadiness();
+    if (!readiness.installed) {
+      res.status(503).json({ error: "Cover art not installed", missingFiles: readiness.missingFiles });
+      return;
+    }
+    // Generate images in parallel (limited concurrency to avoid OOM)
+    const MAX_PARALLEL = 3;
+    const results = [];
+    for (let i = 0; i < sections.length; i += MAX_PARALLEL) {
+      const batch = sections.slice(i, i + MAX_PARALLEL);
+      const batchResults = await Promise.allSettled(batch.map(async (section, batchIdx) => {
+        const sectionIndex = i + batchIdx;
+        const prompt = buildCoverArtPrompt({
+          title: trackTitle || section.title || "",
+          style: style || "",
+          lyrics: section.lyrics || "",
+          subject: section.subject || ""
+        });
+        console.log(`[CoverArtSections] Section ${sectionIndex + 1}/${sections.length} prompt: "${prompt.substring(0, 120)}..."`);
+        const result = await generateCoverImage({ prompt });
+        return { sectionIndex, url: result.coverUrl, prompt: result.prompt, durationMs: result.durationMs };
+      }));
+      for (const r of batchResults) {
+        if (r.status === "fulfilled") results.push(r.value);
+        else results.push({ sectionIndex: -1, error: r.reason?.message || "Unknown error" });
+      }
+    }
+    // Sort by section index
+    results.sort((a, b) => (a.sectionIndex || 0) - (b.sectionIndex || 0));
+    const successful = results.filter(r => r.url);
+    const failed = results.filter(r => r.error);
+    console.log(`[CoverArtSections] Done: ${successful.length} succeeded, ${failed.length} failed`);
+    res.json({ images: results, total: sections.length, succeeded: successful.length, failed: failed.length });
+  } catch (err) {
+    console.error("[CoverArtSections] Failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 var coverArt_default = router22;
 
 // server/src/routes/seeds.ts
@@ -298555,6 +298748,14 @@ app.use("/references", import_express25.default.static(refsDir2, {
       res.setHeader("Content-Type", "audio/wav");
     } else if (filePath.endsWith(".flac")) {
       res.setHeader("Content-Type", "audio/flac");
+    }
+  }
+}));
+// Serve generated video files
+app.use("/temp/video", import_express25.default.static(VIDEO_TEMP_DIR, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".mp4")) {
+      res.setHeader("Content-Type", "video/mp4");
     }
   }
 }));
