@@ -47314,12 +47314,18 @@ CONTENT RULES:
 - 3-ACT STORY STRUCTURE (CRITICAL): Every song tells a story that progresses through at minimum 3 acts. Act 1 (Verse 1 / Setup): Establish the world, the subject, the emotional starting point — where are we, what's happening, what's the first hint of what's to come. Act 2 (Verse 2-3 / Tension): Deepen the conflict, raise the stakes, layer in details that build pressure — the subject intensifies, something shifts, the listener feels the weight growing. Act 3 (Verse 4+ / Resolution): The climax and aftermath — the subject reaches its peak, something breaks or transforms, the final image lingers. A song with 4 verses of unrelated images is not a story — it's a list. Even in genres without literal narratives (metal, ambient, punk), there's an emotional arc: something starts, something builds, something lands. The listener needs to feel that the song went SOMEWHERE.
 - ALL CAPS AS DYNAMIC CONTRAST: If the genre calls for ALL CAPS emphasis, use it SPARINGLY — not in every verse. The release naturally lands on the last line of a verse (that's correct — tension builds, release comes at the peak). The variety is in WHETHER a verse gets ALL CAPS at all: some verses should stay entirely lowercase (sustained tension, no release), others get the ALL CAPS payoff. Not every verse deserves the release — deny it sometimes to make the times you deliver it hit harder. Think of it like dynamics in music: not every chorus is the loudest moment. Save the ALL CAPS for the verses that truly earn it — usually the emotional peak and the resolution, not every verse.
 - VARIETY IS SURVIVAL: Real songs are NOT repetitive in structure. If every verse has the same length, same cadence, same ALL CAPS placement, the listener gets bored. VARY: different verse lengths, different imagery types (some verses physical, some sensory, some dialogue), different emotional intensities (one quiet verse, one explosive), different line lengths (short punchy mixed with longer flowing).
+- CRITICAL SYLLABLE VARIANCE: AI lyrics often have exactly the same number of syllables per line. You MUST intentionally vary the syllable count of your lines. A verse should mix short punchy lines (3-5 syllables) with longer flowing lines (8-12 syllables). Standard deviation of syllables should be at least 2.0.
+- PERSISTENT PERSPECTIVE: Choose ONE narrative perspective (e.g., First Person 'I/me/my' OR Third Person 'He/she/they') and stick to it strictly throughout the entire song. Do NOT drift perspectives between verses and choruses.
+- OPENING WORD DIVERSITY: Do not start multiple sections with the same word. Vary the starting words of verses, choruses, and bridges.
+- CRITICAL SYLLABLE VARIANCE: AI lyrics often have exactly the same number of syllables per line. You MUST intentionally vary the syllable count of your lines. A verse should mix short punchy lines (3-5 syllables) with longer flowing lines (8-12 syllables). Standard deviation of syllables should be at least 2.0.
+- PERSISTENT PERSPECTIVE: Choose ONE narrative perspective (e.g., First Person 'I/me/my' OR Third Person 'He/she/they') and stick to it strictly throughout the entire song. Do NOT drift perspectives between verses and choruses.
+- OPENING WORD DIVERSITY: Do not start multiple sections with the same word. Vary the starting words of verses, choruses, and bridges.
 - Do NOT use AI-generic poetic language. NO neon, haze, ethereal, embers, silhouette, static, void, shimmering, tapestry, analog, glare, drenched, howling, wailing, flickering, phantom, ghostly, whispers, echoes, starlight, heartbeat, shadows, delve.
 - Write like a real person from that genre would write, not like an AI writing assistant.
 - Do NOT include commentary, explanations, or notes \u2014 lyrics only.
 
 HOOK RULES:
-- Every chorus MUST have a clear hook line that repeats at least once.
+- CHORUS HOOK REPETITION: Every chorus MUST contain a 'hook'\u2014a memorable phrase or entire line that repeats exactly at least once within the chorus. Do not write a chorus without a repeated hook.
 - The hook should be the emotional anchor. Good patterns:
   - "Hook, develop, develop, Hook"
   - "Hook, Hook, develop, resolve"
@@ -47424,10 +47430,13 @@ QUALITY:
 - 3-ACT STORY STRUCTURE (CRITICAL): Every song tells a story that progresses through at minimum 3 acts. Act 1 (Verse 1 / Setup): Establish the world, the subject, the emotional starting point — where are we, what's happening, what's the first hint of what's to come. Act 2 (Verse 2-3 / Tension): Deepen the conflict, raise the stakes, layer in details that build pressure — the subject intensifies, something shifts, the listener feels the weight growing. Act 3 (Verse 4+ / Resolution): The climax and aftermath — the subject reaches its peak, something breaks or transforms, the final image lingers. A song with 4 verses of unrelated images is not a story — it's a list. Even in genres without literal narratives (metal, ambient, punk), there's an emotional arc: something starts, something builds, something lands. The listener needs to feel that the song went SOMEWHERE.
 - ALL CAPS AS DYNAMIC CONTRAST: If the genre calls for ALL CAPS emphasis, use it SPARINGLY — not in every verse. The release naturally lands on the last line of a verse (that's correct — tension builds, release comes at the peak). The variety is in WHETHER a verse gets ALL CAPS at all: some verses should stay entirely lowercase (sustained tension, no release), others get the ALL CAPS payoff. Not every verse deserves the release — deny it sometimes to make the times you deliver it hit harder. Think of it like dynamics in music: not every chorus is the loudest moment. Save the ALL CAPS for the verses that truly earn it — usually the emotional peak and the resolution, not every verse.
 - VARIETY IS SURVIVAL: Real songs are NOT repetitive in structure. If every verse has the same length, same cadence, same ALL CAPS placement, same number of physical objects \u2014 the listener gets bored. VARY: different verse lengths (some 4 lines, some 6), different imagery types (some verses physical, some sensory, some dialogue or memory), different emotional intensities (one quiet verse, one explosive), different line lengths (short punchy lines mixed with longer flowing ones). The model's biggest tell is always doing the same thing twice \u2014 break the pattern deliberately.
+- CRITICAL SYLLABLE VARIANCE: AI lyrics often have exactly the same number of syllables per line. You MUST intentionally vary the syllable count of your lines. A verse should mix short punchy lines (3-5 syllables) with longer flowing lines (8-12 syllables). Standard deviation of syllables should be at least 2.0.
+- PERSISTENT PERSPECTIVE: Choose ONE narrative perspective (e.g., First Person 'I/me/my' OR Third Person 'He/she/they') and stick to it strictly throughout the entire song. Do NOT drift perspectives between verses and choruses.
+- OPENING WORD DIVERSITY: Do not start multiple sections with the same word. Vary the starting words of verses, choruses, and bridges.
 - Match the genre's typical vocabulary, tone, and energy level
 - Write in the specified language (tags stay in English). IMPORTANT: If the language is "Jamaican Patois" or the genre includes a "(Patois)" variant (e.g. "Reggae (Patois)", "Dub (Patois)"), write ALL lyrics in authentic Jamaican Patois \u2014 use Patois pronouns (mi, yuh, im, dem), articles (di, inna, pon, fi), and grammar throughout. Do NOT write in English with occasional Patois words. For base reggae-family genres without "(Patois)", use standard English with optional Patois flavor \u2014 sprinkle Patois phrases for authenticity but don't force the entire song into dialect.
 - Avoid AI clich\xE9s: neon, haze, ethereal, embers, silhouette, static, void, shimmering, tapestry, starlight, whispers, echoes, shadows, heartbeat
-- Every chorus MUST have a hook line that repeats at least once (for genres that have choruses)
+- CHORUS HOOK REPETITION: Every chorus MUST contain a 'hook'\u2014a memorable phrase or entire line that repeats exactly at least once within the chorus. Do not write a chorus without a repeated hook.
 
 === TITLE ===
 Short (1-6 words), catchy, derived from the hook or central theme. Not just restating the subject.
@@ -135103,6 +135112,13 @@ async function runGeneration(job) {
     const isCoverTask = ["cover", "cover-nofsq", "repaint", "lego", "extract"].includes(aceReq.task_type || "");
     const needsLm = !skipLm && !aceReq.audio_codes && !isCoverTask;
     const taskType = aceReq.task_type || "text2music";
+    if (taskType === "repaint") {
+      if (aceReq.caption && !aceReq.caption.includes("Match original melody")) {
+        aceReq.caption = "Match original melody, change vocals. " + aceReq.caption;
+      } else if (!aceReq.caption) {
+        aceReq.caption = "Match original melody, change vocals.";
+      }
+    }
     startGenerationLog(job.id, taskType);
     logGenerationParams(job.id, aceReq);
     let lmResults = [aceReq];
@@ -297570,7 +297586,7 @@ router21.post("/video/generate-album", async (req, res) => {
       const dur = Math.round(songDuration * 30);
       const zDir = zoomDirections[0];
       filterParts.push(
-        `[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,zoompan=z='${zDir.z}':x='${zDir.x}':y='${zDir.y}':d=${dur}:s=1920x1080:fps=30[zp0]`
+        `[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,zoompan=z='${zDir.z}':x='${zDir.x}':y='${zDir.y}':d=${dur}:s=1920x1080:fps=30[zp0]`
       );
       filterParts.push(`[0:a]showwaves=s=1920x200:mode=cline:colors=cyan@0.5:rate=30[waves]`);
       filterParts.push(`[zp0][waves]overlay=0:H-200:format=auto,format=yuv420p[out]`);
@@ -298351,7 +298367,7 @@ router22.post("/generate-sections", async (req, res) => {
       return;
     }
     // Generate images in parallel (limited concurrency to avoid OOM)
-    const MAX_PARALLEL = 3;
+    const MAX_PARALLEL = 1; // Sequential execution to prevent VRAM OOM on 16GB GPUs
     const results = [];
     for (let i = 0; i < sections.length; i += MAX_PARALLEL) {
       const batch = sections.slice(i, i + MAX_PARALLEL);

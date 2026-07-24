@@ -330,7 +330,7 @@ async function init() {
   }
 
   if (TRACKS.length === 0) {
-    for (let i = 0; i < 9; i++) TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
+    for (let i = 0; i < 3; i++) TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
   }
 
   render();
@@ -460,6 +460,7 @@ function render() {
   `;
   $('actions-bar').style.display = 'flex';
   updateOverall();
+  updateAddBtn();
 }
 
 function renderTrack(t, i) {
@@ -505,6 +506,7 @@ function renderTrack(t, i) {
     <div class="track-header" onclick="toggleTrack(${i})">
       <div class="track-num">${isDone?'✓':isError?'✗':i+1}</div>
       <div class="${titleCls}">${esc(displayTitle)}</div>
+      ${(!GENERATING && TRACKS.length > 1) ? `<button onclick="event.stopPropagation();removeTrack(${i})" title="Remove track" style="background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:all 0.15s;" onmouseenter="this.style.color='var(--red)';this.style.background='rgba(239,68,68,0.15)'" onmouseleave="this.style.color='var(--text3)';this.style.background='none'">✕</button>` : ''}
       <div class="track-toggle">▼</div>
     </div>
     <div class="track-body">
@@ -566,6 +568,28 @@ function addTrack() {
   saveConfig();
   render();
   toggleTrack(TRACKS.length - 1);
+  updateAddBtn();
+}
+
+function removeTrack(i) {
+  if (TRACKS.length <= 1) return;
+  if (GENERATING) return;
+  TRACKS.splice(i, 1);
+  saveConfig();
+  render();
+  updateAddBtn();
+}
+
+function updateAddBtn() {
+  var btn = $('add-track-btn');
+  if (!btn) return;
+  if (TRACKS.length >= 9) {
+    btn.disabled = true;
+    btn.textContent = '+ Add Track (max 9)';
+  } else {
+    btn.disabled = false;
+    btn.textContent = '+ Add Track (' + TRACKS.length + '/9)';
+  }
 }
 
 // ── LLM Response Parser ──────────────────────────────────────────────────────
@@ -1068,7 +1092,7 @@ function clearForm() {
   ALBUM_GENRE = '';
   SELECTED_LANG = 'en';
   TRACKS = [];
-  for (let i = 0; i < 9; i++) TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
+  for (let i = 0; i < 3; i++) TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
   localStorage.removeItem('hs-album-config');
   saveConfig();
   autoFillArtistName();
