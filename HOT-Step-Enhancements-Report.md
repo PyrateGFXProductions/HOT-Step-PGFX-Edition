@@ -1,14 +1,14 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 23, 2026 (updated — Phase 5: Album Library with Right-Click Download Menus added)  
+**Report Date**: July 25, 2026 (updated — Phase 6: Multi-Select Genre Picker, Unified Video Pipeline, Gender/Vocalist Context, Genre Fusion Fixes, Disco Performance Fixes)  
 **Modified Files**: `server/server.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`
 
 ---
 
 ## Summary
 
-This report documents all enhancements made to the HOT-Step CPP codebase. The work spans five major phases:
+This report documents all enhancements made to the HOT-Step CPP codebase. The work spans six major phases:
 
 **Phase 1** (July 18–20): Anti-AI slop vocabulary, genre-adaptive structure rules, Patois dialect integration, new genre profiles (acapella, duet, adult/sensual), and lyric quality evaluation improvements.
 
@@ -19,6 +19,8 @@ This report documents all enhancements made to the HOT-Step CPP codebase. The wo
 **Phase 4** (July 23): Artist name & album title metadata with auto-fill, persistent LLM metadata across sessions, ZIP download with folder organization, album music video pipeline with lyric-driven image generation and beat-synced video rendering *WIP*, two new server endpoints (cover art sections, album video generation), static video serving route.
 
 **Phase 5** (July 23): Album Library with right-click context menus for bulk downloads, server-side album grouping API, album ZIP download endpoint (wav/mp3/flac/opus), floating library button with modal panel, unreleased tracks section.
+
+**Phase 6** (July 25): Multi-select genre picker with 200+ genres across 15 categories (replacing single dropdown), unified video generation pipeline (`POST /api/inspire/video/create`), gender/vocalist context system for coherent pronoun usage in lyrics and AI images, genre fusion prompt fixes, Disco audio-reactive performance fixes (threshold gate, throttling, RAF loop), and recovery of stashed files (wildcards, section captions, Disco analyzer, DiscoVisualizer).
 
 The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net addition of ~5,135 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler + album library panel).
 
@@ -84,6 +86,15 @@ The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net
 46. [Album ZIP Download Endpoint](#46-album-zip-download-endpoint)
 47. [Album Library Floating Panel](#47-album-library-floating-panel)
 48. [Right-Click Context Menus for Downloads](#48-right-click-context-menus-for-downloads)
+
+### Phase 6 — Multi-Select Genre, Unified Video, Gender Context & Performance Fixes
+49. [Multi-Select Genre Picker](#49-multi-select-genre-picker)
+50. [Unified Video Generation Pipeline](#50-unified-video-generation-pipeline)
+51. [Gender/Vocalist Context System](#51-gender--vocalist-context-system)
+52. [Gender-Aware Image Prompt Builder](#52-gender-aware-image-prompt-builder)
+53. [Genre Fusion Prompt Fixes](#53-genre-fusion-prompt-fixes)
+54. [Disco Performance Fixes](#54-disco-performance-fixes)
+55. [Recovered Files from Stash](#55-recovered-files-from-stash)
 
 ---
 
@@ -1135,6 +1146,256 @@ app.use("/temp/video", express.static(VIDEO_TEMP_DIR, {
 - Exposed as `window.__albumLib` for reuse from batch handler
 
 **Location**: `ui/dist/index.html`, new `<script>` block with `window.__albumLib` global
+
+---
+
+## Phase 6 — Multi-Select Genre, Unified Video, Gender Context & Performance Fixes
+
+### 49. Multi-Select Genre Picker
+
+**Problem**: The Album Creator's genre selector was a single `<select>` dropdown — users could only pick ONE genre. The main page's React UI already had a multi-select genre picker (`GenreSelector.tsx`) with categorized groups, but the Album Creator (a standalone HTML page) had no equivalent.
+
+**Solution**: Replaced the single dropdown with a hierarchical, categorized, multi-select genre picker matching the main page's design.
+
+**Location**: `ui/dist/album.html`
+
+#### Data Structure
+Replaced flat `GENRE_LIST` array (~130 items) with `GENRE_TAXONOMY` — the same hierarchical structure used by the main page's `GenreSelector.tsx`:
+
+```javascript
+const GENRE_TAXONOMY = [
+  { name: 'Pop', icon: '🎤', genres: ['Pop','Synth-Pop','Electropop',...] },
+  { name: 'Rock', icon: '🎸', genres: ['Rock','Alternative Rock','Indie Rock',...] },
+  // ... 15 categories total
+];
+const ALL_GENRES = GENRE_TAXONOMY.flatMap(c => c.genres); // ~200 genres
+```
+
+#### State Change
+`ALBUM_GENRE` (string) → `ALBUM_GENRES` (array). All downstream references updated:
+- `saveConfig()` stores `genres: [...]` array
+- `init()` loads from `saved.genres` (with backward-compatible fallback from `saved.genre` string)
+- LLM prompts receive `genres: ALBUM_GENRES` array instead of `genres: [ALBUM_GENRE]`
+- Caption generation uses `albumGenreDisplay()` → `ALBUM_GENRES.join(', ')`
+
+#### UI Components
+- **Trigger area**: Clickable div showing selected genre chips (purple pill badges with × remove button), "Clear" button, chevron
+- **Dropdown**: Absolutely-positioned panel with:
+  - Search input (filters across all categories in real-time)
+  - Categorized genre buttons (sticky headers with emoji icons)
+  - Selected state highlighting (purple background)
+  - Custom genre input + "Add" button
+  - "🎲 Random Genres" button (picks 2-4 random genres)
+- **Outside-click close**: Document-level `mousedown` listener checks if click is outside `#genre-picker`
+- **CSS**: 60+ lines of new styles for `.genre-picker-*` classes matching the dark theme
+
+#### Backward Compatibility
+`init()` handles both new format (`saved.genres: [...]`) and old format (`saved.genre: "Rock"`):
+```javascript
+ALBUM_GENRES = Array.isArray(saved.genres) ? saved.genres : (saved.genre ? [saved.genre] : []);
+```
+
+---
+
+### 50. Unified Video Generation Pipeline
+
+**Problem**: Two separate video generation paths existed — one in the visualizer (songId-based) and one in the album batch handler (API-direct with images). The album batch handler's video path was complex, requiring separate image generation + video rendering calls.
+
+**Solution**: Single `POST /api/inspire/video/create` endpoint that handles the entire pipeline: parse lyrics → calculate section timings from BPM → generate section-aware images → assemble beat-synced Ken Burns video.
+
+**Location**: `server/server.mjs`, line ~297816 (`router21.post("/video/create", ...)`)
+
+#### API Contract
+```json
+POST /api/inspire/video/create
+{
+  "songId": "uuid",              // Fetches all data from DB
+  // OR direct params:
+  "audioUrl": "/audio/file.wav",
+  "lyrics": "[Verse] ...",
+  "style": "Reggae, Dub",
+  "trackTitle": "Song Name",
+  "coverArtSubject": "A sunset over Kingston harbor",
+  "vocalistGender": "male",      // Phase 6 addition
+  "aboutGender": "female"        // Phase 6 addition
+}
+```
+
+#### Processing Pipeline
+1. **Data resolution**: If `songId` provided, fetches from SQLite DB; otherwise uses direct params
+2. **Beat detection**: `detectBeatsInAudio()` → BPM + duration
+3. **Section parsing**: `parseVideoSections(lyrics)` → extracts `[Verse]`, `[Chorus]`, `[Bridge]`, etc.
+4. **Timing calculation**: `calculateSectionTimings(sections, bpm, duration)` → per-section start/end timestamps
+5. **Image generation**: For each section, calls `buildCoverArtPrompt()` with section-aware context (section type, act position, lyrics imagery, gender context) → `generateCoverImage()` via FLUX.2-klein-4B
+6. **Video assembly**: FFmpeg with per-image `zoompan` (Ken Burns) + crossfade transitions + audio
+
+#### Response
+```json
+{
+  "videoUrl": "/temp/video/video_track_uuid.mp4",
+  "sections": [
+    { "type": "Verse", "start": 0, "end": 15.2, "imageUrl": "..." },
+    { "type": "Chorus", "start": 15.2, "end": 30.4, "imageUrl": "..." }
+  ],
+  "duration": 182.5,
+  "bpm": 120
+}
+```
+
+#### Integration Points
+- **Visualizer** (`visualizer.html`): Video button calls this endpoint with `songId`
+- **Album batch** (`index.html`): Album batch handler calls this endpoint with direct params per track
+
+---
+
+### 51. Gender/Vocalist Context System
+
+**Problem**: AI-generated lyrics often produce incoherent gender/pronoun relationships. A song about a woman might use "he" for the subject. A male vocalist might be referred to as "she". This matters because listeners expect natural, consistent pronoun usage — a man singing about a woman should use "he" for the singer and "she" for the subject throughout.
+
+**Solution**: Two album-level fields that flow through the entire pipeline — lyrics generation, album concept creation, image prompt building, and Phase 2 handoff.
+
+**Location**: `ui/dist/album.html` (UI + prompts), `server/server.mjs` (image prompts)
+
+#### UI Fields (Album Info section)
+| Field | Options | Purpose |
+|-------|---------|---------|
+| Vocalist Gender | — Not specified — / Male vocalist / Female vocalist / Male & Female duet | Who is singing |
+| Song Subject Gender | — Not specified — / About a man / About a woman | Who the lyrics are about |
+
+Both fields persist to `hs-album-config` localStorage and are included in Phase 2 handoff data.
+
+#### Lyrics Generation Injection
+Gender context is injected as explicit rules into every LLM prompt:
+
+**System prompt injection** (`buildGenderContext()`):
+```
+GENDER/PERSPECTIVE RULES:
+- The singer is MALE. Use masculine pronouns (he/him/his) when the lyrics refer to
+  the vocalist/speaker. Write from a male perspective.
+- The subject of the song is FEMALE. When referring to the person being sung to or
+  about, use feminine pronouns (she/her/hers).
+```
+
+**Subject prompt injection** (per-track lyrics generation):
+```
+[The vocalist is male, singing about a female subject] A song about dancing
+in the rain on a summer night...
+```
+
+#### Affected Functions
+| Function | How Gender Context Is Used |
+|----------|---------------------------|
+| `autoFillAlbum()` | Both subject prompt and system prompt include gender rules |
+| `shuffleTracks()` | Subject prompt and system prompt include gender rules |
+| `generateAlbum()` (per-track lyrics) | Subject is prefixed with `[MALE vocalist; FEMALE subject]` bracket |
+| `generateSubject()` | Passes `buildGenderContext()` as subject hint to LLM |
+| Phase 2 handoff | `albumGenre` field includes gender description in caption parts |
+
+---
+
+### 52. Gender-Aware Image Prompt Builder
+
+**Problem**: AI-generated cover art and video section images have no concept of the song's gender context. A song by a male vocalist about a female subject might generate an image of a woman when it should show a man (or vice versa).
+
+**Solution**: Gender context flows from the album page through the video/create endpoint to the server-side `buildCoverArtPrompt()` function, which enriches scene descriptions with gender-aware person descriptors.
+
+**Location**: `server/server.mjs`, `buildCoverArtPrompt()` function (line ~42509)
+
+#### New Parameters
+```javascript
+var vocalistGender = opts.vocalistGender || "";
+var aboutGender = opts.aboutGender || "";
+```
+
+#### Person Descriptor Logic
+```javascript
+var personDesc = "";
+if (vocalistGender === "male" || aboutGender === "male") personDesc = "a man";
+else if (vocalistGender === "female" || aboutGender === "female") personDesc = "a woman";
+else if (vocalistGender === "duet") personDesc = "a man and a woman";
+```
+
+#### Scene Enrichment
+- **With subject**: If `coverArtSubject` doesn't mention a person, enriches it: `"a woman in a scene of sunset over Kingston harbor"`
+- **Without subject (fallback scenes)**: Uses gender-aware fallbacks: `"a man standing in a vast ethereal landscape"` instead of generic `"a mysterious figure silhouetted against light"`
+
+#### Video Pipeline Integration
+The `POST /api/inspire/video/create` endpoint accepts `vocalistGender` and `aboutGender` from the request body and passes them to `buildCoverArtPrompt()` for every section's image.
+
+---
+
+### 53. Genre Fusion Prompt Fixes
+
+**Problem**: The LLM prompt system had issues when multiple genres were selected:
+1. The word "blend" in genre instructions caused the LLM to produce generic, watered-down output
+2. Genre-count-aware hints were missing — selecting 1 genre vs 4 should produce different guidance
+3. Patois dialect constraint was not applied when Patois genres were selected via the new multi-select picker
+
+**Solution**: Three targeted fixes in the server-side prompt construction.
+
+**Location**: `server/src/routes/inspire.ts`, `server/src/services/lireek/prompts.ts`
+
+#### Fix 1: Remove "Blend" Keyword
+Changed genre instruction from "blend these genres" to genre-count-aware guidance:
+- 1 genre: "This is the PRIMARY genre — it dictates structure and style."
+- 2-3 genres: "These genres coexist — primary dictates structure, secondaries add flavor."
+- 4+ genres: "Create a FUSION concept that draws from all selected genres."
+
+#### Fix 2: Genre-Count-Aware Hints
+Added dynamic hint generation based on the number of selected genres, so the LLM produces more focused output when a single genre is selected and more creative fusion when multiple are selected.
+
+#### Fix 3: Patois Dialect Constraint
+When any Patois variant genre is selected (e.g., "Reggae (Patois)", "Dub (Patois)"), the LLM is explicitly instructed to write in authentic Jamaican Patois. This was already implemented for the main page's genre picker but wasn't being triggered when genres came through the Album Creator's multi-select picker.
+
+---
+
+### 54. Disco Performance Fixes
+
+**Problem**: The audio-reactive Disco visualization system had severe latency issues:
+1. Beat events were dispatched on every animation frame, regardless of whether energy exceeded the noise floor
+2. No throttling — thousands of events per second during loud sections
+3. `DiscoPulseWrapper` used `setInterval` instead of `requestAnimationFrame`, causing jank
+4. `HiHatParticles` spawned unlimited particles on every beat, causing frame drops
+
+**Solution**: Four targeted performance fixes across three files.
+
+**Location**: `ui/src/stores/discoStore.ts`, `ui/src/components/shared/DiscoPulseWrapper.tsx`, `ui/src/components/shared/HiHatParticles.tsx`
+
+#### discoStore.ts
+| Fix | Before | After |
+|-----|--------|-------|
+| Threshold gate | Dispatched on any RMS > 0 | RMS must exceed 0.02 (noise floor) |
+| Throttle | No limit | Max 30 events/second |
+| Getters | Selector-based (computed each call) | Raw getters (direct property access) |
+| Energy smoothing | None (jittery) | Exponential moving average |
+
+#### DiscoPulseWrapper.tsx
+| Fix | Before | After |
+|-----|--------|-------|
+| Timing | `setInterval(poll, 100)` | Local `requestAnimationFrame` loop |
+| Delta-time | None | Capped at 16ms max (prevents runaway) |
+| Cleanup | None (memory leak) | Cancels RAF on unmount |
+
+#### HiHatParticles.tsx
+| Fix | Before | After |
+|-----|--------|-------|
+| Spawn rate | Unlimited per beat | 80ms cooldown between spawns |
+| Max particles | 100 | 40 |
+
+---
+
+### 55. Recovered Files from Stash
+
+**Problem**: During upstream sync (pulling 619 commits), several locally-created files were stashed but not recovered. These files were lost from the working tree.
+
+**Solution**: After the upstream sync completed, the stash was popped and all 4 files were recovered:
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `server/src/services/generation/wildcards.ts` | Server-side wildcard resolver (`{option1\|option2\|option3}` syntax expansion) | Recovered |
+| `server/src/services/generation/sectionCaptionInjector.ts` | Section-specific caption style injection ([Verse] → conversational, [Chorus] → anthemic, etc.) | Recovered |
+| `server/src/services/discoAnalyzer.ts` | WAV parser + RMS energy analyzer for the Disco audio-reactive system | Recovered |
+| `ui/src/components/player/DiscoVisualizer.tsx` | Canvas-based particle visualizer for Disco mode | Recovered |
 
 ---
 

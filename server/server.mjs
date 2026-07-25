@@ -42488,32 +42488,95 @@ function extractLyricImagery(lyrics) {
   }
   return found.join(", ");
 }
+/* Section type → emotional visual tone mapping */
+var SECTION_VISUAL_TONE = {
+  intro: "gentle opening, soft light gradually revealing a scene, anticipation in the air",
+  verse: "intimate observational scene, natural lighting, grounded and personal perspective",
+  chorus: "expansive dramatic reveal, heightened emotion, vivid saturated colors, peak intensity",
+  "pre-chorus": "building tension, shifting light, sense of anticipation growing",
+  "post-chorus": "lingering resonance, afterglow, emotional echo of the chorus fading",
+  bridge: "unexpected perspective shift, dreamlike quality, different visual palette from verses",
+  interlude: "transitional atmosphere, suspended moment, quiet visual breathing room",
+  outro: "fading resolution, closing imagery, warmth or melancholy settling in",
+  instrumental: "abstract musical visualization, flowing forms, no human figures"
+};
+/* Act position → narrative visual emphasis */
+var ACT_EMPHASIS = {
+  1: "opening scene, establishing the world, introducing visual motifs",
+  2: "rising intensity, deepening conflict, visuals becoming more complex and layered",
+  3: "climax and resolution, transformative imagery, the visual story reaching its peak"
+};
 function buildCoverArtPrompt(opts) {
   if (opts.prompt?.trim()) {
     return opts.prompt.trim();
   }
-  const parts = [];
-  const style = opts.style || "";
-  const title = opts.title || "";
-  const subject = opts.subject || "";
-  const lyrics = opts.lyrics || "";
-  const description = opts.description || "";
-  const titleConcept = extractTitleConcept(title);
-  const genreVisuals = getGenreVisuals(style);
-  const lyricImagery = extractLyricImagery(lyrics);
-  const themeKeywords = extractThemeKeywords(lyrics, 5);
-  if (subject?.trim()) {
-    parts.push(subject.trim());
+  var parts = [];
+  var style = opts.style || "";
+  var title = opts.title || "";
+  var lyrics = opts.lyrics || "";
+  var description = opts.description || "";
+  /* Section-aware fields (from unified video pipeline) */
+  var coverArtSubject = opts.coverArtSubject || opts.subject || "";
+  var sectionType = (opts.sectionType || "").toLowerCase().replace(/[^a-z-]/g, "");
+  var sectionIndex = typeof opts.sectionIndex === "number" ? opts.sectionIndex : -1;
+  var totalSections = typeof opts.totalSections === "number" ? opts.totalSections : 0;
+  /* Gender context for image generation */
+  var vocalistGender = opts.vocalistGender || "";
+  var aboutGender = opts.aboutGender || "";
+  /* Determine act from section position */
+  var act = 0;
+  if (sectionIndex >= 0 && totalSections > 0) {
+    var pct = sectionIndex / Math.max(1, totalSections - 1);
+    act = pct < 0.33 ? 1 : pct < 0.66 ? 2 : 3;
+  }
+  /* 1. SCENE: Build from lyrics imagery + cover art subject */
+  var lyricImagery = extractLyricImagery(lyrics);
+  var themeKeywords = extractThemeKeywords(lyrics, 5);
+  /* Build gender-aware person descriptor for image prompts */
+  var personDesc = "";
+  if (vocalistGender === "male" || aboutGender === "male") personDesc = "a man";
+  else if (vocalistGender === "female" || aboutGender === "female") personDesc = "a woman";
+  else if (vocalistGender === "duet") personDesc = "a man and a woman";
+  if (coverArtSubject && sectionType) {
+    /* Best case: we have the track's subject AND know the section type.
+       Compose a scene that grounds the subject in this section's visual moment. */
+    var tone = SECTION_VISUAL_TONE[sectionType] || SECTION_VISUAL_TONE["verse"];
+    if (act > 0 && ACT_EMPHASIS[act]) {
+      parts.push(coverArtSubject + ", " + ACT_EMPHASIS[act] + ", " + tone);
+    } else {
+      parts.push(coverArtSubject + ", " + tone);
+    }
+    /* Layer in specific imagery from this section's lyrics */
+    if (lyricImagery) {
+      parts.push("visual details: " + lyricImagery);
+    }
+  } else if (coverArtSubject) {
+    /* If we have gender context but the subject doesn't mention a person, enrich it */
+    var enrichedSubject = coverArtSubject;
+    if (personDesc && !/man|woman|boy|girl|he|she|male|female/i.test(coverArtSubject)) {
+      enrichedSubject = personDesc + " in a scene of " + coverArtSubject;
+    }
+    parts.push(enrichedSubject);
+    if (lyricImagery) parts.push("visual details: " + lyricImagery);
   } else if (description?.trim()) {
     parts.push(description.trim());
-  } else if (titleConcept) {
-    parts.push(`A scene inspired by "${title.trim()}": ${titleConcept}`);
   } else if (lyricImagery) {
-    parts.push(`Visual composition featuring: ${lyricImagery}`);
+    var titleConcept = extractTitleConcept(title);
+    if (titleConcept) {
+      parts.push("A scene inspired by \"" + title.trim() + "\": " + titleConcept);
+    } else {
+      parts.push("Visual composition featuring: " + lyricImagery);
+    }
   } else if (themeKeywords.length > 0) {
-    parts.push(`A scene evoking themes of ${themeKeywords.join(", ")}`);
+    parts.push("A scene evoking themes of " + themeKeywords.join(", "));
   } else {
-    const fallbackScenes = [
+    var fallbackScenes = personDesc ? [
+      personDesc + " standing in a vast ethereal landscape under a dramatic sky",
+      personDesc + " silhouetted against flowing abstract forms with rich color gradients",
+      personDesc + " in a mysterious atmospheric scene with dramatic lighting",
+      personDesc + " surrounded by symbolic objects in dramatic composition",
+      personDesc + " amidst organic shapes merging with geometric patterns"
+    ] : [
       "a vast ethereal landscape under a dramatic sky",
       "abstract flowing forms with rich color gradients",
       "a mysterious figure silhouetted against light",
@@ -42522,15 +42585,21 @@ function buildCoverArtPrompt(opts) {
     ];
     parts.push(fallbackScenes[Math.floor(Math.random() * fallbackScenes.length)]);
   }
+  /* 2. MOOD: Genre-appropriate visual atmosphere */
+  var genreVisuals = getGenreVisuals(style);
   if (genreVisuals) {
     parts.push(genreVisuals);
   } else if (style) {
-    const styleWords = style.split(",").map((w) => w.trim().toLowerCase()).filter((w) => w.length > 2 && !w.includes("_")).slice(0, 2);
+    var styleWords = style.split(",").map(function(w) { return w.trim().toLowerCase(); }).filter(function(w) { return w.length > 2 && !w.includes("_"); }).slice(0, 2);
     if (styleWords.length > 0) {
-      parts.push(`${styleWords.join(" ")} aesthetic`);
+      parts.push(styleWords.join(" ") + " aesthetic");
     }
   }
-  const suffixPool = [
+  /* 3. ANTI-GTA: Explicitly avoid game-like/stylized-3D/text rendering.
+     FLUX at cfg_scale=1 ignores negative prompts, so we state it positively. */
+  parts.push("no text, no words, no letters, no signs, no UI, no HUD, no watermark");
+  /* 4. QUALITY SUFFIX */
+  var suffixPool = [
     "digital painting, cinematic composition, highly detailed, beautiful lighting, 8k",
     "concept art, artstation quality, dramatic lighting, vivid details, masterpiece",
     "professional illustration, atmospheric depth, rich textures, stunning visual impact",
@@ -42540,7 +42609,7 @@ function buildCoverArtPrompt(opts) {
     "matte painting style, epic scale, atmospheric perspective, visually striking",
     "fine art quality, balanced composition, nuanced color theory, museum-worthy piece"
   ];
-  const suffix = suffixPool[Math.floor(Math.random() * suffixPool.length)];
+  var suffix = suffixPool[Math.floor(Math.random() * suffixPool.length)];
   parts.push(suffix);
   return parts.join(". ");
 }
@@ -297686,6 +297755,267 @@ router21.post("/video/generate-album", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+/* ═══════════════════════════════════════════════════════════════════════════
+   UNIFIED VIDEO CREATION — single entry point for both single-track and
+   album batch video generation. Parses lyrics → calculates section timings
+   → generates context images → assembles beat-synced video.
+   ═══════════════════════════════════════════════════════════════════════════ */
+var SECTION_TYPE_MAP = {
+  intro: "intro", "verse 1": "verse", "verse 2": "verse", "verse 3": "verse",
+  "verse 4": "verse", verse: "verse", "pre-chorus": "pre-chorus", prechorus: "pre-chorus",
+  chorus: "chorus", "post-chorus": "post-chorus", postchorus: "post-chorus",
+  bridge: "bridge", interlude: "interlude", outro: "outro",
+  "instrumental break": "instrumental", instrumental: "instrumental"
+};
+function parseVideoSections(lyrics) {
+  if (!lyrics?.trim()) return [];
+  var sections = [];
+  var lines = lyrics.split("\n");
+  var current = null;
+  var currentLines = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var m = line.match(/^\[([^\]]+)\]\s*$/);
+    if (m) {
+      if (current && currentLines.length > 0) {
+        sections.push({ sectionType: current, lyrics: currentLines.join("\n").trim() });
+      }
+      var raw = m[1].trim();
+      var lower = raw.toLowerCase().replace(/[^a-z0-9 -]/g, "");
+      current = SECTION_TYPE_MAP[lower] || "verse";
+      currentLines = [];
+    } else if (line.trim()) {
+      currentLines.push(line);
+    }
+  }
+  if (current && currentLines.length > 0) {
+    sections.push({ sectionType: current, lyrics: currentLines.join("\n").trim() });
+  }
+  if (sections.length === 0 && lyrics.trim().length > 20) {
+    sections.push({ sectionType: "verse", lyrics: lyrics.trim() });
+  }
+  return sections;
+}
+function calculateSectionTimings(sections, bpm, duration) {
+  if (!sections.length || !bpm || bpm <= 0 || !duration || duration <= 0) {
+    /* Fallback: even distribution */
+    var even = duration / Math.max(1, sections.length);
+    return sections.map(function(_, i) { return i * even; }).concat([duration]);
+  }
+  var barSeconds = 240.0 / bpm;
+  /* barsPerLine scales from 2.5 (slow) to 4.0 (fast) */
+  var barsPerLine = Math.min(4.0, Math.max(2.5, 2.5 + 1.5 * ((bpm - 80) / 100)));
+  /* Calculate relative weight per section by line count */
+  var weights = sections.map(function(s) {
+    var lines = s.lyrics.split("\n").filter(function(l) { return l.trim().length > 0; }).length;
+    return Math.max(1, lines);
+  });
+  var totalWeight = weights.reduce(function(a, b) { return a + b; }, 0);
+  /* Allocate proportional time, leaving ~10% for transitions */
+  var usableDuration = duration * 0.95;
+  var timings = [0];
+  var elapsed = 0;
+  for (var i = 0; i < sections.length; i++) {
+    var sectionDuration = (weights[i] / totalWeight) * usableDuration;
+    /* Clamp: minimum 3 seconds, maximum 70% of duration */
+    sectionDuration = Math.max(3, Math.min(duration * 0.7, sectionDuration));
+    elapsed += sectionDuration;
+    timings.push(Math.min(duration, elapsed));
+  }
+  /* Scale to fit actual duration */
+  if (elapsed > 0) {
+    var scale = duration / elapsed;
+    for (var j = 1; j < timings.length; j++) {
+      timings[j] = Math.round(timings[j] * scale * 100) / 100;
+    }
+    timings[timings.length - 1] = duration;
+  }
+  return timings;
+}
+router21.post("/video/create", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+    /* Accept either songId (single track) or direct params (album batch) */
+    const { songId, audioUrl, lyrics, style, caption, trackTitle, coverArtSubject, vocalistGender, aboutGender } = req.body;
+    var songData = null;
+    var resolvedAudioUrl = audioUrl || "";
+    var resolvedLyrics = lyrics || "";
+    var resolvedStyle = style || caption || "";
+    var resolvedTitle = trackTitle || "";
+    var resolvedSubject = coverArtSubject || "";
+    /* If songId provided, fetch song data from DB */
+    if (songId) {
+      songData = getDb().prepare("SELECT * FROM songs WHERE id = ? AND user_id = ?").get(songId, userId);
+      if (!songData) { res.status(404).json({ error: "Song not found" }); return; }
+      resolvedAudioUrl = songData.audio_url || songData.mastered_audio_url || "";
+      resolvedLyrics = songData.lyrics || "";
+      resolvedStyle = songData.style || songData.caption || "";
+      resolvedTitle = songData.title || "";
+      resolvedSubject = songData.cover_art_subject || "";
+    }
+    /* Resolve audio file path */
+    if (!resolvedAudioUrl) { res.status(400).json({ error: "No audio URL provided" }); return; }
+    var audioFilename = path4.basename(resolvedAudioUrl);
+    var audioFilePath = path4.join(config.data.audioDir, audioFilename);
+    if (!fs5.existsSync(audioFilePath)) {
+      res.status(404).json({ error: "Audio file not found on disk: " + audioFilename });
+      return;
+    }
+    /* ── Step 1: Beat detection ── */
+    var beatData;
+    try { beatData = detectBeatsInAudio(audioFilePath); }
+    catch (e) { console.warn(`[VideoCreate] Beat detection failed: ${e.message}`); beatData = { beats: [], bpm: 0, duration: 0 }; }
+    var songDuration = beatData.duration;
+    if (!songDuration || songDuration <= 0) {
+      var wavInfo = parseWav(audioFilePath);
+      songDuration = wavInfo.samples.length / wavInfo.sampleRate;
+    }
+    var effectiveBpm = beatData.bpm || 0;
+    /* Use stored BPM if beat detection failed */
+    if ((!effectiveBpm || effectiveBpm <= 0) && songData?.bpm) effectiveBpm = songData.bpm;
+    /* ── Step 2: Parse lyrics into sections ── */
+    var sections = parseVideoSections(resolvedLyrics);
+    if (sections.length === 0) {
+      res.status(400).json({ error: "No lyrics sections found" });
+      return;
+    }
+    console.log(`[VideoCreate] Parsed ${sections.length} sections from lyrics (${songDuration.toFixed(1)}s, ${effectiveBpm} BPM)`);
+    /* ── Step 3: Calculate section timings ── */
+    var sectionTimings = calculateSectionTimings(sections, effectiveBpm, songDuration);
+    console.log(`[VideoCreate] Section timings: [${sectionTimings.map(function(t) { return t.toFixed(1); }).join(", ")}]`);
+    /* ── Step 4: Generate images for each section ── */
+    var imageResults = [];
+    for (var si = 0; si < sections.length; si++) {
+      var sec = sections[si];
+      var prompt = buildCoverArtPrompt({
+        title: resolvedTitle,
+        style: resolvedStyle,
+        lyrics: sec.lyrics,
+        coverArtSubject: resolvedSubject,
+        sectionType: sec.sectionType,
+        sectionIndex: si,
+        totalSections: sections.length,
+        vocalistGender: vocalistGender || "",
+        aboutGender: aboutGender || ""
+      });
+      console.log(`[VideoCreate] Section ${si + 1}/${sections.length} (${sec.sectionType}) prompt: "${prompt.substring(0, 120)}..."`);
+      try {
+        var imgResult = await generateCoverImage({ prompt });
+        imageResults.push({ url: imgResult.coverUrl, prompt: imgResult.prompt });
+      } catch (imgErr) {
+        console.error(`[VideoCreate] Image ${si + 1} failed: ${imgErr.message}`);
+        imageResults.push({ error: imgErr.message });
+      }
+    }
+    var imageUrls = imageResults.filter(function(r) { return r.url; }).map(function(r) { return r.url; });
+    if (imageUrls.length === 0) {
+      res.status(500).json({ error: "All image generations failed" });
+      return;
+    }
+    console.log(`[VideoCreate] Generated ${imageUrls.length}/${sections.length} images`);
+    /* ── Step 5: Assemble video with FFmpeg ── */
+    var imageCount = imageUrls.length;
+    var outputFilename = `video_${songId || "track"}_${Date.now()}.mp4`;
+    var outputPath = path4.join(VIDEO_TEMP_DIR, outputFilename);
+    var inputArgs = ["-i", audioFilePath];
+    var resolvedImages = [];
+    for (var ii = 0; ii < imageCount; ii++) {
+      var imgPath = imageUrls[ii];
+      if (imgPath.startsWith("/")) imgPath = path4.join(config.data.dir, imgPath.substring(1));
+      else if (imgPath.startsWith("/audio/")) imgPath = path4.join(config.data.audioDir, path4.basename(imgPath));
+      resolvedImages.push(imgPath);
+      inputArgs.push("-loop", "1", "-t", String(songDuration), "-i", imgPath);
+    }
+    /* Build image durations from section timings */
+    var imageDurations = [];
+    for (var di = 0; di < imageCount; di++) {
+      var secStart = sectionTimings[di] || 0;
+      var secEnd = sectionTimings[di + 1] || songDuration;
+      imageDurations.push(Math.max(0.5, secEnd - secStart));
+    }
+    /* Ken Burns zoom directions */
+    var zoomDirections = [
+      { z: "min(zoom+0.0005,1.15)", x: "iw/2-(iw/zoom/2)", y: "ih/2-(ih/zoom/2)" },
+      { z: "if(lte(zoom,1.0),1.15,max(zoom-0.0005,1.0))", x: "iw/2-(iw/zoom/2)", y: "ih/2-(ih/zoom/2)" },
+      { z: "min(zoom+0.0004,1.12)", x: "0", y: "ih/2-(ih/zoom/2)" },
+      { z: "min(zoom+0.0004,1.12)", x: "iw-iw/zoom", y: "ih/2-(ih/zoom/2)" },
+      { z: "min(zoom+0.0005,1.15)", x: "iw/2-(iw/zoom/2)", y: "0" },
+      { z: "min(zoom+0.0005,1.15)", x: "iw/2-(iw/zoom/2)", y: "ih-ih/zoom" }
+    ];
+    var transitions = ["fade", "dissolve", "fadeblack", "fadewhite", "smoothleft", "smoothright", "circlecrop", "radial", "pixelize", "diagtl"];
+    var filterParts = [];
+    if (imageCount === 1) {
+      var dur = Math.round(songDuration * 30);
+      filterParts.push(
+        "[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,zoompan=z='" + zoomDirections[0].z + "':x='" + zoomDirections[0].x + "':y='" + zoomDirections[0].y + "':d=" + dur + ":s=1920x1080:fps=30[zp0]"
+      );
+      filterParts.push("[0:a]showwaves=s=1920x200:mode=cline:colors=cyan@0.5:rate=30[waves]");
+      filterParts.push("[zp0][waves]overlay=0:H-200:format=auto,format=yuv420p[out]");
+    } else {
+      /* Build zoompan for each image with its own duration */
+      for (var zi = 0; zi < imageCount; zi++) {
+        var frameDur = Math.round(imageDurations[zi] * 30);
+        var zDir = zoomDirections[zi % zoomDirections.length];
+        filterParts.push(
+          "[" + (zi + 1) + ":v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,zoompan=z='" + zDir.z + "':x='" + zDir.x + "':y='" + zDir.y + "':d=" + frameDur + ":s=1920x1080:fps=30[zp" + zi + "]"
+        );
+      }
+      /* Chain crossfades at section boundaries */
+      var chainLabel = "zp0";
+      var crossfadeDur = 0.5;
+      for (var ci = 1; ci < imageCount; ci++) {
+        var offset = 0;
+        for (var cj = 0; cj < ci; cj++) offset += imageDurations[cj];
+        offset -= crossfadeDur * ci;
+        offset = Math.max(0.1, Math.round(offset * 1000) / 1000);
+        var trans = transitions[(ci - 1) % transitions.length];
+        filterParts.push("[" + chainLabel + "][zp" + ci + "]xfade=transition=" + trans + ":duration=" + crossfadeDur + ":offset=" + offset + "[xf" + ci + "]");
+        chainLabel = "xf" + ci;
+      }
+      filterParts.push("[0:a]showwaves=s=1920x200:mode=cline:colors=cyan@0.5:rate=30[waves]");
+      filterParts.push("[" + chainLabel + "][waves]overlay=0:H-200:format=auto,format=yuv420p[out]");
+    }
+    var filterComplex = filterParts.join(";");
+    var ffmpegPath = path4.join(__dirname, "ffmpeg.exe");
+    if (!fs5.existsSync(ffmpegPath)) {
+      res.status(500).json({ error: "ffmpeg.exe not found in server directory" });
+      return;
+    }
+    var args = [
+      ...inputArgs,
+      "-filter_complex", filterComplex,
+      "-map", "[out]", "-map", "0:a",
+      "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+      "-c:a", "aac", "-b:a", "192k",
+      "-shortest", "-y", outputPath
+    ];
+    console.log(`[VideoCreate] Assembling video: ${songDuration.toFixed(1)}s, ${imageCount} images, ${effectiveBpm} BPM`);
+    await new Promise(function(resolve, reject) {
+      execFile2(ffmpegPath, args, { timeout: 600000 }, function(error, stdout, stderr) {
+        if (error) {
+          console.error("[VideoCreate] ffmpeg error: " + error.message);
+          if (stderr) console.error("[VideoCreate] stderr: " + stderr.substring(0, 500));
+          reject(new Error("ffmpeg failed: " + error.message));
+        } else { resolve(); }
+      });
+    });
+    var videoUrl = "/temp/video/" + outputFilename;
+    console.log("[VideoCreate] Video generated: " + outputPath);
+    res.json({
+      videoPath: videoUrl,
+      duration: songDuration,
+      bpm: effectiveBpm,
+      images: imageCount,
+      sections: sections.map(function(s, i) {
+        return { type: s.sectionType, startTime: sectionTimings[i], endTime: sectionTimings[i + 1] || songDuration };
+      })
+    });
+  } catch (err) {
+    console.error("[VideoCreate] Failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 function parseStructuredLlmResponse(raw) {
   let cleaned = raw.replace(/^```(?:json)?\s*|\s*```$/gm, "").trim();
   try {
@@ -298374,7 +298704,7 @@ router22.post("/generate-sections", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
-    const { sections, style, trackTitle } = req.body;
+    const { sections, style, trackTitle, coverArtSubject, caption } = req.body;
     if (!sections?.length) {
       res.status(400).json({ error: "Missing sections array" });
       return;
@@ -298384,26 +298714,27 @@ router22.post("/generate-sections", async (req, res) => {
       res.status(503).json({ error: "Cover art not installed", missingFiles: readiness.missingFiles });
       return;
     }
-    // Generate images in parallel (limited concurrency to avoid OOM)
-    const MAX_PARALLEL = 1; // Sequential execution to prevent VRAM OOM on 16GB GPUs
+    const totalSections = sections.length;
+    // Generate images sequentially to prevent VRAM OOM on 16GB GPUs
     const results = [];
-    for (let i = 0; i < sections.length; i += MAX_PARALLEL) {
-      const batch = sections.slice(i, i + MAX_PARALLEL);
-      const batchResults = await Promise.allSettled(batch.map(async (section, batchIdx) => {
-        const sectionIndex = i + batchIdx;
-        const prompt = buildCoverArtPrompt({
-          title: trackTitle || section.title || "",
-          style: style || "",
-          lyrics: section.lyrics || "",
-          subject: section.subject || ""
-        });
-        console.log(`[CoverArtSections] Section ${sectionIndex + 1}/${sections.length} prompt: "${prompt.substring(0, 120)}..."`);
+    for (let i = 0; i < totalSections; i++) {
+      const section = sections[i];
+      const prompt = buildCoverArtPrompt({
+        title: trackTitle || section.title || "",
+        style: style || caption || "",
+        lyrics: section.lyrics || "",
+        coverArtSubject: coverArtSubject || "",
+        sectionType: section.sectionType || section.subject || "",
+        sectionIndex: i,
+        totalSections: totalSections
+      });
+      console.log(`[CoverArtSections] Section ${i + 1}/${totalSections} (${section.sectionType || "?"}) prompt: "${prompt.substring(0, 140)}..."`);
+      try {
         const result = await generateCoverImage({ prompt });
-        return { sectionIndex, url: result.coverUrl, prompt: result.prompt, durationMs: result.durationMs };
-      }));
-      for (const r of batchResults) {
-        if (r.status === "fulfilled") results.push(r.value);
-        else results.push({ sectionIndex: -1, error: r.reason?.message || "Unknown error" });
+        results.push({ sectionIndex: i, url: result.coverUrl, prompt: result.prompt, durationMs: result.durationMs });
+      } catch (err) {
+        console.error(`[CoverArtSections] Section ${i + 1} failed: ${err.message}`);
+        results.push({ sectionIndex: i, error: err.message });
       }
     }
     // Sort by section index
@@ -298411,7 +298742,7 @@ router22.post("/generate-sections", async (req, res) => {
     const successful = results.filter(r => r.url);
     const failed = results.filter(r => r.error);
     console.log(`[CoverArtSections] Done: ${successful.length} succeeded, ${failed.length} failed`);
-    res.json({ images: results, total: sections.length, succeeded: successful.length, failed: failed.length });
+    res.json({ images: results, total: totalSections, succeeded: successful.length, failed: failed.length });
   } catch (err) {
     console.error("[CoverArtSections] Failed:", err.message);
     res.status(500).json({ error: err.message });

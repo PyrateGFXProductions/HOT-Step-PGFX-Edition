@@ -264,7 +264,7 @@ canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
 <div id="video-modal">
   <div id="video-box">
     <h2>Generate Music Video</h2>
-    <p>Creates an MP4 with Ken Burns zoom, beat-synced crossfades, and waveform overlay using the song's cover art.</p>
+    <p>Parses lyrics into sections, generates context-aware images via FLUX, and renders a beat-synced Ken Burns video with transitions and waveform overlay.</p>
     <div id="video-images"></div>
     <button id="video-gen-btn">Generate Video</button>
     <div id="video-status"></div>
@@ -1351,27 +1351,12 @@ $('pl-repeat').addEventListener('click',function(){
 $('pl-refresh').addEventListener('click',function(){loadPlaylist();});
 
 /* ═══════════════════════════════════════════════════════════════════════
-   VIDEO GENERATION
+   VIDEO GENERATION — Unified endpoint shared with Album Creator
    ═══════════════════════════════════════════════════════════════════════ */
 $('btn-videogen').addEventListener('click',function(){
   if(!S.songId){videoStatus.textContent='No song loaded — load a song first';return;}
   videoModal.classList.add('open');
-  /* Load cover art thumbnails */
-  videoImages.innerHTML='';
-  var imgSrcs=[];
-  if(coverImg&&coverImg.src)imgSrcs.push(coverImg.src);
-  /* Try to find images from the playlist item */
-  if(S.plIndex>=0&&S.playlist[S.plIndex]&&S.playlist[S.plIndex].img){
-    imgSrcs.push(S.playlist[S.plIndex].img);
-  }
-  if(imgSrcs.length===0){
-    videoImages.innerHTML='<div style="font-size:12px;color:#666;padding:8px">No cover art found. The video will use a black background with waveform.</div>';
-  }
-  imgSrcs.forEach(function(src){
-    var img=document.createElement('img');img.className='vi-thumb selected';img.src=src;
-    img.addEventListener('click',function(){this.classList.toggle('selected');});
-    videoImages.appendChild(img);
-  });
+  videoImages.innerHTML='<div style="font-size:12px;color:#888;padding:8px;line-height:1.6">This will generate a music video for the current track:<br><b style="color:#ccc">'+(S.songTitle||'Untitled')+'</b><br><br>Sections will be parsed from the lyrics, context-aware images generated for each section, then assembled into a beat-synced video with Ken Burns effects and transitions.</div>';
   videoStatus.textContent='';
 });
 $('video-close').addEventListener('click',function(){videoModal.classList.remove('open');});
@@ -1379,19 +1364,25 @@ videoModal.addEventListener('click',function(e){if(e.target===videoModal)videoMo
 
 videoGenBtn.addEventListener('click',async function(){
   if(!S.songId){videoStatus.textContent='No song ID';return;}
-  var selectedThumbs=videoImages.querySelectorAll('.vi-thumb.selected');
-  var images=Array.from(selectedThumbs).map(function(img){return img.src;});
   videoGenBtn.disabled=true;
-  videoStatus.textContent='Generating video... this may take a while.';
+  videoStatus.textContent='Parsing lyrics and generating section images...';
   try{
-    var resp=await fetch('/api/inspire/video/generate',{
+    var resp=await fetch('/api/inspire/video/create',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({songId:S.songId,images:images,style:'visualizer'})
+      body:JSON.stringify({songId:S.songId})
     });
     var data=await resp.json();
     if(data.videoPath){
-      videoStatus.innerHTML='<a href="'+data.videoPath+'" target="_blank" style="color:var(--accent)">Download Video</a> — '+Math.round(data.duration)+'s, '+data.bpm+' BPM';
+      var sectionInfo='';
+      if(data.sections&&data.sections.length>0){
+        sectionInfo='<br><div style="margin-top:8px;font-size:11px;color:#666;text-align:left">';
+        data.sections.forEach(function(s,i){
+          sectionInfo+='<div style="margin:2px 0">'+(i+1)+'. <span style="color:var(--accent)">'+s.type+'</span> ('+s.startTime.toFixed(1)+'s — '+s.endTime.toFixed(1)+'s)</div>';
+        });
+        sectionInfo+='</div>';
+      }
+      videoStatus.innerHTML='<a href="'+data.videoPath+'" target="_blank" style="color:var(--accent)">Download Video</a> — '+Math.round(data.duration)+'s, '+data.bpm+' BPM, '+data.images+' sections'+sectionInfo;
     } else {
       videoStatus.textContent='Error: '+(data.error||'Unknown error');
     }

@@ -956,56 +956,35 @@
               render();
               console.log('[AlbumBatch] Track ' + (i+1) + ' audio complete: ' + (t.title || 'Untitled'));
 
-              /* ── VIDEO GENERATION: split lyrics → generate images → render video ── */
+              /* ── VIDEO GENERATION: unified endpoint (same as visualizer single-track) ── */
               try {
                 var trackLyrics = t.lyrics || '';
-                if (trackLyrics.length > 50) {
-                  /* Split lyrics into sections by [Section] headers */
-                  var sections = splitLyricsIntoSections(trackLyrics, t.title);
-                  if (sections.length > 0) {
-                    t._stage = 'Generating images (' + sections.length + ')...';
-                    render();
+                if (trackLyrics.length > 50 && t._audioUrl) {
+                  t._stage = 'Generating video...';
+                  render();
+                  console.log('[AlbumBatch] Track ' + (i+1) + ': Generating video via unified endpoint');
 
-                    /* Generate images for each section */
-                    var imgResp = await fetch('/api/cover-art/generate-sections', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-                      body: JSON.stringify({ sections: sections, style: albumGenre || '', trackTitle: t.title || '' })
-                    });
-                    if (imgResp.ok) {
-                      var imgData = await imgResp.json();
-                      var imageUrls = (imgData.images || []).filter(function(img) { return img.url; }).map(function(img) { return img.url; });
-                      if (imageUrls.length > 0) {
-                        t._stage = 'Rendering video (' + imageUrls.length + ' images)...';
-                        render();
-                        console.log('[AlbumBatch] Track ' + (i+1) + ': Generating video with ' + imageUrls.length + ' images');
-
-                        /* Generate video */
-                        var videoResp = await fetch('/api/inspire/video/generate-album', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-                          body: JSON.stringify({ audioUrl: t._audioUrl, images: imageUrls })
-                        });
-                        if (videoResp.ok) {
-                          var videoData = await videoResp.json();
-                          t._videoUrl = videoData.videoPath || '';
-                          t._stage = 'Complete (+ video)';
-                          console.log('[AlbumBatch] Track ' + (i+1) + ' video: ' + t._videoUrl);
-                        } else {
-                          var vErr = await videoResp.json().catch(function() { return {}; });
-                          console.warn('[AlbumBatch] Track ' + (i+1) + ' video failed: ' + (vErr.error || videoResp.status));
-                          t._stage = 'Audio complete (video failed)';
-                        }
-                      } else {
-                        t._stage = 'Audio complete (no images)';
-                      }
-                    } else {
-                      var iErr = await imgResp.json().catch(function() { return {}; });
-                      console.warn('[AlbumBatch] Track ' + (i+1) + ' image gen failed: ' + (iErr.error || imgResp.status));
-                      t._stage = 'Audio complete (images failed)';
-                    }
+                  var videoResp = await fetch('/api/inspire/video/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+                    body: JSON.stringify({
+                      audioUrl: t._audioUrl,
+                      lyrics: trackLyrics,
+                      style: albumGenre || '',
+                      caption: t.style || '',
+                      trackTitle: t.title || '',
+                      coverArtSubject: t.coverArtSubject || ''
+                    })
+                  });
+                  if (videoResp.ok) {
+                    var videoData = await videoResp.json();
+                    t._videoUrl = videoData.videoPath || '';
+                    t._stage = 'Complete (+ video)';
+                    console.log('[AlbumBatch] Track ' + (i+1) + ' video: ' + t._videoUrl + ' (' + videoData.images + ' sections)');
                   } else {
-                    t._stage = 'Audio complete';
+                    var vErr = await videoResp.json().catch(function() { return {}; });
+                    console.warn('[AlbumBatch] Track ' + (i+1) + ' video failed: ' + (vErr.error || videoResp.status));
+                    t._stage = 'Audio complete (video failed)';
                   }
                 } else {
                   t._stage = 'Audio complete';

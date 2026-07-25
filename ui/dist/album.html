@@ -44,6 +44,41 @@
   .genre-chip { padding: 4px 10px; border-radius: 16px; font-size: 11px; cursor: pointer; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); transition: all 0.2s; user-select: none; }
   .genre-chip:hover { border-color: var(--accent); color: var(--text); }
   .genre-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* Multi-select genre picker */
+  .genre-picker { position: relative; }
+  .genre-picker-trigger { min-height: 42px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); padding: 6px 10px; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; transition: border-color 0.2s; }
+  .genre-picker-trigger:hover { border-color: var(--accent); }
+  .genre-picker-trigger.open { border-color: var(--accent); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .genre-picker-trigger .placeholder { color: var(--text3); font-size: 12px; user-select: none; }
+  .genre-picker-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.25); transition: background 0.15s; }
+  .genre-picker-chip:hover { background: rgba(168,85,247,0.25); }
+  .genre-picker-chip .remove { cursor: pointer; font-size: 13px; line-height: 1; opacity: 0.7; transition: opacity 0.15s; }
+  .genre-picker-chip .remove:hover { opacity: 1; }
+  .genre-picker-trigger .actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .genre-picker-trigger .actions .clear-btn { font-size: 10px; color: var(--text3); cursor: pointer; transition: color 0.15s; background: none; border: none; padding: 2px 4px; }
+  .genre-picker-trigger .actions .clear-btn:hover { color: var(--red); }
+  .genre-picker-trigger .actions .chevron { color: var(--text3); transition: transform 0.2s; font-size: 10px; }
+  .genre-picker-trigger.open .actions .chevron { transform: rotate(180deg); }
+  .genre-picker-dropdown { position: absolute; top: 100%; left: 0; right: 0; max-height: 380px; border: 1px solid var(--accent); border-top: none; border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; background: var(--surface); z-index: 50; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+  .genre-picker-search { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .genre-picker-search input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; color: var(--text); font-size: 12px; outline: none; }
+  .genre-picker-search input:focus { border-color: var(--accent); }
+  .genre-picker-search .search-icon { color: var(--text3); font-size: 12px; }
+  .genre-picker-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .genre-picker-cat-header { padding: 6px 12px 2px; font-size: 10px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; background: var(--surface); }
+  .genre-picker-cat-genres { padding: 2px 8px 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .genre-picker-opt { padding: 3px 8px; border-radius: 6px; font-size: 11px; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--text2); transition: all 0.15s; }
+  .genre-picker-opt:hover { background: var(--surface3); color: var(--text); }
+  .genre-picker-opt.selected { background: rgba(168,85,247,0.15); color: #c084fc; border-color: rgba(168,85,247,0.3); }
+  .genre-picker-empty { text-align: center; padding: 20px; color: var(--text3); font-size: 12px; }
+  .genre-picker-custom { padding: 6px 10px; border-top: 1px solid var(--border); display: flex; gap: 6px; }
+  .genre-picker-custom input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; color: var(--text); font-size: 12px; outline: none; }
+  .genre-picker-custom input:focus { border-color: var(--accent); }
+  .genre-picker-custom button { padding: 4px 10px; border-radius: 4px; font-size: 11px; background: var(--accent); color: #fff; border: none; cursor: pointer; white-space: nowrap; }
+  .genre-picker-random { padding: 6px 10px; border-top: 1px solid var(--border); }
+  .genre-picker-random button { width: 100%; padding: 5px; border-radius: 4px; font-size: 11px; background: linear-gradient(135deg, var(--accent), #7c3aed); color: #fff; border: none; cursor: pointer; font-weight: 600; transition: filter 0.15s; }
+  .genre-picker-random button:hover { filter: brightness(1.1); }
   
   /* Track Cards */
   .tracks-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -160,7 +195,11 @@ let SELECTED_MODEL = '';
 let ALBUM_TITLE = '';
 let ARTIST_NAME = '';
 let ALBUM_THEME = '';
-let ALBUM_GENRE = '';
+let ALBUM_GENRES = [];
+let GENRE_DROPDOWN_OPEN = false;
+let GENRE_SEARCH = '';
+let VOCALIST_GENDER = '';    // '' = not set, 'male', 'female', 'duet'
+let ABOUT_GENDER = '';       // '' = not set, 'male', 'female'
 let LANGUAGES = [
   {code:'en',name:'English'},{code:'es',name:'Spanish'},{code:'fr',name:'French'},
   {code:'de',name:'German'},{code:'pt',name:'Portuguese'},{code:'ja',name:'Japanese'},
@@ -172,56 +211,25 @@ let TRACKS = [];
 let GENERATING = false;
 let CANCEL_FLAG = false;
 
-const GENRE_LIST = [
-  'Rock','Pop','Hip-Hop','R&B','Country','Folk','Jazz','Blues','Classical',
-  'Electronic','Dance','Techno','House','Trance','Drum & Bass','Dubstep','Dubstep (Patois)','Lo-Fi',
-  'Metal','Punk','Grunge','Indie','Alternative','Reggae','Dub','Ska','Dancehall',
-  'Reggae (Patois)','Dub (Patois)','Dancehall (Patois)',
-  'Latin','Salsa','Reggaeton','Bachata','Cumbia',
-  'K-Pop','J-Pop','Bollywood','Afrobeats','Amapiano',
-  'Gospel','Soul','Funk','Disco','Synthwave','Vaporwave',
-  'Bluegrass','Country Rock','Honky Tonk','Outlaw Country',
-  'Prog Rock','Post-Rock','Shoegaze','Math Rock',
-  'Doom Metal','Black Metal','Death Metal','Power Metal','Symphonic Metal',
-  'Grime','Trap','Drill','Boom Bap','Conscious Hip-Hop','Jazz Rap',
-  'Ambient','New Age','Cinematic','Soundtrack',
-  'Hardcore','Ska Punk','Oi!','Street Punk',
-  'Deep House','Tech House','Minimal','Glitch','IDM',
-  'Smooth Jazz','Bebop','Swing','Fusion','Vocal Jazz',
-  'Opera','Chamber','Baroque','Romantic',
-  'Garage Rock','Surf Rock','Psych Rock','Space Rock','Stoner Rock',
-  'Breakcore','Jungle','UK Garage','Future Bass','Chillstep',
-  'Blue-eyed Soul','Motown','Northern Soul',
-  'Tango','Bossa Nova','Samba','Flamenco','Fado',
-  'Ska Jazz','Reggae Rock','Dub Techno',
-  'Hardstyle','Happy Hardcore','Psytrance','Goa Trance',
-  'Downtempo','Trip-Hop','Electro Swing',
-  'Trap Soul','Emo Rap','Cloud Rap',
-  'Celtic','Nordic Folk','Balkan','Polka',
-  'Yacht Rock','AOR','Soft Rock','Power Pop','Britpop',
-  'Garage Punk','Post-Punk','New Wave','Gothic Rock','Darkwave','Coldwave',
-  'Grindcore','Djent','Post-Metal','Sludge Metal','Stoner Metal',
-  'Afrobeat','Highlife','Mbalax','Kwaito','Bongo Flava',
-  'Brega','Forró','Zouk','Kompa','Coupé-Décalé',
-  'Merengue','Cumbia Villera','Cumbia Sonidera','Dembow',
-  'Phonk','Drift Phonk','Witch House','Wave',
-  'Lofi Hip-Hop','Chillhop','Jazzhop',
-  'Bluegrass Gospel','Texas Country','Red Dirt',
-  'Post-Hardcore','Emo','Screamo','Metalcore','Deathcore',
-  'Noise Rock','Mathcore','Avant-Garde Metal',
-  'Symphonic Black Metal','Folk Metal','Viking Metal','Pagan Metal',
-  'Power Noise','Rhythmic Noise','Dark Ambient','Drone',
-  'Indie Pop','Indie Folk','Indie Rock','Dream Pop','Shimmer Pop',
-  'Neo-Soul','Alternative R&B','PBR&B',
-  'Afro House','Gqom','Amapiano','Bass House',
-  'Hardbass','Eurodance','Italo Disco','Hi-NRG',
-  'Chiptune','8-bit','Bitpop',
-  'Reggae Fusion','Ragga','Lovers Rock','Roots Reggae',
-  'DJ','Dual DJ','Turntablism','Scratch Battle',
-  'Porn Groove','SFW Porn Groove',
-  'Klezmer','Mariachi','Bhangra',
-  'Andean','Celtic','Nordic Folk','Balkan'
+// Hierarchical genre taxonomy — same as main page
+const GENRE_TAXONOMY = [
+  { name: 'Pop', icon: '🎤', genres: ['Pop','Synth-Pop','Electropop','Dance Pop','Dream Pop','Indie Pop','Art Pop','Bubblegum Pop','Teen Pop','Power Pop','Chamber Pop','Baroque Pop','K-Pop','J-Pop','C-Pop','Sophisti-Pop','Hyperpop','City Pop'] },
+  { name: 'Rock', icon: '🎸', genres: ['Rock','Alternative Rock','Indie Rock','Classic Rock','Hard Rock','Soft Rock','Progressive Rock','Psychedelic Rock','Post-Rock','Punk Rock','Pop Punk','Garage Rock','Surf Rock','Grunge','Shoegaze','Math Rock','Stoner Rock','Blues Rock','Folk Rock','Post-Punk','Emo','Noise Rock'] },
+  { name: 'Electronic', icon: '🎧', genres: ['Electronic','EDM','House','Deep House','Tech House','Progressive House','Techno','Minimal Techno','Trance','Psytrance','Drum and Bass','Dubstep','Future Bass','Ambient','Downtempo','Chillwave','Synthwave','Retrowave','IDM','Breakbeat','Garage','Hardstyle','Electro','Vaporwave','Glitch'] },
+  { name: 'Hip-Hop', icon: '🎙️', genres: ['Hip-Hop','Rap','Trap','Lo-Fi Hip-Hop','Boom Bap','Drill','Grime','Cloud Rap','Conscious Hip-Hop','Gangsta Rap','Mumble Rap','Old School Hip-Hop','Phonk','Crunk','Chopped and Screwed'] },
+  { name: 'R&B / Soul', icon: '💜', genres: ['R&B','Soul','Neo-Soul','Contemporary R&B','Funk','Disco','Motown','Quiet Storm','New Jack Swing','P-Funk','Afrobeats','Gospel'] },
+  { name: 'Metal', icon: '🤘', genres: ['Heavy Metal','Thrash Metal','Death Metal','Black Metal','Doom Metal','Power Metal','Progressive Metal','Symphonic Metal','Nu Metal','Metalcore','Deathcore','Gothic Metal','Sludge Metal','Speed Metal','Folk Metal','Djent','Industrial Metal'] },
+  { name: 'Jazz', icon: '🎷', genres: ['Jazz','Smooth Jazz','Bebop','Cool Jazz','Swing','Jazz Fusion','Acid Jazz','Free Jazz','Latin Jazz','Bossa Nova Jazz','Modal Jazz','Gypsy Jazz'] },
+  { name: 'Classical', icon: '🎻', genres: ['Classical','Orchestral','Chamber Music','Opera','Baroque','Romantic','Minimalist','Contemporary Classical','Choral','Neoclassical'] },
+  { name: 'Country', icon: '🤠', genres: ['Country','Country Pop','Country Rock','Bluegrass','Americana','Honky-Tonk','Outlaw Country','Alt-Country','Country Blues'] },
+  { name: 'Folk', icon: '🪕', genres: ['Folk','Indie Folk','Contemporary Folk','Celtic','World Music','Flamenco','Acoustic','Singer-Songwriter','Neofolk','Freak Folk'] },
+  { name: 'Blues', icon: '🎵', genres: ['Blues','Delta Blues','Chicago Blues','Electric Blues','Blues Rock','Jump Blues','Rhythm and Blues','Boogie-Woogie'] },
+  { name: 'Reggae / Caribbean', icon: '🌴', genres: ['Reggae','Dancehall','Ska','Dub','Roots Reggae','Reggaeton','Soca','Calypso'] },
+  { name: 'Latin', icon: '💃', genres: ['Latin','Salsa','Bossa Nova','Bachata','Cumbia','Merengue','Tango','Latin Pop','Mariachi','Norteño'] },
+  { name: 'Soundtrack / Cinematic', icon: '🎬', genres: ['Film Score','Epic','Cinematic','Video Game Music','Orchestral Soundtrack','Trailer Music','Dark Ambient','Fantasy','Sci-Fi'] },
+  { name: 'Experimental / Other', icon: '🔮', genres: ['Experimental','Avant-Garde','Noise','Industrial','New Age','Meditation','Lo-Fi','Post-Industrial','Art Rock','Drone','Musique Concrète'] },
 ];
+const ALL_GENRES = GENRE_TAXONOMY.flatMap(c => c.genres);
 
 // ── Random Name Generators ──────────────────────────────────────────────
 const RANDOM_ADJECTIVES = ['Neon','Midnight','Velvet','Electric','Cosmic','Phantom','Silver','Golden','Crimson','Azure','Obsidian','Crystal','Ethereal','Savage','Lucid','Frozen','Burning','Silent','Wild','Lost'];
@@ -251,6 +259,76 @@ function autoFillArtistName() {
 }
 function autoFillAlbumTitle() {
   if (!ALBUM_TITLE) ALBUM_TITLE = randomAlbumTitle();
+}
+
+// ── Genre Picker ─────────────────────────────────────────────────────────
+function toggleGenrePicker() {
+  GENRE_DROPDOWN_OPEN = !GENRE_DROPDOWN_OPEN;
+  GENRE_SEARCH = '';
+  render();
+  if (GENRE_DROPDOWN_OPEN) {
+    setTimeout(() => { const inp = document.getElementById('genre-search-input'); if (inp) inp.focus(); }, 50);
+  }
+}
+function toggleGenre(genre) {
+  const idx = ALBUM_GENRES.indexOf(genre);
+  if (idx >= 0) ALBUM_GENRES.splice(idx, 1); else ALBUM_GENRES.push(genre);
+  saveConfig();
+  render();
+}
+function removeGenre(genre) {
+  ALBUM_GENRES = ALBUM_GENRES.filter(g => g !== genre);
+  saveConfig();
+  render();
+}
+function clearGenres() {
+  ALBUM_GENRES = [];
+  saveConfig();
+  render();
+}
+function randomGenres() {
+  const count = 2 + Math.floor(Math.random() * 3);
+  const shuffled = [...ALL_GENRES].sort(() => Math.random() - 0.5);
+  ALBUM_GENRES = shuffled.slice(0, count);
+  saveConfig();
+  render();
+}
+function addCustomGenre(val) {
+  const v = (val || '').trim();
+  if (!v) return;
+  if (!ALBUM_GENRES.includes(v)) ALBUM_GENRES.push(v);
+  GENRE_SEARCH = '';
+  saveConfig();
+  render();
+  setTimeout(() => { const inp = document.getElementById('genre-search-input'); if (inp) inp.focus(); }, 50);
+}
+function getFilteredGenreTaxonomy() {
+  if (!GENRE_SEARCH.trim()) return GENRE_TAXONOMY;
+  const q = GENRE_SEARCH.toLowerCase();
+  return GENRE_TAXONOMY.map(c => ({ ...c, genres: c.genres.filter(g => g.toLowerCase().includes(q)) })).filter(c => c.genres.length > 0);
+}
+function albumGenreDisplay() {
+  return ALBUM_GENRES.join(', ');
+}
+function buildGenderContext() {
+  const parts = [];
+  if (VOCALIST_GENDER === 'male') parts.push('The singer is MALE. Use masculine pronouns (he/him/his) when the lyrics refer to the vocalist/speaker. Write from a male perspective.');
+  else if (VOCALIST_GENDER === 'female') parts.push('The singer is FEMALE. Use feminine pronouns (she/her/hers) when the lyrics refer to the vocalist/speaker. Write from a female perspective.');
+  else if (VOCALIST_GENDER === 'duet') parts.push('This is a MALE/FEMALE DUET. Alternate between male and female perspectives. Use he/him for the male voice and she/her for the female voice. Write call-and-response or alternating verse sections.');
+  if (ABOUT_GENDER === 'male') parts.push('The subject of the song is MALE. When referring to the person being sung to or about, use masculine pronouns (he/him/his).');
+  else if (ABOUT_GENDER === 'female') parts.push('The subject of the song is FEMALE. When referring to the person being sung to or about, use feminine pronouns (she/her/hers).');
+  if (parts.length > 0) return '\nGENDER/PERSPECTIVE RULES:\n' + parts.map(p => '- ' + p).join('\n') + '\n';
+  return '';
+}
+function closeGenreDropdown(e) {
+  const picker = document.getElementById('genre-picker');
+  if (picker && !picker.contains(e.target)) {
+    GENRE_DROPDOWN_OPEN = false;
+  render();
+
+  // Close genre dropdown on outside click
+  document.addEventListener('mousedown', closeGenreDropdown);
+}
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -306,8 +384,10 @@ async function init() {
     ALBUM_TITLE = saved.title || '';
     ARTIST_NAME = saved.artistName || '';
     ALBUM_THEME = saved.theme || '';
-    ALBUM_GENRE = saved.genre || '';
+    ALBUM_GENRES = Array.isArray(saved.genres) ? saved.genres : (saved.genre ? [saved.genre] : []);
     SELECTED_LANG = saved.lang || 'en';
+    VOCALIST_GENDER = saved.vocalistGender || '';
+    ABOUT_GENDER = saved.aboutGender || '';
     SELECTED_PROVIDER = saved.provider || SELECTED_PROVIDER;
     SELECTED_MODEL = saved.model || SELECTED_MODEL;
     if (saved.tracks && Array.isArray(saved.tracks)) {
@@ -339,7 +419,8 @@ async function init() {
 function saveConfig() {
   try {
     localStorage.setItem('hs-album-config', JSON.stringify({
-      title: ALBUM_TITLE, artistName: ARTIST_NAME, theme: ALBUM_THEME, genre: ALBUM_GENRE, lang: SELECTED_LANG,
+      title: ALBUM_TITLE, artistName: ARTIST_NAME, theme: ALBUM_THEME, genres: ALBUM_GENRES, lang: SELECTED_LANG,
+      vocalistGender: VOCALIST_GENDER, aboutGender: ABOUT_GENDER,
       provider: SELECTED_PROVIDER, model: SELECTED_MODEL,
       tracks: TRACKS.map(t => ({
         subject:t.subject,lyrics:t.lyrics,title:t.title,genreOverride:t.genreOverride,
@@ -396,13 +477,43 @@ function render() {
       <div class="form-row">
         <div class="form-group">
           <label>Overall Genre / Style</label>
-          <select onchange="ALBUM_GENRE=this.value==='__custom__'?'':this.value;saveConfig();if(this.value==='__custom__'){this.nextElementSibling.style.display='block'}else{this.nextElementSibling.style.display='none'}">
-            <option value="" ${!ALBUM_GENRE?'selected':''}>— Select genre —</option>
-            ${GENRE_LIST.map(g => `<option value="${esc(g)}" ${g===ALBUM_GENRE?'selected':''}>${esc(g)}</option>`).join('')}
-            <option value="__custom__" ${ALBUM_GENRE && !GENRE_LIST.includes(ALBUM_GENRE)?'selected':''}>Custom genre...</option>
-          </select>
-          <input type="text" value="${esc(ALBUM_GENRE && !GENRE_LIST.includes(ALBUM_GENRE)?ALBUM_GENRE:'')}" placeholder="Type custom genre" style="display:${ALBUM_GENRE && !GENRE_LIST.includes(ALBUM_GENRE)?'block':'none'};margin-top:4px;"
-            oninput="ALBUM_GENRE=this.value;saveConfig()">
+          <div class="genre-picker" id="genre-picker">
+            <div class="genre-picker-trigger ${GENRE_DROPDOWN_OPEN?'open':''}" onclick="toggleGenrePicker()">
+              ${ALBUM_GENRES.length === 0 ? '<span class="placeholder">Select genres...</span>' : ''}
+              ${ALBUM_GENRES.map(g => `<span class="genre-picker-chip">${esc(g)}<span class="remove" onclick="event.stopPropagation();removeGenre('${esc(g)}')">&times;</span></span>`).join('')}
+              <div class="actions">
+                ${ALBUM_GENRES.length > 0 ? `<span class="clear-btn" onclick="event.stopPropagation();clearGenres()">Clear</span>` : ''}
+                <span class="chevron">▼</span>
+              </div>
+            </div>
+            ${GENRE_DROPDOWN_OPEN ? `
+            <div class="genre-picker-dropdown">
+              <div class="genre-picker-search">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="genre-search-input" value="${esc(GENRE_SEARCH)}" placeholder="Search genres..."
+                  oninput="GENRE_SEARCH=this.value;render();setTimeout(()=>{const inp=document.getElementById('genre-search-input');if(inp){inp.focus();inp.selectionStart=inp.selectionEnd=inp.value.length}},10)"
+                  onkeydown="if(event.key==='Escape'){GENRE_DROPDOWN_OPEN=false;render()}if(event.key==='Enter'&&GENRE_SEARCH.trim()){addCustomGenre(GENRE_SEARCH)}">
+              </div>
+              <div class="genre-picker-list">
+                ${getFilteredGenreTaxonomy().length === 0 ? '<div class="genre-picker-empty">No genres match "' + esc(GENRE_SEARCH) + '"</div>' : ''}
+                ${getFilteredGenreTaxonomy().map(cat => `
+                  <div class="genre-picker-cat-header">${cat.icon} ${cat.name}</div>
+                  <div class="genre-picker-cat-genres">
+                    ${cat.genres.map(g => `<button class="genre-picker-opt ${ALBUM_GENRES.includes(g)?'selected':''}" onclick="toggleGenre('${esc(g)}')">${esc(g)}</button>`).join('')}
+                  </div>
+                `).join('')}
+              </div>
+              <div class="genre-picker-custom">
+                <input type="text" placeholder="Custom genre..." id="genre-custom-input"
+                  onkeydown="if(event.key==='Enter'){addCustomGenre(this.value);this.value=''}">
+                <button onclick="const inp=document.getElementById('genre-custom-input');if(inp&&inp.value.trim()){addCustomGenre(inp.value);inp.value=''}">Add</button>
+              </div>
+              <div class="genre-picker-random">
+                <button onclick="randomGenres()">🎲 Random Genres</button>
+              </div>
+            </div>
+            ` : ''}
+          </div>
         </div>
         <div class="form-group">
           <label>LLM Provider & Model</label>
@@ -436,6 +547,25 @@ function render() {
           <label>Language</label>
           <select onchange="SELECTED_LANG=this.value;saveConfig()">
             ${LANGUAGES.map(l => `<option value="${l.code}" ${l.code===SELECTED_LANG?'selected':''}>${l.name}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Vocalist Gender <span style="font-size:9px;color:var(--text3);font-weight:400;text-transform:none;">(who is singing)</span></label>
+          <select onchange="VOCALIST_GENDER=this.value;saveConfig()">
+            <option value="" ${!VOCALIST_GENDER?'selected':''}>— Not specified —</option>
+            <option value="male" ${VOCALIST_GENDER==='male'?'selected':''}>Male vocalist</option>
+            <option value="female" ${VOCALIST_GENDER==='female'?'selected':''}>Female vocalist</option>
+            <option value="duet" ${VOCALIST_GENDER==='duet'?'selected':''}>Male & Female duet</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Song Subject Gender <span style="font-size:9px;color:var(--text3);font-weight:400;text-transform:none;">(who the lyrics are about)</span></label>
+          <select onchange="ABOUT_GENDER=this.value;saveConfig()">
+            <option value="" ${!ABOUT_GENDER?'selected':''}>— Not specified —</option>
+            <option value="male" ${ABOUT_GENDER==='male'?'selected':''}>About a man</option>
+            <option value="female" ${ABOUT_GENDER==='female'?'selected':''}>About a woman</option>
           </select>
         </div>
       </div>
@@ -500,7 +630,7 @@ function renderTrack(t, i) {
   }
 
   // Filter out unsupported genres
-  const filteredGenres = GENRE_LIST;
+  const filteredGenres = ALL_GENRES;
 
   return `<div class="${cls.join(' ')}" id="track-${i}">
     <div class="track-header" onclick="toggleTrack(${i})">
@@ -527,10 +657,10 @@ function renderTrack(t, i) {
           <label>Genre Override (optional — uses album genre if empty)</label>
           <select onchange="TRACKS[${i}].genreOverride=this.value==='__custom__'?'':this.value;saveConfig();if(this.value==='__custom__'){this.nextElementSibling.style.display='block'}else{this.nextElementSibling.style.display='none'}" ${GENERATING?'disabled':''}>
             <option value="" ${!t.genreOverride?'selected':''}>— Use album genre —</option>
-            ${GENRE_LIST.map(g => `<option value="${esc(g)}" ${g===t.genreOverride?'selected':''}>${esc(g)}</option>`).join('')}
-            <option value="__custom__" ${t.genreOverride && !GENRE_LIST.includes(t.genreOverride)?'selected':''}>Custom...</option>
+            ${ALL_GENRES.map(g => `<option value="${esc(g)}" ${g===t.genreOverride?'selected':''}>${esc(g)}</option>`).join('')}
+            <option value="__custom__" ${t.genreOverride && !ALL_GENRES.includes(t.genreOverride)?'selected':''}>Custom...</option>
           </select>
-          <input type="text" value="${esc(t.genreOverride && !GENRE_LIST.includes(t.genreOverride)?t.genreOverride:'')}" placeholder="Type custom genre" style="display:${t.genreOverride && !GENRE_LIST.includes(t.genreOverride)?'block':'none'};margin-top:4px;"
+          <input type="text" value="${esc(t.genreOverride && !ALL_GENRES.includes(t.genreOverride)?t.genreOverride:'')}" placeholder="Type custom genre" style="display:${t.genreOverride && !ALL_GENRES.includes(t.genreOverride)?'block':'none'};margin-top:4px;"
             oninput="TRACKS[${i}].genreOverride=this.value;saveConfig();render()" ${GENERATING?'disabled':''}>
         </div>
         <div class="form-group" style="justify-content:flex-end;">
@@ -666,10 +796,11 @@ function parseLLMAlbumResponse(raw) {
 async function generateSubject(i) {
   if (!SELECTED_PROVIDER || !TOKEN) return alert('Select an LLM provider first');
   const track = TRACKS[i];
-  const genre = track.genreOverride || ALBUM_GENRE || 'any genre';
+  const genre = track.genreOverride || albumGenreDisplay() || 'any genre';
+  const genderHint = buildGenderContext().trim() || '';
   try {
     const r = await api('/api/inspire/llm/subject', {
-      method: 'POST', body: JSON.stringify({provider: SELECTED_PROVIDER, model: SELECTED_MODEL||undefined, genres: [genre]})
+      method: 'POST', body: JSON.stringify({provider: SELECTED_PROVIDER, model: SELECTED_MODEL||undefined, genres: ALBUM_GENRES.length > 0 ? ALBUM_GENRES : [genre], subject: genderHint || undefined})
     });
     if (r.subject) {
       track.subject = r.subject;
@@ -683,7 +814,7 @@ async function generateSubject(i) {
 // ── Auto-Fill Album ──────────────────────────────────────────────────────
 async function autoFillAlbum() {
   if (!SELECTED_PROVIDER || !TOKEN) return alert('Select an LLM provider first');
-  if (!ALBUM_GENRE) return alert('Select a genre first');
+  if (ALBUM_GENRES.length === 0) return alert('Select a genre first');
 
   const btn = $('autofill-btn');
   const shuffleBtn = $('shuffle-btn');
@@ -696,12 +827,15 @@ async function autoFillAlbum() {
     // Count tracks that already have content; if none, fill all 9
     const activeCount = TRACKS.filter(t => t.subject || t.lyrics).length || TRACKS.length;
 
-    let subjectPrompt = `Design a ${activeCount}-track ${ALBUM_GENRE} album`;
+    let subjectPrompt = `Design a ${activeCount}-track ${albumGenreDisplay()} album`;
     if (hasTheme) subjectPrompt += ` with the concept: "${ALBUM_THEME}"`;
+    if (VOCALIST_GENDER) subjectPrompt += `. The vocalist is ${VOCALIST_GENDER}`;
+    if (ABOUT_GENDER) subjectPrompt += `. The songs are about a ${ABOUT_GENDER} subject`;
     subjectPrompt += `. Generate ${activeCount} tracks that form a cohesive album.`;
 
+    const genderContext = buildGenderContext();
     const sysPrompt = `You are an expert music producer and album concept designer. You design album track listings with compelling themes and subjects.
-
+${genderContext}
 Output your response in this EXACT format — one line per field, no JSON, no markdown, no code blocks:
 
 THEME: A 1-2 sentence album concept/theme description
@@ -726,7 +860,7 @@ CRITICAL RULES:
       body: JSON.stringify({
         provider: SELECTED_PROVIDER,
         model: SELECTED_MODEL || undefined,
-        genres: [ALBUM_GENRE],
+        genres: ALBUM_GENRES,
         subject: subjectPrompt,
         language: SELECTED_LANG,
         systemPrompt: sysPrompt
@@ -741,8 +875,8 @@ CRITICAL RULES:
       console.warn('[AutoFill] First parse failed. Raw response:', raw.slice(0, 500));
       if (btn) btn.textContent = '⏳ Retrying with simpler prompt...';
 
-      const retryPrompt = `You are making a ${ALBUM_GENRE} album with ${activeCount} tracks.
-
+      const retryPrompt = `You are making a ${albumGenreDisplay()} album with ${activeCount} tracks.
+${buildGenderContext()}
 Return EXACTLY this format, nothing else. Replace the bracketed content:
 
 THEME: [one sentence album concept]
@@ -759,8 +893,8 @@ Do NOT add any other text, explanations, or formatting. ONLY output the lines ab
           body: JSON.stringify({
             provider: SELECTED_PROVIDER,
             model: SELECTED_MODEL || undefined,
-            genres: [ALBUM_GENRE],
-            subject: `Design a ${ALBUM_GENRE} album concept with ${activeCount} different tracks`,
+            genres: ALBUM_GENRES,
+            subject: `Design a ${albumGenreDisplay()} album concept with ${activeCount} different tracks`,
             language: SELECTED_LANG,
             systemPrompt: retryPrompt
           })
@@ -818,7 +952,7 @@ Do NOT add any other text, explanations, or formatting. ONLY output the lines ab
 // ── Shuffle Tracks (re-roll subjects, keep theme) ───────────────────────
 async function shuffleTracks() {
   if (!SELECTED_PROVIDER || !TOKEN) return alert('Select an LLM provider first');
-  if (!ALBUM_GENRE) return alert('Select a genre first');
+  if (ALBUM_GENRES.length === 0) return alert('Select a genre first');
 
   const hasAnyContent = TRACKS.some(t => t.subject || t.lyrics);
   if (!hasAnyContent) return autoFillAlbum(); // nothing to shuffle — do full auto-fill instead
@@ -838,12 +972,15 @@ async function shuffleTracks() {
       .map((t, idx) => `${idx+1}. "${t.title || '(no title)'}" — ${(t.subject||'').substring(0, 120)}`)
       .join('\n');
 
-    let subjectPrompt = `Replace the track subjects for a ${activeCount}-track ${ALBUM_GENRE} album`;
+    let subjectPrompt = `Replace the track subjects for a ${activeCount}-track ${albumGenreDisplay()} album`;
     if (hasTheme) subjectPrompt += ` with theme: "${ALBUM_THEME}"`;
+    if (VOCALIST_GENDER) subjectPrompt += `. The vocalist is ${VOCALIST_GENDER}`;
+    if (ABOUT_GENDER) subjectPrompt += `. The songs are about a ${ABOUT_GENDER} subject`;
     subjectPrompt += `. Current tracks:\n${currentSummary}\n\nGenerate completely NEW subjects and (optionally better) titles. Keep the album cohesive but make every track feel fresh — different scene, emotion, and energy.`;
 
+    const genderCtx = buildGenderContext();
     const sysPrompt = `You are an expert music producer shuffling an album's track listing.
-
+${genderCtx}
 Output your response in this EXACT format — one line per field:
 
 1: New Title | A 2-3 sentence description — concrete images, specific scenarios, emotional arc. Enough for a lyricist to write from.
@@ -862,7 +999,7 @@ RULES:
       body: JSON.stringify({
         provider: SELECTED_PROVIDER,
         model: SELECTED_MODEL || undefined,
-        genres: [ALBUM_GENRE],
+        genres: ALBUM_GENRES,
         subject: subjectPrompt,
         language: SELECTED_LANG,
         systemPrompt: sysPrompt
@@ -936,10 +1073,18 @@ async function generateAlbum() {
         render();
         toggleTrack(i);
 
-        const genres = [t.genreOverride || ALBUM_GENRE || 'Rock'];
-        const subjectWithTheme = ALBUM_THEME
+        const genres = t.genreOverride ? [t.genreOverride] : (ALBUM_GENRES.length > 0 ? [...ALBUM_GENRES] : ['Rock']);
+        let subjectWithTheme = ALBUM_THEME
           ? (t.subject ? `${t.subject} (Album theme: ${ALBUM_THEME})` : ALBUM_THEME)
           : t.subject;
+        // Inject gender context into the subject so LLM writes correct pronouns
+        const genderBits = [];
+        if (VOCALIST_GENDER === 'male') genderBits.push('Sung by a MALE vocalist (use he/him for the speaker)');
+        else if (VOCALIST_GENDER === 'female') genderBits.push('Sung by a FEMALE vocalist (use she/her for the speaker)');
+        else if (VOCALIST_GENDER === 'duet') genderBits.push('MALE/FEMALE DUET — alternate male and female perspectives with correct pronouns');
+        if (ABOUT_GENDER === 'male') genderBits.push('About a MALE subject (use he/him when referring to the person being sung to/about)');
+        else if (ABOUT_GENDER === 'female') genderBits.push('About a FEMALE subject (use she/her when referring to the person being sung to/about)');
+        if (genderBits.length > 0) subjectWithTheme = `[${genderBits.join('; ')}] ${subjectWithTheme}`;
 
         // Retry loop: try up to 2 times if LLM returns empty/poor lyrics
         let llmResult = null;
@@ -1040,7 +1185,7 @@ async function generateAlbum() {
   const pendingTracks = [];
   for (const t of TRACKS) {
     if (!t.lyrics) continue;
-    const trackGenre = t.genreOverride || ALBUM_GENRE || 'Rock';
+    const trackGenre = t.genreOverride || albumGenreDisplay() || 'Rock';
     const lyricsPreview = (t.lyrics || '').split('\n')
       .filter(l => l.trim() && !l.trim().startsWith('['))
       .slice(0, 6).join(' / ');
@@ -1048,6 +1193,8 @@ async function generateAlbum() {
       `${trackGenre} song`,
       t.title ? `titled "${t.title}"` : '',
       t.subject ? `about ${t.subject}` : '',
+      VOCALIST_GENDER === 'male' ? 'male vocalist' : VOCALIST_GENDER === 'female' ? 'female vocalist' : VOCALIST_GENDER === 'duet' ? 'male and female duet' : '',
+      ABOUT_GENDER === 'male' ? 'about a man' : ABOUT_GENDER === 'female' ? 'about a woman' : '',
       t._bpm ? `BPM: ${t._bpm}` : '',
       t._key ? `Key: ${t._key}` : '',
       t._timeSignature ? `Time: ${t._timeSignature}` : '',
@@ -1064,7 +1211,7 @@ async function generateAlbum() {
       vocalLanguage: SELECTED_LANG,
       artistName: ARTIST_NAME || undefined,
       albumTitle: ALBUM_TITLE || undefined,
-      albumGenre: ALBUM_GENRE || undefined,
+      albumGenre: albumGenreDisplay() || undefined,
       trackIndex: pendingTracks.length + 1,
     });
   }
@@ -1084,8 +1231,10 @@ function clearForm() {
   ALBUM_TITLE = '';
   ARTIST_NAME = '';
   ALBUM_THEME = '';
-  ALBUM_GENRE = '';
+  ALBUM_GENRES = [];
   SELECTED_LANG = 'en';
+  VOCALIST_GENDER = '';
+  ABOUT_GENDER = '';
   TRACKS = [];
   for (let i = 0; i < 3; i++) TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
   localStorage.removeItem('hs-album-config');

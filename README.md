@@ -14,7 +14,7 @@
 This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music generation tool built on ACE-Step. The PGFX Edition transforms it from a capable inference wrapper into a full **music production system** with genre-aware song structure, narrative intelligence, and creative workflow tools.
 
 **Base**: HOT-Step CPP v1.1.4 (Windows x64, CUDA 13.1)
-**Enhancements**: 43+ sections of improvements across 5 phases
+**Enhancements**: 55+ sections of improvements across 6 phases
 
 ---
 
@@ -23,6 +23,7 @@ This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music 
 ### Genre-Aware Song Architecture (60+ Structure Templates)
 Every genre now has its own structural grammar — verse/chorus/bridge line counts, section ordering, and rhythm patterns that match how that genre *actually works*. Metal doesn't structure like reggae doesn't structure like K-pop doesn't structure like blues.
 
+- **Multi-select genre picker** — choose multiple genres per album and per track, with a categorized, searchable picker containing 200+ genres across 15 categories. Matches the main page's `GenreSelector.tsx` design.
 - **Primary-genre-wins architecture**: First selected genre dictates structure. Secondary genres influence vocabulary, tone, and instrumentation only.
 - **60+ templates**: Metal (8 variants), Reggae (3), K-Pop, Hip-Hop (7), Blues (6), Punk (6), Folk (5), DJ/Turntablism (2), Traditional/World (4), plus genre-agnostic fallbacks.
 - **DJ / Turntablism** and **Dual DJ** as first-class genres with scratch effects, battle vocabulary, and turntablist structure.
@@ -34,6 +35,12 @@ Every genre now has its own structural grammar — verse/chorus/bridge line coun
 - **Narrative Coherence Enforcement**: Every image must connect to the subject.
 - **Subject-Aware Vocabulary Protection**: Words in your subject are never replaced by the slop filter.
 - **Mandatory Outro**: Every song ends with a proper 3-4 line wind-down — never an abrupt stop.
+
+### Gender & Vocalist Context
+- **Album-level gender fields**: Set vocalist gender (male/female/duet) and song subject gender (about a man/about a woman) — flows through lyrics generation, image prompts, and album concept creation.
+- **Coherent pronouns**: LLM prompts receive explicit pronoun rules so a male vocalist singing about a woman uses "he" for the singer and "she" for the subject throughout.
+- **Gender-aware cover art**: `buildCoverArtPrompt()` enriches scenes with person descriptors ("a man standing in...", "a woman in a scene of...") based on the gender context.
+- **Applies to**: AI Auto-Fill, Shuffle Tracks, per-track lyrics generation, album concept, and cover art / video section images.
 
 ### Anti-AI Slop System
 - **100+ banned words** that make AI lyrics sound generically robotic.
@@ -59,7 +66,7 @@ When you click "Generate Album" in the Album Creator, it redirects to the main p
 - **3-Tier Settings Priority**: (1) Monkey-patch capture from a generation on this session, (2) Saved template with `_src` marker, (3) Direct read from `hs-*` localStorage keys via `readSettingsFromStorage()`.
 - **Never Overrides Pipeline Settings**: Only prompt fields (caption, lyrics, title, bpm, duration, etc.) are overridden per track. All generation settings (solver, scheduler, guidance, DCW, etc.) come from the user's configured settings.
 - **Stale Template Protection**: Old v1/v2 templates without `_src` marker are auto-purged on page load.
-- **Video Generation** *WIP*: After each track's audio completes, the batch handler splits lyrics into sections, generates context images via the cover art system, and renders a beat-synced music video using ffmpeg. *Requires cover art models to be installed and ffmpeg in the server directory.*
+- **Video Generation**: After each track's audio completes, the batch handler calls the unified `/api/inspire/video/create` endpoint to generate a section-aware, beat-synced music video. *Requires cover art models to be installed and ffmpeg in the server directory.*
 
 ### Audio-Reactive Visualizer
 Eleven visualization modes powered by client-side beat detection:
@@ -84,22 +91,23 @@ Eleven visualization modes powered by client-side beat detection:
 **Keyboard shortcuts**: `Space` Play/Pause, `1`-`0` Modes, `M` Milkdrop, `F` Fullscreen, `R` Record, `S` Settings, `L` Playlist, `P` Presets.
 
 ### MP4 Video Generator
+- **Unified pipeline** — single `POST /api/inspire/video/create` endpoint handles everything: parse lyrics → calculate section timings from BPM → generate section-aware images → assemble beat-synced Ken Burns video
 - Beat-synced crossfades between cover art images
 - Ken Burns zoom effects on each image (6 directional variants: center-in, center-out, left, right, top, bottom)
 - Audio-reactive waveform overlay
 - 10 transition types: fade, dissolve, fadeblack, fadewhite, smoothleft, smoothright, circlecrop, radial, pixelize, diagtl
 - Uses ffmpeg for rendering (included or downloadable)
 
-### 🎬 Album Music Video Pipeline *WIP*
+### 🎬 Album Music Video Pipeline
 *Automatic lyric-driven music video generation for each album track.*
 
 - **Lyric Section Splitting**: Splits lyrics by `[Section]` headers (Verse, Chorus, Bridge, etc.) into visual segments.
 - **Context Image Generation**: Each section gets a FLUX-generated image based on the lyrics' visual themes using the existing cover art prompt builder.
 - **Beat-Synced Video Rendering**: Images are timed to musical structure using server-side beat detection. Transitions happen at onset points, not arbitrary timestamps.
 - **ZIP Integration**: Completed albums include both `.wav` and `.mp4` files in the organized folder structure.
-- **Two New Server Endpoints**:
-  - `POST /api/cover-art/generate-sections` — generates images per lyric section (no songId required)
-  - `POST /api/inspire/video/generate-album` — renders video from audio URL + images (no songId required)
+- **Unified Endpoint**: `POST /api/inspire/video/create` — one endpoint handles the full pipeline for both single tracks and album batch. Accepts `songId` for existing songs or direct params (`audioUrl`, `lyrics`, `style`, `coverArtSubject`, `vocalistGender`, `aboutGender`).
+- **Section-Aware Cover Art**: Each lyric section gets its own image with 3-act narrative emphasis, subject grounding, and anti-GTA text suppression.
+- **Gender-Aware Person Descriptors**: Cover art and video images use gender context to produce accurate person visuals.
 - **Static Video Serving**: Generated MP4s served from `/temp/video/` route.
 
 *Note: This feature requires the cover art models (FLUX.2-klein-4B) to be installed and ffmpeg.exe in the server directory. Video generation adds ~3 minutes per track (image generation + ffmpeg render). Full 9-track album video pipeline takes approximately 25-30 minutes.*
@@ -157,14 +165,14 @@ A floating 🗂️ button (bottom-right) opens a modal album browser that:
 
 | File | Status | Size | Description |
 |------|--------|------|-------------|
-| `server/server.mjs` | Modified | ~299K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, video generation, album video pipeline *WIP*, cover art sections endpoint *WIP*, album ZIP download, album grouping API |
-| `ui/dist/album.html` | **New** | ~45 KB | Album Generator — 9-track workflow with auto-fill, genre dropdowns, artist name, album title, persistent metadata, ZIP download with folder organization |
-| `ui/dist/visualizer.html` | **New** | 43 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation |
-| `ui/dist/index.html` | Modified | ~9 KB | Added floating album, visualizer & library buttons, Album Batch Handler v3, Album Library panel with right-click context menus for album/track downloads |
+| `server/server.mjs` | Modified | ~299K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, unified video pipeline (`/api/inspire/video/create`), section-aware cover art with gender context, album ZIP download, album grouping API |
+| `ui/dist/album.html` | **New** | ~48 KB | Album Generator — 9-track workflow with multi-select genre picker (200+ genres, 15 categories), gender/vocalist context fields, auto-fill, artist name, album title, persistent metadata, ZIP download with folder organization |
+| `ui/dist/visualizer.html` | **New** | 43 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation via unified endpoint |
+| `ui/dist/index.html` | Modified | ~9 KB | Added floating album, visualizer & library buttons, Album Batch Handler v3 (unified video endpoint), Album Library panel with right-click context menus for album/track downloads |
 | `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle with DJ/Turntablism genre group |
 
 ### Full Enhancement Report
-See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 33 enhancement sections, reproduction guide, and file locations.
+See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 55 enhancement sections across 6 phases, reproduction guide, and file locations.
 
 ---
 
@@ -193,7 +201,7 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, shuffle, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, MP4 video generator, album music video pipeline with lyric-driven image generation and beat-synced rendering *WIP*, album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-5 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, multi-select genre picker, gender/vocalist context system, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, unified MP4 video pipeline, album music video pipeline with lyric-driven image generation and beat-synced rendering, album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-6 enhancements.
 
 ---
 
