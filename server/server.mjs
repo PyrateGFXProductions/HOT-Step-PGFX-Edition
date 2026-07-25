@@ -44999,6 +44999,12 @@ function enforceVocabularyLock(lyrics, genreKeyOrKeys, subject, wantsPatois) {
   const genreKeys = Array.isArray(genreKeyOrKeys) ? genreKeyOrKeys : (genreKeyOrKeys ? [genreKeyOrKeys] : []);
   const mod = genreKeys.length > 1 ? mergeGenreModules(genreKeys) : (genreKeys.length === 1 ? GENRE_VOCABULARY_MODULES[genreKeys[0]] : null);
   if (!mod || !mod.replacements) return lyrics;
+  // When the user did NOT select a (Patois) genre variant, skip English→Patois vocabulary replacements.
+  // The reggae module's replacements are entirely English-to-Patois conversions ("i"→"mi", "the"→"di", etc.)
+  // that should only apply when the user explicitly wants Patois lyrics.
+  if (wantsPatois === false && genreKeys.some(k => ["reggae", "dubstep_patois"].includes(k))) {
+    return lyrics;
+  }
   // Build a set of protected words from the subject (lowercase, split on non-alpha)
   const protectedWords = new Set();
   if (subject) {
@@ -45374,7 +45380,7 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
     const hasVocab = genreKeys.some(k => GENRE_VOCABULARY_MODULES[k]);
     if (hasVocab) {
       const before = result;
-      result = enforceVocabularyLock(result, genreKeys, subject);
+      result = enforceVocabularyLock(result, genreKeys, subject, wantsPatois);
       const changes = before !== result;
       const label = genreKeys.length > 1 ? `multi-genre [${genreKeys.join("+")}]` : genreKeys[0];
       if (changes) console.log(`[VocabLock] Applied genre vocabulary lock for ${label}`);
@@ -296989,6 +296995,8 @@ router21.post("/llm", async (req, res) => {
     // ── Genre & Language Resolution ────────────────────────────────────────────
     const { primary: genreKey, all: genreKeys } = resolveGenreFromStyles(genres);
     const langFallback = resolveLanguageFallback(language);
+    // Determine if user explicitly chose a (Patois) genre variant — used by genre hints & vocabulary lock
+    const wantsPatois = genres.some(g => g.toLowerCase().includes("patois"));
     if (genreKeys.length > 0) {
       console.log(`[Inspire/LLM] Resolved genre modules: ${genreKeys.join(", ")} (primary: "${genreKey}")`);
     }
@@ -297229,7 +297237,7 @@ router21.post("/llm", async (req, res) => {
       lyrics = lyrics.replace(/ +$/gm, "");
       lyrics = postprocessLyrics(lyrics);
       // ── Apply Genre Pipeline ──────────────────────────────────────────────────
-      lyrics = processLyricsWithGenre(lyrics, genreKeys, langFallback, subject);
+      lyrics = processLyricsWithGenre(lyrics, genreKeys, langFallback, subject, wantsPatois);
       // Apply APrefix fix AFTER the genre pipeline (processLyricsWithGenre calls fixSectionLabels + enforceLineCounts)
       lyrics = fixAPrefix(lyrics);
       console.log(`[Inspire/LLM] Structured response: ${lyrics.split("\n").length} lines, BPM=${structuredResult.bpm}, Key=${structuredResult.key}, Title="${structuredResult.title}"`);
@@ -297303,7 +297311,7 @@ router21.post("/llm", async (req, res) => {
       }
       raw = postprocessLyrics(raw);
       // ── Apply Genre Pipeline ──────────────────────────────────────────────────
-      raw = processLyricsWithGenre(raw, genreKeys, langFallback, subject);
+      raw = processLyricsWithGenre(raw, genreKeys, langFallback, subject, wantsPatois);
       raw = fixAPrefix(raw);
       console.log(`[Inspire/LLM] Generated ${raw.split("\n").length} lines of lyrics${extractedTitle ? `, title: "${extractedTitle}"` : ""}`);
       // ── Quality Analysis (pure read-only, does not modify lyrics) ────────────
