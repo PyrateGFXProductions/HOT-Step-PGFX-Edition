@@ -260,6 +260,46 @@ function autoFillArtistName() {
 function autoFillAlbumTitle() {
   if (!ALBUM_TITLE) ALBUM_TITLE = randomAlbumTitle();
 }
+async function randomTheme() {
+  if (!SELECTED_PROVIDER || !TOKEN) return alert('Select an LLM provider first');
+  const btn = $('theme-random-btn');
+  const origText = btn?.innerHTML;
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳'; }
+  try {
+    const genreContext = ALBUM_GENRES.length > 0
+      ? `The album's genre/style is: ${albumGenreDisplay()}.`
+      : 'Pick any compelling album concept.';
+    const genderContext = buildGenderContext();
+    const prompt = `${genreContext}
+${genderContext ? genderContext + '\n' : ''}Generate a single, original album theme/concept — one sentence, 10-20 words. It must be a vivid, evocative concept that fits the genre(s). Output ONLY the theme sentence, nothing else. No quotes, no labels, no explanation.`;
+
+    const result = await api('/api/inspire/llm', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: SELECTED_PROVIDER,
+        model: SELECTED_MODEL || undefined,
+        genres: ALBUM_GENRES,
+        subject: prompt,
+        language: SELECTED_LANG,
+        systemPrompt: 'You are an expert album concept designer. You produce short, evocative album themes that feel authentic to the genre. Output ONLY the theme text — no labels, no quotes, no extra lines.'
+      })
+    });
+    let theme = (result.lyrics || '').trim();
+    // Strip surrounding quotes if present
+    theme = theme.replace(/^["'"`]|["'"`]$/g, '').trim();
+    // Take only the first line
+    theme = theme.split('\n')[0].trim();
+    // Remove leading labels like "THEME:" or "Theme:"
+    theme = theme.replace(/^THEME\s*:\s*/i, '').trim();
+    if (theme) ALBUM_THEME = theme;
+    saveConfig();
+    render();
+  } catch(e) {
+    console.error('Random theme failed:', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = origText || '🎲'; }
+  }
+}
 
 // ── Genre Picker ─────────────────────────────────────────────────────────
 function toggleGenrePicker() {
@@ -470,7 +510,10 @@ function render() {
       <div class="form-row">
         <div class="form-group">
           <label>Album Theme / Concept</label>
-          <input type="text" value="${esc(ALBUM_THEME)}" placeholder="e.g. A journey through night markets in Tokyo" oninput="ALBUM_THEME=this.value;saveConfig()">
+          <div style="display:flex;gap:6px;">
+            <input type="text" value="${esc(ALBUM_THEME)}" placeholder="e.g. A journey through night markets in Tokyo" style="flex:1;" oninput="ALBUM_THEME=this.value;saveConfig()">
+            <button class="btn btn-secondary btn-sm" id="theme-random-btn" onclick="randomTheme()" title="Generate random genre-aware theme">🎲</button>
+          </div>
           <span style="font-size:10px;color:var(--text3);margin-top:2px;">Optional. Injected into each track's prompt to unify the album.</span>
         </div>
       </div>

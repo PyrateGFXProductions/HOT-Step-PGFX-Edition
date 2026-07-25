@@ -1,7 +1,7 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 25, 2026 (updated — Phase 6: Multi-Select Genre Picker, Unified Video Pipeline, Gender/Vocalist Context, Genre Fusion Fixes, Disco Performance Fixes)  
+**Report Date**: July 25, 2026 (updated — Phase 6: Multi-Select Genre Picker, Unified Video Pipeline, Gender/Vocalist Context, Genre Fusion Fixes, Disco Performance Fixes, Random Genre-Aware Theme Generator)  
 **Modified Files**: `server/server.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`
 
 ---
@@ -20,7 +20,7 @@ This report documents all enhancements made to the HOT-Step CPP codebase. The wo
 
 **Phase 5** (July 23): Album Library with right-click context menus for bulk downloads, server-side album grouping API, album ZIP download endpoint (wav/mp3/flac/opus), floating library button with modal panel, unreleased tracks section.
 
-**Phase 6** (July 25): Multi-select genre picker with 200+ genres across 15 categories (replacing single dropdown), unified video generation pipeline (`POST /api/inspire/video/create`), gender/vocalist context system for coherent pronoun usage in lyrics and AI images, genre fusion prompt fixes, Disco audio-reactive performance fixes (threshold gate, throttling, RAF loop), and recovery of stashed files (wildcards, section captions, Disco analyzer, DiscoVisualizer).
+**Phase 6** (July 25): Multi-select genre picker with 200+ genres across 15 categories (replacing single dropdown), unified video generation pipeline (`POST /api/inspire/video/create`), gender/vocalist context system for coherent pronoun usage in lyrics and AI images, random genre-aware album theme generator, genre fusion prompt fixes, Disco audio-reactive performance fixes (threshold gate, throttling, RAF loop), and recovery of stashed files (wildcards, section captions, Disco analyzer, DiscoVisualizer).
 
 The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net addition of ~5,135 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler + album library panel).
 
@@ -95,6 +95,7 @@ The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net
 53. [Genre Fusion Prompt Fixes](#53-genre-fusion-prompt-fixes)
 54. [Disco Performance Fixes](#54-disco-performance-fixes)
 55. [Recovered Files from Stash](#55-recovered-files-from-stash)
+56. [Random Genre-Aware Theme Generator](#56-random-genre-aware-theme-generator)
 
 ---
 
@@ -1396,6 +1397,45 @@ When any Patois variant genre is selected (e.g., "Reggae (Patois)", "Dub (Patois
 | `server/src/services/generation/sectionCaptionInjector.ts` | Section-specific caption style injection ([Verse] → conversational, [Chorus] → anthemic, etc.) | Recovered |
 | `server/src/services/discoAnalyzer.ts` | WAV parser + RMS energy analyzer for the Disco audio-reactive system | Recovered |
 | `ui/src/components/player/DiscoVisualizer.tsx` | Canvas-based particle visualizer for Disco mode | Recovered |
+
+---
+
+### 56. Random Genre-Aware Theme Generator
+
+**Problem**: The Album Theme / Concept field was the only metadata field without a 🎲 random button. Artist Name and Album Title both had random generation — but the theme, which is arguably the most creatively challenging field to fill, had nothing. Users staring at an empty theme field with no inspiration.
+
+**Solution**: Added a 🎲 button next to the Album Theme input that calls the LLM to generate a genre-aware, evocative album concept in one click.
+
+**Location**: `ui/dist/album.html`, `randomTheme()` function (line ~263)
+
+#### How It Works
+1. User clicks the 🎲 button next to the Album Theme input
+2. If no LLM provider is configured, prompts the user to select one
+3. Builds a prompt that includes:
+   - **Genre context**: The selected genres are passed to the LLM so the theme matches the style (e.g., Reggae → "A roots journey through Kingston's sound system culture")
+   - **Gender context**: If vocalist/subject gender is set, it influences the theme's perspective
+4. LLM returns a single sentence (10-20 words)
+5. Response is cleaned: surrounding quotes stripped, labels removed ("THEME:"), only first line kept
+6. Theme is set and the input re-renders with the result
+
+#### LLM Prompt Design
+The system prompt constrains the LLM to output ONLY the theme text — no labels, no quotes, no explanation. This is deliberately different from Auto-Fill (which expects structured multi-line output). The theme generator is a single-field, single-line call optimized for speed.
+
+```javascript
+// User prompt (simplified):
+"The album's genre/style is: Reggae, Dub.
+Generate a single, original album concept/theme — one sentence, 10-20 words..."
+
+// System prompt:
+"You are an expert album concept designer. You produce short, evocative
+album themes that feel authentic to the genre. Output ONLY the theme text."
+```
+
+#### UI
+- Button: `<button class="btn btn-secondary btn-sm" id="theme-random-btn">🎲</button>`
+- Matches the existing 🎲 buttons on Album Title and Artist Name
+- Shows ⏳ while the LLM call is in flight, restores 🎲 on completion
+- Disabled during request to prevent double-clicks
 
 ---
 

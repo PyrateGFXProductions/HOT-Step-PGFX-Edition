@@ -14,7 +14,7 @@
 This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music generation tool built on ACE-Step. The PGFX Edition transforms it from a capable inference wrapper into a full **music production system** with genre-aware song structure, narrative intelligence, and creative workflow tools.
 
 **Base**: HOT-Step CPP v1.1.4 (Windows x64, CUDA 13.1)
-**Enhancements**: 55+ sections of improvements across 6 phases
+**Enhancements**: 56 sections of improvements across 6 phases
 
 ---
 
@@ -55,6 +55,7 @@ It will create an album of 9+ tracks with a full story concept from the first tr
 - **AI Auto-Fill**: One-click generates a complete album concept with a story arc across all tracks.
 - **Shuffle Tracks**: Re-roll all track subjects while preserving the album theme.
 - **Artist Name & Album Title**: Auto-filled from saved username or randomly generated. Editable with 🎲 random buttons.
+- **Random Album Theme**: 🎲 button generates a genre-aware album concept via LLM — picks up on selected genres and gender context to produce a thematically relevant concept.
 - **Persistent Metadata**: LLM-generated BPM, key, duration, and time signature survive page reloads — no need to re-run the LLM if you navigate away.
 - **ZIP Download**: Download the entire album as a organized ZIP file with folder structure: `Artist Name/Album Title/01 - Track Title.wav`. Includes `metadata.txt` with track listing.
 - **Sequential generation pipeline**: LLM lyrics → ACE-Step audio → playback.
@@ -166,13 +167,13 @@ A floating 🗂️ button (bottom-right) opens a modal album browser that:
 | File | Status | Size | Description |
 |------|--------|------|-------------|
 | `server/server.mjs` | Modified | ~299K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, unified video pipeline (`/api/inspire/video/create`), section-aware cover art with gender context, album ZIP download, album grouping API |
-| `ui/dist/album.html` | **New** | ~48 KB | Album Generator — 9-track workflow with multi-select genre picker (200+ genres, 15 categories), gender/vocalist context fields, auto-fill, artist name, album title, persistent metadata, ZIP download with folder organization |
+| `ui/dist/album.html` | **New** | ~48 KB | Album Generator — 9-track workflow with multi-select genre picker (200+ genres, 15 categories), random genre-aware theme generator, gender/vocalist context fields, auto-fill, artist name, album title, persistent metadata, ZIP download with folder organization |
 | `ui/dist/visualizer.html` | **New** | 43 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation via unified endpoint |
 | `ui/dist/index.html` | Modified | ~9 KB | Added floating album, visualizer & library buttons, Album Batch Handler v3 (unified video endpoint), Album Library panel with right-click context menus for album/track downloads |
 | `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle with DJ/Turntablism genre group |
 
 ### Full Enhancement Report
-See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 55 enhancement sections across 6 phases, reproduction guide, and file locations.
+See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 56 enhancement sections across 6 phases, reproduction guide, and file locations.
 
 ---
 
@@ -201,7 +202,7 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, multi-select genre picker, gender/vocalist context system, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, unified MP4 video pipeline, album music video pipeline with lyric-driven image generation and beat-synced rendering, album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-6 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, multi-select genre picker, random genre-aware theme generator, gender/vocalist context system, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, unified MP4 video pipeline, album music video pipeline with lyric-driven image generation and beat-synced rendering, album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-6 enhancements.
 
 ---
 
