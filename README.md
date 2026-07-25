@@ -221,4 +221,4 @@ This project builds upon HOT-Step CPP by scragnog (which uses ACE-Step under MIT
 
 ---
 
-*Built with obsessive attention to whether a reggae song's outro has the right energy.*
+*Built with obsessive attention.*
