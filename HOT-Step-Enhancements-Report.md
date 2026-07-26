@@ -1451,6 +1451,124 @@ album themes that feel authentic to the genre. Output ONLY the theme text."
 
 ---
 
+## Phase 7 — Language Audit, Visualizer Fixes & Code-Switching Guard
+
+### 57. 18-Language Support System
+
+**Problem:** The UI only offered 12 languages in the Album Creator, while ACE-Step natively supports 18. No documentation existed for which languages the engine actually supports.
+
+**Solution:** Full language audit across UI → server → ACE-Step engine pipeline.
+
+**Implementation:**
+- `LANGUAGE_NAMES` map (server.mjs line 297029): Cleaned to contain exactly 18 entries matching ACE-Step's natively supported languages: `en`, `zh`, `ja`, `ko`, `es`, `fr`, `de`, `it`, `pt`, `ru`, `ar`, `hi`, `tr`, `vi`, `th`, `sv`, `pl`, `nl`
+- Removed unsupported entries (`jam`, `jmc`, `jmd`) from `LANGUAGE_NAMES` — these remain only in `LANGUAGE_FALLBACK_MAP` (mapping to English) and in `nonPatoisLangCodes` arrays
+- `LANGUAGES` array (album.html line 203): Expanded from 12 to 18 entries, adding Turkish, Vietnamese, Thai, Swedish, Polish, Dutch
+- `LANGUAGE_FALLBACK_MAP` (server.mjs line 45010): 40+ entries mapping unsupported language codes to their closest ACE-Step-supported equivalent (e.g., Ukrainian→Russian, Bengali→Hindi, Greek→Italian)
+
+### 58. Automatic Vocal Language Remapping
+
+**Problem:** The server never applied the language fallback to `vocal_language` before sending to the ACE-Step engine. If a user selected an unsupported language (e.g., Ukrainian), the LLM prompt was updated to write in Russian (the fallback), but the engine received `"uk"` verbatim — causing potential synthesis failures.
+
+**Solution:** Added fallback integration in `translateParams()`.
+
+**Implementation:**
+- `translateParams()` (server.mjs line 133106-133113): Now calls `resolveLanguageFallback()` and remaps `vocal_language` to the fallback code before sending to ACE-Step
+- Logs the remap: `[LangFallback] vocal_language remapped: uk -> ru (Ukrainian → Russian)`
+- `resolveLanguageFallback()` (server.mjs line 45572): Simple dictionary lookup — returns `{ fallback, name, note }` for unsupported codes, `null` for natively supported codes
+
+**Flow after fix:**
+```
+User picks Ukrainian (uk) → translateParams() → resolveLanguageFallback("uk")
+  → fallback: "ru" → req.vocal_language = "ru" → ACE-Step synthesizes Russian vocals
+```
+
+### 59. Code-Switching Patois Variant Guard
+
+**Problem:** The genre hints bilingual block (server.mjs line 297121) triggered bilingual code-switching for ANY reggae-family genre + non-English language, because the `reggae` vocabulary module has `allowPatois: true` for ALL reggae genres — not just `(Patois)` variants. This meant plain "Reggae" + Japanese would force bilingual mixing.
+
+**Solution:** Added `wantsPatois` check to the genre hints block.
+
+**Implementation:**
+- Top-level `wantsPatois` flag (server.mjs line 296999): `genres.some(g => g.toLowerCase().includes("patois"))` — computed once from raw genre strings
+- Genre hints block (server.mjs line 297121-297230): Now checks `genreWantsPatois` first. Three branches:
+  - No `(Patois)` variant → suggests Patois as **optional** flavor only (no bilingual mixing)
+  - `(Patois)` variant + non-English → **bilingual mode** (code-switching)
+  - `(Patois)` variant + English → **mandatory Patois** (full monolingual Patois)
+
+**Behavior matrix:**
+| Genre + Language | Bilingual forced? |
+|---|---|
+| Reggae + English | No (optional flavor) |
+| Reggae + Japanese | No (optional flavor) |
+| Reggae (Patois) + English | No (mandatory Patois) |
+| Reggae (Patois) + Japanese | **Yes (bilingual)** |
+| Dubstep + Japanese | No |
+| Dubstep (Patois) + Japanese | **Yes (bilingual)** |
+
+### 60. Vocabulary Lock Patois Skip
+
+**Problem:** The `enforceVocabularyLock()` function applied English→Patois word replacements ("i"→"mi", "the"→"di", etc.) for ALL reggae-family genres, even when the user didn't select a `(Patois)` variant. For non-English lyrics this was mostly harmless, but for English reggae without Patois it would silently convert words.
+
+**Solution:** Added `wantsPatois` parameter to `enforceVocabularyLock()` and `processLyricsWithGenre()`.
+
+**Implementation:**
+- `enforceVocabularyLock(lyrics, genreKeyOrKeys, subject, wantsPatois)` (server.mjs line 45058): When `wantsPatois === false` and genre is `reggae` or `dubstep_patois`, returns lyrics unchanged — skipping all English→Patois replacements
+- `processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subject, wantsPatois)` (server.mjs line 45275): Passes `wantsPatois` through to `enforceVocabularyLock()`
+- Both call sites in the `/llm` route (server.mjs lines 297240, 297314) updated to pass the top-level `wantsPatois` flag
+
+### 61. Visualizer Auth & Audio URL Fixes
+
+**Problem:** The visualizer had three critical bugs preventing it from working:
+1. `loadPlaylist()` called `/api/songs` without an auth token → 401 Unauthorized → empty playlist
+2. Audio URLs used `/api/songs/{id}/audio` but the server serves audio via static `/audio/{filename}` — wrong URL pattern
+3. Opening from URL params (`?id=XXX`) used the same non-existent `/api/songs/{id}/audio` endpoint
+
+**Solution:** Auth-aware playlist loading, correct audio URL construction, metadata-first URL param loading.
+
+**Implementation:**
+- `loadPlaylist()` (visualizer.html line 1245-1293): Now reads auth token from multiple localStorage keys (`ace-settings`, `hs-auth`, `hs-token`, etc.) and sends `Authorization: Bearer` header. Falls back to unauthenticated request if token not found.
+- Audio URL construction (visualizer.html line 1274-1284): Uses `mastered_audio_url || audio_url` field from song data, constructs correct `/audio/{filename}` paths instead of non-existent `/api/songs/{id}/audio`
+- URL param handler (visualizer.html line 429-458): Fetches song metadata via `/api/songs/{id}` (with auth), extracts real `audio_url`, then loads from the correct path
+
+### 62. Visualizer New-Tab Opening
+
+**Problem:** The visualizer button opened an inline iframe dock, which blocked browser autoplay policies — audio couldn't start without user interaction.
+
+**Solution:** Changed the 🎛️ button to open the visualizer in a new browser tab.
+
+**Implementation:**
+- Visualizer button (index.html lines 39-100): Now calls `window.open(href, 'hotstep-visualizer')` instead of toggling an iframe dock
+- If a tab is already open, navigates that tab instead of opening a duplicate
+- Song ID passed via URL params (`?id=XXX&title=YYY`) so the new tab auto-loads and plays the current song
+- Auto-play logic (visualizer.html line 1294-1340): After playlist loads, finds the song by ID and calls `playPlaylistIndex()` to start playback
+
+### 63. Album Track Limit Increase (9→20)
+
+**Problem:** Album Creator was hardcoded to a maximum of 9 tracks with no way to add more.
+
+**Solution:** Increased to 20 tracks across all relevant code.
+
+**Implementation:**
+- `MAX_TRACKS = 20` constant (album.html line 740)
+- `addTrack()` guard updated to `>= MAX_TRACKS`
+- `updateAddBtn()` displays count as `X/20`
+- Subtitle updated: "Generate up to 20 tracks"
+- LLM auto-fill prompt now generates up to 20 track entries using `Array.from()`
+- Server-side ZIP numbering uses `padStart(2, "0")` which handles up to 99 tracks
+
+### 64. vocalLanguage in readSettingsFromStorage()
+
+**Problem:** `readSettingsFromStorage()` in index.html read dozens of settings from localStorage but skipped `vocalLanguage`. The React app's `hs-vocalLanguage` setting didn't flow into the batch handler's base params, so standalone single-song generation could default to English.
+
+**Solution:** Added `vocalLanguage` to the return object.
+
+**Implementation:**
+- `readSettingsFromStorage()` (index.html line 1049): Added `vocalLanguage: hs('vocalLanguage', 'en') || 'en'`
+- Album tracks still override per-track via `getParamsForTrack()` (index.html line 1164)
+- This ensures the React app's language setting flows into the batch handler for non-album generations
+
+---
+
 ## How to Reproduce on a Clean v1.1.4
 
 ### Backend (`server/server.mjs`)
@@ -1475,6 +1593,11 @@ album themes that feel authentic to the genre. Output ONLY the theme text."
 15. **Blend instructions**: Update `buildGenreStructureHint()` to explicitly state primary dictates structure. Add DJ genre blend rule for turntablism + other genres.
 16. **Patois optional**: Split Patois override into mandatory (Patois variant selected) and optional (base reggae genre). When a non-English language is selected alongside a Patois variant, enter bilingual code-switching mode instead of forcing 100% Patois.
 17. **Line rule processing**: Add `allowScratchEffects` and `allowDuetVocals` to genre hint injection in `/llm` route.
+18. **Language audit**: Clean `LANGUAGE_NAMES` to 18 ACE-Step-supported entries only (remove `jam`, `jmc`, `jmd`). Add `wantsPatois` flag at top of `/llm` route.
+19. **Code-switching guard**: Add `genreWantsPatois` check to genre hints bilingual block (line 297121). Three branches: optional flavor, bilingual, or monolingual Patois.
+20. **Vocabulary lock Patois skip**: Add `wantsPatois` parameter to `enforceVocabularyLock()` and `processLyricsWithGenre()`. Skip English→Patois replacements when `wantsPatois === false`.
+21. **vocal_language fallback**: Add `resolveLanguageFallback()` call in `translateParams()` to remap unsupported language codes before sending to ACE-Step engine.
+22. **Album track limit**: Change `MAX_TRACKS` from 9 to 20 in album.html. Update `addTrack()`, `updateAddBtn()`, `clearForm()`, and LLM auto-fill prompt for 20 tracks.
 
 ### Frontend (`ui/dist/assets/index-DscBS4mv.js`)
 
@@ -1491,27 +1614,35 @@ album themes that feel authentic to the genre. Output ONLY the theme text."
 3. Add floating visualizer button with MutationObserver song detection (gradient cyan)
 4. Button auto-detects currently playing song from `<audio>` element src pattern
 5. Opens visualizer with `?id=SONGID&title=TITLE` parameters
+6. **Phase 7**: Visualizer button now opens in new tab (`window.open()`) instead of inline iframe dock, to avoid autoplay restrictions
+7. **Phase 7**: Add `vocalLanguage: hs('vocalLanguage', 'en')` to `readSettingsFromStorage()` return object
 
 ### Frontend (`ui/dist/album.html`)
 
 1. Create new standalone HTML file with dark theme
-2. Implement auto-auth, provider selection, 9-track grid, sequential generation
+2. Implement auto-auth, provider selection, 20-track grid, sequential generation
 3. LLM lyrics → ACE-Step audio → poll → results with playback
 4. Add "Auto-Fill Album" button with LLM-based concept generation (line-based format output, 5-tier parsing)
 5. Add "Shuffle Tracks" button for re-rolling track subjects with existing context
 6. Add "Traditional / World" genre group to genre dropdown (4 genres: Klezmer, Mariachi, Bhangra, Andean)
+7. **Phase 7**: Expand LANGUAGES array from 12 to 18 entries (add Turkish, Vietnamese, Thai, Swedish, Polish, Dutch)
+8. **Phase 7**: Increase track limit from 9 to 20 (`MAX_TRACKS = 20`). Update `addTrack()`, `updateAddBtn()`, `clearForm()`, and LLM auto-fill prompt.
 
 ### Frontend (`ui/dist/visualizer.html`)
 
-1. Create standalone HTML file (36 KB, self-contained, zero dependencies)
+1. Create standalone HTML file (self-contained, zero dependencies)
 2. Implement client-side beat detection (kick/snare/hihat spectral analysis, EMA onset detection)
-3. Implement 10 visualization modes: Bars, Wave, Particles, Circular, Plasma, Tunnel, Starfield, Rings, Liquid, Image+FX
+3. Implement 11 visualization modes: Bars, Wave, Particles, Circular, Plasma, Tunnel, Starfield, Rings, Liquid, Image+FX, Milkdrop
 4. Add settings panel: 6 color schemes, sensitivity, smoothing, brightness, BG opacity, mode blending, mirror, glow, scanlines
 5. Add playback controls: play/pause, stop, prev/next, seek bar, volume, track info
 6. Add playlist panel: auto-loads songs from server, shuffle, repeat, auto-advance
 7. Add video generation modal: calls server `/api/inspire/video/generate` with cover art
 8. Add MediaRecorder-based video recording (canvas.captureStream + audio)
 9. Add keyboard shortcuts (Space, 1-0, F, R, S, L, ESC) and auto-hide UI
+10. **Phase 7**: Add auth token support to `loadPlaylist()` — reads from localStorage keys, sends Bearer header
+11. **Phase 7**: Fix audio URL construction — use `mastered_audio_url || audio_url` field, construct `/audio/{filename}` paths
+12. **Phase 7**: Add URL param handler that fetches song metadata via `/api/songs/{id}` before loading audio
+13. **Phase 7**: Add auto-play on open — finds song by ID in playlist and starts playback
 
 ### Backend — Video Generation (`server/server.mjs`)
 
@@ -1535,7 +1666,7 @@ This project builds upon the work of the following creators and open-source proj
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-3 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, and all Phase 1-7 enhancements.
 
 ### Additional
 - **Node.js** runtime — Server-side JavaScript execution
