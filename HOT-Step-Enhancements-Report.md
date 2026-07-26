@@ -20,7 +20,7 @@ This report documents all enhancements made to the HOT-Step CPP codebase. The wo
 
 **Phase 5** (July 23): Album Library with right-click context menus for bulk downloads, server-side album grouping API, album ZIP download endpoint (wav/mp3/flac/opus), floating library button with modal panel, unreleased tracks section.
 
-**Phase 6** (July 25): Multi-select genre picker with 200+ genres across 15 categories (replacing single dropdown), unified video generation pipeline (`POST /api/inspire/video/create`), gender/vocalist context system for coherent pronoun usage in lyrics and AI images, random genre-aware album theme generator, genre fusion prompt fixes, Disco audio-reactive performance fixes (threshold gate, throttling, RAF loop), and recovery of stashed files (wildcards, section captions, Disco analyzer, DiscoVisualizer).
+**Phase 6** (July 25): Multi-select genre picker with 200+ genres across 17 categories (replacing single dropdown), unified video generation pipeline (`POST /api/inspire/video/create`), gender/vocalist context system for coherent pronoun usage in lyrics and AI images, random genre-aware album theme generator, genre fusion prompt fixes, Disco audio-reactive performance fixes (threshold gate, throttling, RAF loop), and recovery of stashed files (wildcards, section captions, Disco analyzer, DiscoVisualizer).
 
 The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net addition of ~5,135 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler + album library panel).
 
@@ -1187,7 +1187,7 @@ Replaced flat `GENRE_LIST` array (~130 items) with `GENRE_TAXONOMY` — the same
 const GENRE_TAXONOMY = [
   { name: 'Pop', icon: '🎤', genres: ['Pop','Synth-Pop','Electropop',...] },
   { name: 'Rock', icon: '🎸', genres: ['Rock','Alternative Rock','Indie Rock',...] },
-  // ... 15 categories total
+  // ... 17 categories total
 ];
 const ALL_GENRES = GENRE_TAXONOMY.flatMap(c => c.genres); // ~200 genres
 ```
@@ -1850,7 +1850,7 @@ User picks Ukrainian (uk) → translateParams() → resolveLanguageFallback("uk"
 6. Add "Traditional / World" genre group to genre dropdown (4 genres: Klezmer, Mariachi, Bhangra, Andean)
 7. **Phase 7**: Expand LANGUAGES array from 12 to 18 entries (add Turkish, Vietnamese, Thai, Swedish, Polish, Dutch)
 8. **Phase 7**: Increase track limit from 9 to 20 (`MAX_TRACKS = 20`). Update `addTrack()`, `updateAddBtn()`, `clearForm()`, and LLM auto-fill prompt.
-9. **Phase 8**: Add multi-select genre picker with 200+ genres across 15 categories
+9. **Phase 8**: Add multi-select genre picker with 200+ genres across 17 categories
 10. **Phase 8**: Add gender/vocalist context fields and `buildGenderContext()` function
 11. **Phase 8**: Add random genre-aware theme generator button
 12. **Phase 8**: Add Album Library button in header (opens modal, replaces floating icon in index.html)

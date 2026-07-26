@@ -23,7 +23,7 @@ This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music 
 ### Genre-Aware Song Architecture (60+ Structure Templates)
 Every genre now has its own structural grammar — verse/chorus/bridge line counts, section ordering, and rhythm patterns that match how that genre *actually works*. Metal doesn't structure like reggae doesn't structure like K-pop doesn't structure like blues.
 
-- **Multi-select genre picker** — choose multiple genres per album and per track, with a categorized, searchable picker containing 200+ genres across 15 categories. Matches the main page's `GenreSelector.tsx` design.
+- **Multi-select genre picker** — choose multiple genres per album and per track, with a categorized, searchable picker containing 200+ genres across 17 categories. Matches the main page's `GenreSelector.tsx` design.
 - **Primary-genre-wins architecture**: First selected genre dictates structure. Secondary genres influence vocabulary, tone, and instrumentation only.
 - **60+ templates**: Metal (8 variants), Reggae (3), K-Pop, Hip-Hop (7), Blues (6), Punk (6), Folk (5), DJ/Turntablism (2), Traditional/World (4), plus genre-agnostic fallbacks.
 - **DJ / Turntablism** and **Dual DJ** as first-class genres with scratch effects, battle vocabulary, and turntablist structure.
