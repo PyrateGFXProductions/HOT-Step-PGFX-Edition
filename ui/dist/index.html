@@ -36,39 +36,57 @@
         document.body.appendChild(btn);
       })();
     </script>
-    <!-- Visualizer Floating Button — opens in new tab (iframes block autoplay) -->
+    <!-- Visualizer Button — injected into player bar next to Disco button -->
     <script>
       (function() {
-        var vizHref = '/visualizer.html';
         var currentSongId = null;
         var currentSongTitle = '';
         var vizTab = null;
+        var injected = false;
 
-        /* Extract song ID from audio src pattern: /api/songs/{id}/audio */
-        function extractSongId(src) {
-          if (!src) return null;
-          var m = src.match(/\/api\/songs\/([^/]+)\/audio/);
-          return m ? decodeURIComponent(m[1]) : null;
+        /* Try to get current song from React app's state */
+        function tryGetSongFromState() {
+          try {
+            /* Check Zustand stores persisted in localStorage */
+            var keys = ['hs-album-token', 'hs-token', 'auth-token', 'ace-token'];
+            var token = null;
+            for (var k = 0; k < keys.length; k++) {
+              var v = localStorage.getItem(keys[k]);
+              if (v) { token = v; break; }
+            }
+            if (!token) {
+              try { var s = JSON.parse(localStorage.getItem('ace-settings') || '{}'); if (s.token) token = s.token; } catch(ex) {}
+            }
+            if (!token) {
+              try { var s2 = JSON.parse(localStorage.getItem('hs-auth') || '{}'); if (s2.token) token = s2.token; } catch(ex) {}
+            }
+            return token;
+          } catch(e) { return null; }
         }
 
-        /* Watch for audio elements and src changes */
+        /* Watch audio elements for song ID extraction */
         function watchAudio() {
           var audios = document.querySelectorAll('audio');
           audios.forEach(function(a) {
             if (a._vizWatched) return;
             a._vizWatched = true;
             function onSrc() {
-              var id = extractSongId(a.src || a.currentSrc);
-              if (id) {
-                currentSongId = id;
-                var titleEl = a.closest('[class*="player"]')?.querySelector('[class*="title"]')
-                  || document.querySelector('[class*="song-title"]')
-                  || document.querySelector('[class*="track-name"]');
-                currentSongTitle = titleEl ? titleEl.textContent.trim() : '';
-                vizHref = '/visualizer.html?id=' + encodeURIComponent(id)
-                  + (currentSongTitle ? '&title=' + encodeURIComponent(currentSongTitle) : '');
-                btn2.style.boxShadow = '0 4px 14px rgba(6,182,212,0.6)';
-                btn2.title = 'Visualize: ' + (currentSongTitle || id);
+              var src = a.src || a.currentSrc;
+              if (!src) return;
+              /* Try /api/songs/{id}/audio pattern */
+              var m = src.match(/\/api\/songs\/([^/]+)\/audio/);
+              if (m) {
+                currentSongId = decodeURIComponent(m[1]);
+                updateButton();
+                return;
+              }
+              /* Try /audio/{filename} pattern — extract filename as song ID */
+              m = src.match(/\/audio\/([^/?]+)/);
+              if (m) {
+                var filename = decodeURIComponent(m[1]);
+                /* Strip extension to get song ID */
+                currentSongId = filename.replace(/\.[^.]+$/, '');
+                updateButton();
               }
             }
             a.addEventListener('play', function() { onSrc(); });
@@ -77,35 +95,99 @@
           });
         }
 
-        /* Create Floating Action Button */
-        var btn2 = document.createElement('a');
-        btn2.href = 'javascript:void(0)';
-        btn2.title = 'Visualizer — click to open visualizer in new tab';
-        btn2.textContent = '🎛️';
-        btn2.style.cssText = 'position:fixed;bottom:112px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#0891b2,#06b6d4);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;text-decoration:none;z-index:9999;box-shadow:0 4px 14px rgba(6,182,212,0.4);transition:all 0.2s;cursor:pointer;';
-        btn2.onmouseenter = function() { this.style.transform = 'scale(1.1)'; this.style.boxShadow = '0 6px 20px rgba(6,182,212,0.6)'; };
-        btn2.onmouseleave = function() { this.style.transform = 'scale(1)'; this.style.boxShadow = '0 4px 14px rgba(6,182,212,0.4)'; };
-        btn2.onclick = function(e) {
-          e.preventDefault();
-          watchAudio();
-          /* Build URL with song ID if available */
-          var href = currentSongId
-            ? '/visualizer.html?id=' + encodeURIComponent(currentSongId) + (currentSongTitle ? '&title=' + encodeURIComponent(currentSongTitle) : '')
-            : '/visualizer.html';
-          /* Try to reuse existing tab, otherwise open new */
+        function updateButton() {
+          var btn = document.getElementById('viz-player-btn');
+          if (!btn) return;
+          if (currentSongId) {
+            btn.style.color = '#22d3ee';
+            btn.style.borderColor = 'rgba(34,211,238,0.3)';
+            btn.title = 'Open Visualizer: ' + (currentSongTitle || currentSongId);
+            btn.style.textShadow = '0 0 8px rgba(34,211,238,0.4)';
+          } else {
+            btn.style.color = '#71717a';
+            btn.style.borderColor = 'transparent';
+            btn.title = 'Visualizer — load a track first';
+            btn.style.textShadow = 'none';
+          }
+        }
+
+        function openVisualizer() {
+          if (!currentSongId) return;
+          var params = 'id=' + encodeURIComponent(currentSongId);
+          if (currentSongTitle) params += '&title=' + encodeURIComponent(currentSongTitle);
+          var href = '/visualizer.html?' + params;
           if (vizTab && !vizTab.closed) {
             vizTab.location.href = href;
             vizTab.focus();
           } else {
             vizTab = window.open(href, 'hotstep-visualizer');
           }
-        };
-        document.body.appendChild(btn2);
+        }
 
-        /* Poll for audio elements */
-        setInterval(watchAudio, 2000);
+        /* Try to extract song title from DOM */
+        function extractTitle() {
+          /* Look for title in the player area */
+          var candidates = document.querySelectorAll('[class*="song-title"], [class*="track-name"], [class*="text-sm"][class*="font-medium"]');
+          for (var i = 0; i < candidates.length; i++) {
+            var t = candidates[i].textContent.trim();
+            if (t && t.length > 1 && t.length < 200 && t !== 'No track loaded') {
+              currentSongTitle = t;
+              updateButton();
+              return;
+            }
+          }
+        }
+
+        function injectButton() {
+          if (injected) return;
+          /* Find the player bar — look for the disco ball button or activity icon */
+          var allButtons = document.querySelectorAll('button');
+          var discoBtn = null;
+          for (var i = 0; i < allButtons.length; i++) {
+            var title = allButtons[i].title || '';
+            if (title.indexOf('Disco') >= 0 || title.indexOf('disco') >= 0) {
+              discoBtn = allButtons[i];
+              break;
+            }
+          }
+          if (!discoBtn) return;
+
+          /* Create the visualizer button — same size/style as existing transport buttons */
+          var btn = document.createElement('button');
+          btn.id = 'viz-player-btn';
+          btn.title = 'Visualizer — load a track first';
+          btn.style.cssText = 'padding:6px;border-radius:8px;color:#71717a;background:transparent;border:none;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+          btn.onmouseenter = function() { if (currentSongId) this.style.color = '#22d3ee'; };
+          btn.onmouseleave = function() { if (currentSongId) this.style.color = '#22d3ee'; else this.style.color = '#71717a'; };
+          btn.onclick = openVisualizer;
+
+          /* MonitorPlay icon (16px, matching other player buttons) */
+          btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="15" height="13" rx="2" ry="2"></rect><polygon points="17 2 22 7 17 12 17 2"></polygon><path d="M7 11v2a2 2 0 0 0 2 2h5"></path></svg>';
+
+          /* Insert after the disco button */
+          if (discoBtn.parentNode) {
+            discoBtn.parentNode.insertBefore(btn, discoBtn.nextSibling);
+            injected = true;
+            extractTitle();
+            updateButton();
+          }
+        }
+
+        /* Poll for audio elements and try injection */
+        setInterval(function() {
+          watchAudio();
+          if (!injected) injectButton();
+          extractTitle();
+        }, 1500);
+
+        /* Also watch DOM mutations for React re-renders */
         if (typeof MutationObserver !== 'undefined') {
-          var obs = new MutationObserver(function() { setTimeout(watchAudio, 500); });
+          var obs = new MutationObserver(function() {
+            setTimeout(function() {
+              watchAudio();
+              if (!injected) injectButton();
+            }, 300);
+          });
           obs.observe(document.body, { childList: true, subtree: true });
         }
       })();

@@ -191,6 +191,7 @@ canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%}
 </div>
 
 <!-- Settings Panel -->
+<div id="settings-panel">
   <div class="setting-group">
     <div class="setting-label">Color Scheme</div>
     <div class="color-swatches" id="color-swatches"></div>
@@ -299,7 +300,7 @@ const S = {
   playlist: [], plIndex: -1, plShuffle: false, plRepeat: false,
 };
 
-let globalTime = 0;
+var globalTime = 0;
 let beatImpact = 0; // 0 to 1, decays over time
 let avgEnergy = 0.1; // For auto-normalization
 
@@ -525,8 +526,6 @@ function detectBeat(now){
     }
   }
 }
-  }
-}
 
 /* ═══════════════════════════════════════════════════════════════════════
    COLOR UTILITIES
@@ -587,7 +586,7 @@ function renderBars(dt){
     var t=i/BAR_COUNT;
     var hue=(t*360+S.colorScheme*60)%360;
     applyGlow(10);
-    ctx.shadowColor=sl(hue,100,55);
+    ctx.shadowColor=hsl(hue,100,55);
     var grad=ctx.createLinearGradient(x,baseline-h,x,baseline);
     grad.addColorStop(0,schemeColor(t,1));
     grad.addColorStop(0.5,schemeColor(Math.min(1,t+0.1),0.8));
@@ -606,7 +605,6 @@ function renderBars(dt){
   }
   ctx.globalAlpha=0.12;ctx.strokeStyle=schemeColor(0.5,0.5);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,baseline+1);ctx.lineTo(W,baseline+1);ctx.stroke();ctx.globalAlpha=1;ctx.shadowBlur=0;
 }
-function sl(h,s,l){return 'hsl('+h+','+s+'%,'+l+'%)';}
 
 /* ── 1: Wave ─────────────────────────────────── */
 function renderWave(dt){
@@ -945,15 +943,28 @@ function loadScript(src){
 
 function isButterchurnSupported(){
   try{
-    var c=document.createElement('canvas');
-    return !!(window.WebGL2RenderingContext && (c.getContext('webgl2') || c.getContext('experimental-webgl2')));
-  }catch(e){return false;}
+    if(!window.WebGL2RenderingContext)return false;
+    /* Use the actual gl-canvas element that is in the DOM, not a throwaway canvas.
+       Some browsers/GPU drivers refuse to create WebGL contexts on detached canvases. */
+    var c=glCanvas||document.getElementById('gl-canvas')||document.createElement('canvas');
+    var gl=c.getContext('webgl2')||c.getContext('experimental-webgl2');
+    if(gl){
+      /* If we created the context on the throwaway fallback, lose it to free resources */
+      if(c!==glCanvas){try{gl.getExtension('WEBGL_lose_context').loseContext();}catch(e){}}
+      return true;
+    }
+    return false;
+  }catch(e){console.warn('[Milkdrop] WebGL2 detection error:',e);return false;}
 }
 
 function initButterchurn(callback){
   if(milkdropReady){if(callback)callback();return;}
   if(milkdropLoading){if(callback)milkdropCallbacks.push(callback);return;}
-  if(!isButterchurnSupported()){console.warn('[Milkdrop] WebGL2 not supported');if(callback)callback();return;}
+  if(!isButterchurnSupported()){
+    console.warn('[Milkdrop] WebGL2 not supported. WebGL2RenderingContext:',!!window.WebGL2RenderingContext,
+      'glCanvas:',!!glCanvas,'glCanvasInDOM:',glCanvas?!!glCanvas.parentNode:false);
+    if(callback)callback();return;
+  }
 
   milkdropLoading=true;
   if(callback)milkdropCallbacks.push(callback);
@@ -1511,7 +1522,7 @@ document.addEventListener('keydown',function(e){
 /* ═══════════════════════════════════════════════════════════════════════
    MAIN LOOP
    ═══════════════════════════════════════════════════════════════════════ */
-var globalTime=0, lastFrame=0;
+var lastFrame=0;
 function loop(t){
   globalTime += 0.016;
   beatImpact *= 0.92; // Smooth decay of beat impact
@@ -1559,9 +1570,13 @@ function loop(t){
   }
 
   updateSeek();
+  if(bpm>0)bpmVal.textContent=bpm;
+  ctx.restore();
   requestAnimationFrame(loop);
 }
-ctx.restore();
+
+/* Start the render loop */
+requestAnimationFrame(loop);
 
 })();
 </script>

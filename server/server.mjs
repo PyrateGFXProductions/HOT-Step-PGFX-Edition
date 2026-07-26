@@ -47434,7 +47434,7 @@ Do NOT include any text outside the JSON object. No markdown, no explanation, no
 The tags field is the most critical part. It is a natural language description of the track's COMPLETE sonic identity \u2014 not a list of genre labels, but a vivid portrait of exactly what the listener will hear. Write it as flowing prose, 150-200+ words.
 
 Your tags MUST cover these dimensions:
-1. GENRE & SONIC FOUNDATION: Specific genre/subgenre blend, era and regional influence, foundational sonic character
+1. GENRE & SONIC FOUNDATION: Specific genre/subgenre, era and regional influence, foundational sonic character. IMPORTANT: Stay faithful to the genre(s) provided. If only one genre is given, describe it in depth within that genre's tradition — do NOT invent or blend additional genres. Elaborate on subgenre nuances and era influences within the given genre.
 2. RHYTHM & PERCUSSION: Drum machine or live kit specifics, pattern details, tempo feel (driving, laid-back, swung), percussive texture
 3. HARMONIC & MELODIC ESSENCE: Chord progression character (suspended, dissonant, warm jazz voicings), melodic movement qualities, scale/mode colour
 4. VOCAL STYLE & DELIVERY: Register/range, delivery character (breathy, aggressive, intimate, theatrical), vocal techniques, emotional embodiment
@@ -47509,7 +47509,7 @@ QUALITY:
 - PERSISTENT PERSPECTIVE: Choose ONE narrative perspective (e.g., First Person 'I/me/my' OR Third Person 'He/she/they') and stick to it strictly throughout the entire song. Do NOT drift perspectives between verses and choruses.
 - OPENING WORD DIVERSITY: Do not start multiple sections with the same word. Vary the starting words of verses, choruses, and bridges.
 - Match the genre's typical vocabulary, tone, and energy level
-- Write in the specified language (tags stay in English). IMPORTANT: If the language is "Jamaican Patois" or the genre includes a "(Patois)" variant (e.g. "Reggae (Patois)", "Dub (Patois)"), write ALL lyrics in authentic Jamaican Patois \u2014 use Patois pronouns (mi, yuh, im, dem), articles (di, inna, pon, fi), and grammar throughout. Do NOT write in English with occasional Patois words. For base reggae-family genres without "(Patois)", use standard English with optional Patois flavor \u2014 sprinkle Patois phrases for authenticity but don't force the entire song into dialect.
+- Write in the specified language using standard dialect (tags stay in English). Do NOT adopt regional dialects or patois unless the user explicitly requested them. IMPORTANT: If the language is "Jamaican Patois" or the genre includes a "(Patois)" variant (e.g. "Reggae (Patois)", "Dub (Patois)"), write ALL lyrics in authentic Jamaican Patois \u2014 use Patois pronouns (mi, yuh, im, dem), articles (di, inna, pon, fi), and grammar throughout. Do NOT write in English with occasional Patois words. For base reggae-family genres without "(Patois)", use standard English with optional Patois flavor \u2014 sprinkle Patois phrases for authenticity but don't force the entire song into dialect.
 - Avoid AI clich\xE9s: neon, haze, ethereal, embers, silhouette, static, void, shimmering, tapestry, starlight, whispers, echoes, shadows, heartbeat
 - CHORUS HOOK REPETITION: Every chorus MUST contain a 'hook'\u2014a memorable phrase or entire line that repeats exactly at least once within the chorus. Do not write a chorus without a repeated hook.
 
@@ -297073,8 +297073,12 @@ router21.post("/llm", async (req, res) => {
     const dbCustom = getSetting("instagen_system_prompt");
     const systemPrompt = clientPrompt?.trim() || dbCustom || INSTAGEN_FULL_SYSTEM_PROMPT;
     // Build enhanced user prompt with genre-specific instructions
+    const genreHint = genres.length <= 1
+      ? "Stay strictly within this genre — do not blend with other genres."
+      : "Feel free to blend these genres together.";
     let enhancedUserPrompt = [
       `Genre/Style: ${genreStr}`,
+      genreHint,
       `Subject: ${subject.trim()}`,
       `Language: ${langName}`,
       "",
