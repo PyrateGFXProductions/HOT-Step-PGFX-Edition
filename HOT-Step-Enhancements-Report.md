@@ -1,7 +1,7 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 25, 2026 (updated — Phase 6: Multi-Select Genre Picker, Unified Video Pipeline, Gender/Vocalist Context, Genre Fusion Fixes, Disco Performance Fixes, Random Genre-Aware Theme Generator)  
+**Report Date**: July 25, 2026 (updated — Phase 7: Language Audit, 18-Language Support, Visualizer Fixes, Album Track Limit Increase, Code-Switching Guard, Vocabulary Lock Patois Skip)  
 **Modified Files**: `server/server.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`
 
 ---
@@ -23,6 +23,8 @@ This report documents all enhancements made to the HOT-Step CPP codebase. The wo
 **Phase 6** (July 25): Multi-select genre picker with 200+ genres across 15 categories (replacing single dropdown), unified video generation pipeline (`POST /api/inspire/video/create`), gender/vocalist context system for coherent pronoun usage in lyrics and AI images, random genre-aware album theme generator, genre fusion prompt fixes, Disco audio-reactive performance fixes (threshold gate, throttling, RAF loop), and recovery of stashed files (wildcards, section captions, Disco analyzer, DiscoVisualizer).
 
 The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net addition of ~5,135 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler + album library panel).
+
+**Phase 7** (July 25): Full language audit — 18 ACE-Step supported languages verified and exposed in UI, 40+ unsupported language fallback mappings, automatic vocal language remapping in `translateParams()`, code-switching guard (Patois variant detection to prevent unwanted bilingual mixing), vocabulary lock Patois skip (prevents English→Patois word replacement for non-Patois genres), visualizer fixes (auth token support, correct audio URL construction, auto-play, new-tab opening), album track limit increase (9→20), `vocalLanguage` added to `readSettingsFromStorage()`, `LANGUAGE_NAMES` cleanup (removed unsupported jam/jmc/jmd entries).
 
 ---
 
@@ -96,6 +98,16 @@ The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net
 54. [Disco Performance Fixes](#54-disco-performance-fixes)
 55. [Recovered Files from Stash](#55-recovered-files-from-stash)
 56. [Random Genre-Aware Theme Generator](#56-random-genre-aware-theme-generator)
+
+### Phase 7 — Language Audit, Visualizer Fixes & Code-Switching Guard
+57. [18-Language Support System](#57-18-language-support-system)
+58. [Automatic Vocal Language Remapping](#58-automatic-vocal-language-remapping)
+59. [Code-Switching Patois Variant Guard](#59-code-switching-patois-variant-guard)
+60. [Vocabulary Lock Patois Skip](#60-vocabulary-lock-patois-skip)
+61. [Visualizer Auth & Audio URL Fixes](#61-visualizer-auth--audio-url-fixes)
+62. [Visualizer New-Tab Opening](#62-visualizer-new-tab-opening)
+63. [Album Track Limit Increase (9→20)](#63-album-track-limit-increase-920)
+64. [vocalLanguage in readSettingsFromStorage()](#64-vocallanguage-in-readsettingsfromstorage)
 
 ---
 

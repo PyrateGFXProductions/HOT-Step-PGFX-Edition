@@ -14,7 +14,7 @@
 This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music generation tool built on ACE-Step. The PGFX Edition transforms it from a capable inference wrapper into a full **music production system** with genre-aware song structure, narrative intelligence, and creative workflow tools.
 
 **Base**: HOT-Step CPP v1.1.4 (Windows x64, CUDA 13.1)
-**Enhancements**: 56 sections of improvements across 6 phases
+**Enhancements**: 57 sections of improvements across 7 phases
 
 ---
 
@@ -49,9 +49,9 @@ Every genre now has its own structural grammar — verse/chorus/bridge line coun
 
 ### 🌟 Album Creator
 *One of the standout features of the PGFX Edition!*
-It will create an album of 9+ tracks with a full story concept from the first track to the last track, either user-created or auto-generated with context based on the genre.
+It will create an album of up to 20 tracks with a full story concept from the first track to the last track, either user-created or auto-generated with context based on the genre.
 
-- Generate **9+ tracks** with per-track subject, title, genre override, and custom lyrics.
+- Generate up to **20 tracks** with per-track subject, title, genre override, and custom lyrics.
 - **AI Auto-Fill**: One-click generates a complete album concept with a story arc across all tracks.
 - **Shuffle Tracks**: Re-roll all track subjects while preserving the album theme.
 - **Artist Name & Album Title**: Auto-filled from saved username or randomly generated. Editable with 🎲 random buttons.
@@ -88,7 +88,7 @@ Eleven visualization modes powered by client-side beat detection:
 **Playback controls**: Play/pause, stop, prev/next, seek bar, volume, track info.
 **Playlist**: Auto-loads songs from server, shuffle, repeat, auto-advance.
 **Video generation**: One-click MP4 creation via server ffmpeg pipeline.
-**Main app integration**: Visualizer button auto-detects the currently playing song and opens with it.
+**Main app integration**: Visualizer button opens in a new browser tab (to avoid iframe autoplay restrictions) with the currently playing song pre-loaded and auto-playing.
 **Keyboard shortcuts**: `Space` Play/Pause, `1`-`0` Modes, `M` Milkdrop, `F` Fullscreen, `R` Record, `S` Settings, `L` Playlist, `P` Presets.
 
 ### MP4 Video Generator
@@ -129,6 +129,16 @@ A floating 🗂️ button (bottom-right) opens a modal album browser that:
 - `GET /api/songs/albums` — groups all user songs by album name
 - `GET /api/download/album-zip?album=<name>&format=<wav|mp3|flac|opus>` — streams a ZIP of all tracks in the album
 
+### 18-Language Support with Intelligent Fallback
+All 18 languages natively supported by ACE-Step are available across the Album Creator and main UI:
+
+**Supported Languages:** English, Chinese, Japanese, Korean, Spanish, French, German, Italian, Portuguese, Russian, Arabic, Hindi, Turkish, Vietnamese, Thai, Swedish, Polish, Dutch
+
+- **Bilingual Patois code-switching**: When a `(Patois)` genre variant is selected with any non-English language, lyrics are automatically written in both languages — the target language as dominant, Patois woven throughout for authentic reggae feel.
+- **Intelligent fallback**: 40+ unsupported languages (Ukrainian, Bengali, Greek, etc.) are mapped to their closest supported equivalent for vocal synthesis. The LLM writes lyrics in the fallback language while the engine synthesizes with the correct vocal model.
+- **Automatic vocal language remapping**: The server automatically remaps unsupported language codes before sending to the ACE-Step engine — users never need to know which languages are natively supported.
+- **Language selector**: Available in the Album Creator (18 languages) and main React UI settings.
+
 ---
 
 ## How to Install
@@ -166,10 +176,10 @@ A floating 🗂️ button (bottom-right) opens a modal album browser that:
 
 | File | Status | Size | Description |
 |------|--------|------|-------------|
-| `server/server.mjs` | Modified | ~299K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, unified video pipeline (`/api/inspire/video/create`), section-aware cover art with gender context, album ZIP download, album grouping API |
-| `ui/dist/album.html` | **New** | ~48 KB | Album Generator — 9-track workflow with multi-select genre picker (200+ genres, 15 categories), random genre-aware theme generator, gender/vocalist context fields, auto-fill, artist name, album title, persistent metadata, ZIP download with folder organization |
-| `ui/dist/visualizer.html` | **New** | 43 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation via unified endpoint |
-| `ui/dist/index.html` | Modified | ~9 KB | Added floating album, visualizer & library buttons, Album Batch Handler v3 (unified video endpoint), Album Library panel with right-click context menus for album/track downloads |
+| `server/server.mjs` | Modified | ~300K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, unified video pipeline (`/api/inspire/video/create`), section-aware cover art with gender context, album ZIP download, album grouping API, 18-language support with 40+ fallback mappings, automatic vocal language remapping, code-switching guard (Patois variant detection), vocabulary lock Patois skip |
+| `ui/dist/album.html` | **New** | ~50 KB | Album Generator — 20-track workflow with multi-select genre picker (200+ genres, 15 categories), random genre-aware theme generator, gender/vocalist context fields, auto-fill, artist name, album title, persistent metadata, ZIP download with folder organization, 18-language selector |
+| `ui/dist/visualizer.html` | **New** | ~50 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation via unified endpoint, auth-aware playlist loading, new-tab opening for autoplay |
+| `ui/dist/index.html` | Modified | ~10 KB | Added floating album, visualizer & library buttons (new-tab visualizer), Album Batch Handler v3 (unified video endpoint, vocalLanguage in readSettingsFromStorage), Album Library panel with right-click context menus for album/track downloads |
 | `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle with DJ/Turntablism genre group |
 
 ### Full Enhancement Report
@@ -202,7 +212,7 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, multi-select genre picker, random genre-aware theme generator, gender/vocalist context system, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, unified MP4 video pipeline, album music video pipeline with lyric-driven image generation and beat-synced rendering, album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching, quality analyzer, and all Phase 1-6 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, multi-select genre picker, random genre-aware theme generator, gender/vocalist context system, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, unified MP4 video pipeline, album music video pipeline with lyric-driven image generation and beat-synced rendering, album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, and all Phase 1-7 enhancements.
 
 ---
 

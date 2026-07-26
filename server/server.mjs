@@ -132243,7 +132243,11 @@ async function extractDrumStemsBackground(songId, aceJobId, aceUrl) {
 }
 router3.get("/albums", (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = getUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
     const songs = getDb().prepare("SELECT * FROM songs WHERE user_id = ? ORDER BY created_at DESC").all(userId);
     const albumMap = {};
     for (const song of songs) {
@@ -133099,7 +133103,15 @@ function translateParams(params) {
     const ts = String(p.timeSignature);
     req.timesignature = ts.includes("/") ? ts.split("/")[0] : ts;
   }
-  if (p.vocalLanguage) req.vocal_language = p.vocalLanguage;
+  if (p.vocalLanguage) {
+    // Apply language fallback: if the selected language is unsupported by ACE-Step,
+    // remap vocal_language to the closest supported language before sending to the engine.
+    const langFallback = resolveLanguageFallback(p.vocalLanguage);
+    req.vocal_language = langFallback ? langFallback.fallback : p.vocalLanguage;
+    if (langFallback) {
+      console.log(`[LangFallback] vocal_language remapped: ${p.vocalLanguage} -> ${langFallback.fallback} (${langFallback.name})`);
+    }
+  }
   if (p.randomSeed) {
     req.seed = Math.floor(Math.random() * 2147483647);
   } else if (p.seed !== void 0) {
@@ -297032,10 +297044,7 @@ var LANGUAGE_NAMES = {
   th: "Thai",
   sv: "Swedish",
   pl: "Polish",
-  nl: "Dutch",
-  jam: "Jamaican Patois",
-  jmc: "Jamaican Patois",
-  jmd: "Jamaican Maroon Creole"
+  nl: "Dutch"
 };
 router21.post("/llm", async (req, res) => {
   const userId = getUserId(req);
