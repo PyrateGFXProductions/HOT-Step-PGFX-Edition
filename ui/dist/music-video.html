@@ -1790,7 +1790,11 @@ async function generateImage(sectionName) {
       body: JSON.stringify({
         prompt: prompt,
         section: section.name,
+        sectionType: section.name.toLowerCase().replace(/\s+/g, '-'),
+        lyrics: section.lyrics || '',
         songId: S.songId,
+        sectionIndex: S.sections.indexOf(section),
+        totalSections: S.sections.length,
         width: 1920,
         height: 1080
       })

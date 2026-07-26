@@ -42477,7 +42477,9 @@ function extractTitleConcept(title) {
 }
 function extractLyricImagery(lyrics) {
   if (!lyrics?.trim()) return "";
-  const cleaned = lyrics.replace(/\[.*?\]/g, "").replace(/\n+/g, " ").trim();
+  /* First: translate music/slang terms to their visual equivalents */
+  const translated = translateMusicTerms(lyrics);
+  const cleaned = translated.replace(/\[.*?\]/g, "").replace(/\n+/g, " ").trim();
   const lines = cleaned.split(/[.!?]+/).filter((l) => l.trim().length > 10);
   const visualWords = ["see", "watch", "look", "eyes", "light", "dark", "color", "red", "blue", "green", "black", "white", "gold", "silver", "shadow", "glow", "shine", "bright", "dim", "fog", "mist", "smoke", "fire", "water", "rain", "sun", "moon", "star", "sky", "earth", "stone", "metal", "glass", "steel", "iron", "blood", "bone", "dust", "ash", "ember", "spark", "flame", "wave", "tide", "storm", "wind", "frost", "snow", "ice", "cloud", "lightning", "thunder", "rose", "thorn", "vine", "leaf", "tree", "flower", "garden", "wild", "jungle", "desert", "mountain", "river", "ocean", "sea", "beach", "shore", "cliff", "cave", "forest", "field", "meadow", "valley", "canyon", "road", "path", "street", "city", "building", "wall", "door", "window", "tower", "bridge", "castle", "palace", "crown", "throne", "sword", "shield", "chain", "lock", "key", "mask", "face", "hand", "heart", "eye", "bone", "skull", "ghost", "spirit", "shadow", "phantom", "demon", "angel", "god", "devil", "heaven", "hell", "universe", "galaxy", "star", "planet", "moon", "sun", "comet", "meteor", "void", "abyss", "depth", "surface", "edge", "horizon", "sky", "ground", "floor", "ceiling", "roof", "dome", "pillar", "column", "arch", "gate", "fence", "barrier", "border", "line", "circle", "square", "triangle", "spiral", "wave", "pattern", "texture", "grain", "smooth", "rough", "soft", "hard", "sharp", "blunt", "thick", "thin", "wide", "narrow", "tall", "short", "deep", "shallow", "heavy", "light", "fast", "slow", "loud", "quiet", "warm", "cold", "hot", "cool", "wet", "dry", "clean", "dirty", "new", "old", "young", "ancient", "modern", "future", "past", "present", "now", "then", "here", "there", "everywhere", "nowhere", "somewhere", "anywhere", "always", "never", "sometimes", "forever", "eternity", "moment", "instant", "flash", "blink", "breath", "heartbeat", "pulse", "rhythm", "beat", "tempo", "melody", "harmony", "chord", "note", "sound", "silence", "noise", "whisper", "scream", "cry", "laugh", "smile", "frown", "tear", "blood", "sweat", "tears"];
   const found = [];
@@ -42598,7 +42600,19 @@ function buildCoverArtPrompt(opts) {
   /* 3. ANTI-GTA: Explicitly avoid game-like/stylized-3D/text rendering.
      FLUX at cfg_scale=1 ignores negative prompts, so we state it positively. */
   parts.push("no text, no words, no letters, no signs, no UI, no HUD, no watermark");
-  /* 4. QUALITY SUFFIX */
+  /* 4. NARRATIVE CONSISTENCY: All section images are frames of the same visual story.
+     Same world, same characters, same location, same lighting palette. */
+  if (sectionIndex >= 0 && totalSections > 0) {
+    var progress = sectionIndex / Math.max(1, totalSections - 1);
+    var arcDesc = progress < 0.2 ? "early chapter — introducing the world"
+      : progress < 0.4 ? "rising action — deepening into the world"
+      : progress < 0.6 ? "middle of the story — the world is fully alive"
+      : progress < 0.8 ? "climax approaching — intensity building"
+      : "final chapter — resolution, lasting impression";
+    parts.push("Visual continuity: all section images depict the same scene, same characters, same location, same lighting palette. This is one continuous visual story, not disconnected images.");
+    parts.push("Narrative progression: " + arcDesc);
+  }
+  /* 5. QUALITY SUFFIX */
   var suffixPool = [
     "digital painting, cinematic composition, highly detailed, beautiful lighting, 8k",
     "concept art, artstation quality, dramatic lighting, vivid details, masterpiece",
@@ -298347,20 +298361,240 @@ const SINGER_SCENES = {
   instrumental: { mood: "atmospheric, abstract light patterns", pose: "no person, abstract visual" }
 };
 
-function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject }) {
+/* Genre-aware visual vocabulary — translates musical/slang terms into visual equivalents.
+   Key insight: Lyrics are AUDITORY, not visual. "Bass cannon" is a speaker system, not an instrument + weapon.
+   This map helps the prompt builder understand what genre terms LOOK like. */
+const GENRE_VISUAL_CONTEXT = {
+  /* Dub / Reggae / Sound System culture */
+  "dub":        "massive stacked speaker walls, sound system culture, bass vibrations shaking the room, selector at the decks, deep bass frequencies visible as air distortion, Jamaican sound system dancehall",
+  "reggae":     "roots reggae aesthetic, warm golden light, Jamaican vibes, sound system culture, natural earth tones, peaceful resistance",
+  "dancehall":  "vibrant Caribbean colors, dancehall queen energy, sound system stage, tropical night, neon lights",
+  "riddim":     "bass-heavy speaker stacks, dancefloor energy, crowd moving to deep bass, Caribbean nightlife",
+  /* Metal / Rock */
+  "metal":      "dark stage, pyrotechnics, aggressive lighting, headbanging energy, leather and chains, industrial aesthetic",
+  "doom metal": "dark fog, candlelight, gothic cathedral atmosphere, slow heavy atmosphere, monochrome with red accents",
+  "black metal": "frozen landscape, corpse paint, grim atmosphere, forest backdrop, blast beats energy",
+  /* Electronic / Dance */
+  "edm":        "massive LED walls, laser arrays, festival main stage, crowd sea, electronic dance energy",
+  "techno":     "dark warehouse, minimal red/white lighting, industrial concrete, underground club aesthetic",
+  "house":      "warm warehouse party, disco ball, soulful energy, Chicago underground vibes",
+  "dubstep":    "massive bass drops visible as shockwaves, LED panels, festival bass culture, wobble bass energy",
+  /* Hip-Hop / Rap */
+  "hiphop":     "urban landscape, graffiti walls, street culture, gold chains, boombox aesthetic, concrete jungle",
+  "trap":       "neon-lit Atlanta nights, luxury cars, ice chains, dark moody streets, bass culture",
+  "drill":      "gritty London streets, dark urban landscape, rain-slicked roads, raw energy",
+  /* Soul / R&B */
+  "r&b":        "velvet curtains, warm amber lighting, intimate stage, soulful expression, smooth aesthetic",
+  "soul":       "Motown warmth, golden era aesthetic, rich wood tones, vintage microphone, emotional delivery",
+  "funk":       "groovy colors, Parliament-Funkadelic aesthetic, bright neon, funkadelic energy, tight outfits",
+  /* Folk / Acoustic */
+  "folk":       "intimate campfire, natural landscape, acoustic warmth, wood and earth tones, storytelling atmosphere",
+  "country":    "open plains, western sunset, barn dance, cowboy aesthetic, natural light",
+  /* Pop */
+  "pop":        "clean modern aesthetic, bright colors, polished production, mainstream appeal, catchy visual hooks",
+  "kpop":       "synchronized choreography, K-pop idol aesthetic, pastel and neon mix, futuristic set design",
+  /* Jazz / Blues */
+  "jazz":       "smoky jazz club, blue hour lighting, saxophone silhouette, intimate corner stage, cocktail lounge",
+  "blues":      "Mississippi delta, juke joint, worn wood, single spotlight, raw emotion, whiskey glass",
+  /* Latin */
+  "reggaeton":  "tropical nightlife, dembow rhythm energy, Caribbean colors, urban Latin aesthetic, neon palm trees",
+  "salsa":      "salsa club, warm colors, dancing couples, brass section, Caribbean heat",
+  /* Classical / Orchestral */
+  "classical":  "grand concert hall, dramatic chiaroscuro lighting, orchestral elegance, timeless beauty",
+  /* Punk */
+  "punk":       "DIY aesthetic, graffiti, safety pins, mohawk energy, underground venue, raw and loud",
+  "post-punk":  "dark wave aesthetic, angular lighting, Joy Division atmosphere, monochrome with stark contrasts",
+};
+
+/* Music/slang terminology visual dictionary — translates musical terms into what they LOOK like.
+   This exists because image models don't know that "breakbeat" is a drum pattern, not something
+   physically breaking. Every term here maps to a visual description. */
+const MUSIC_TERM_VISUAL = {
+  /* Instruments / Gear — what they look like in action */
+  "bass cannon":          "massive speaker stack radiating visible bass vibrations, sound system culture",
+  "skank guitar":         "rhythmic upstroke guitar playing, choppy chord chops on the offbeat, reggae rhythm guitar",
+  "wobble bass":          "synthesizer with pulsating low-frequency oscillation, electronic bass texture",
+  "drop the needle":      "vinyl record player, stylus touching down on spinning record, warm crackle",
+  "four on the floor":    "steady kick drum pulse, drum machine, dancefloor rhythm, metronomic beat",
+  "breakbeat":            "syncopated drum pattern, funky drummer loop, broken rhythm groove",
+  "ghost notes":          "subtle quiet drum taps between main beats, brushed snare, whispered percussion",
+  "blue note":            "flattened jazz pitch, soulful bending tone, melancholic musical interval",
+  "walking bass":         "upright bass with steady quarter-note movement, jazz club, warm low end",
+  "comping":              "rhythmic piano chords supporting a soloist, jazz trio, interactive accompaniment",
+  "double stop":          "two strings played simultaneously on guitar, harmonized melodic line",
+  "power chord":          "distorted guitar two-note chord, rock stage, amplifier glow, raw energy",
+  "tremolo picking":      "rapid alternating guitar picking, surf rock or black metal, blurred strings",
+  "slide guitar":         "bottleneck slide on steel strings, blues country, weeping guitar tone",
+  "fingerpicking":        "delicate acoustic guitar plucking, folk intimacy, individual string articulation",
+  "bowing":               "violin or cello with drawn bow, orchestral warmth, sustained tone",
+  /* DJ / Sound system culture */
+  "bass drop":            "subwoofer cone vibrating violently, visible air distortion, crowd reaction",
+  "rewind":               "vinyl spinning backward, selector hand on turntable, sound system pull-up",
+  "wheel and come again": "turntable rewinding, crowd cheering, sound system rewind moment",
+  "sound system":         "stacked speaker walls, selector at controls, outdoor dance, Caribbean night",
+  "riddim":               "instrumental backing track, riddim file, bass-heavy groove without vocals",
+  "rinsing":              "aggressive DJ mixing, fast cutting between tracks, high-energy set",
+  "dubplate":             "exclusive vinyl press, one-of-a-kind record, sound system weapon",
+  "selector":             "DJ choosing records, hands on vinyl, crowd anticipation",
+  "MCing":                "microphone performer, hype man energy, crowd control, live vocal delivery",
+  "toasting":             "rhythmic spoken delivery over riddim, Jamaican vocal style, chanting flow",
+  "clashing":             "two sound systems competing, bass battle, crowd judging, rivalry energy",
+  /* Production / Studio terms */
+  "drop":                 "sudden bass impact, sub-bass explosion, crowd physically reacting to low end",
+  "build-up":             "rising tension, snare roll intensifying, filter sweep opening, anticipation",
+  "breakdown":            "stripped-back section, minimal elements, tension before the drop",
+  "fade out":             "volume gradually decreasing, song dissolving into silence, lingering end",
+  "fade in":              "sound emerging from silence, gradual reveal, opening atmosphere",
+  "sidechain":            "pumping compression effect, kick drum ducking other instruments, breathing rhythm",
+  "lo-fi":                "vinyl crackle, tape hiss, warm saturation, nostalgic imperfection",
+  "reverb tail":          "lingering echo fading into space, large room reflection, atmospheric decay",
+  "filter sweep":         "frequency gradually opening or closing, whooshing transition, energy shift",
+  "808":                  "deep sub-bass kick, Roland TR-808, trap foundation, chest-shaking low end",
+  "break":                "drum-only section, rhythmic spotlight, percussive energy",
+  "sample":               "chopped audio fragment, borrowed sound, recontextualized recording",
+  /* Musical concepts that have visual equivalents */
+  "crescendo":            "gradually increasing intensity, everything building to a peak, overwhelming force",
+  "staccato":             "sharp detached notes, punchy rhythmic hits, crisp articulation",
+  "legato":               "smooth connected notes, flowing melodic line, seamless transitions",
+  "syncopation":          "off-beat accents, unexpected rhythmic emphasis, grooving against the pulse",
+  "polyrhythm":           "multiple competing rhythmic patterns, layered beats, complex groove",
+  "modulation":           "key change, harmonic shift, musical transition to new tonal center",
+  "dissonance":           "clashing notes, tension, unresolved harmonic conflict, unsettling sound",
+  "resolution":           "tension releasing into harmony, consonance, musical homecoming",
+  /* Slang / Metaphor that image models misinterpret */
+  "fire track":           "music so good it metaphorically burns, passionate energy, heat of the moment",
+  "killing it":           "dominating performance, commanding stage presence, absolute mastery",
+  "sick beat":            "incredibly good rhythm, head-nodding groove, impressive drum pattern",
+  "heavy":                "intense emotional weight, dark atmosphere, powerful low-frequency energy",
+  "tight":                "precise musical execution, locked-in rhythm section, clean performance",
+  "clean":                "polished production, crisp sound, no distortion, professional quality",
+  "raw":                  "unpolished authenticity, gritty texture, emotional honesty, live energy",
+  "smooth":               "velvet texture, flowing transitions, effortless delivery, liquid grace",
+  "deep":                 "profound emotional resonance, low-frequency immersion, soulful weight",
+  "vibing":               "caught up in the music, moving naturally, immersed in sound",
+  "grooving":             "rhythmic body movement, locked into the beat, effortless dance flow",
+  "jamming":              "spontaneous musical collaboration, improvised flow, creative exploration",
+  "session":              "recording studio or jam session, musicians in creative flow, collaborative energy",
+  "vocal booth":          "singer behind microphone in treated room, pop filter, studio recording",
+  "monitor mix":          "stage speaker pointing at performer, in-ear monitors, live sound setup",
+  "front of house":       "main concert PA system, audience-facing speakers, live venue sound",
+  "backline":             "stage amplifiers and drum kit, performer equipment, live setup",
+  "patch bay":            "studio cable routing matrix, connecting audio signals, technical setup",
+  "mixing desk":          "audio console with faders and knobs, studio control room, sound engineering",
+  "limiter":              "audio mastering preventing clipping, controlled peaks, loudness maximization",
+};
+
+/* Replace music terms in lyrics with their visual equivalents for image generation */
+function translateMusicTerms(text) {
+  if (!text) return "";
+  let result = text;
+  /* Sort by length (longest first) so "bass cannon" matches before "bass" */
+  const sortedTerms = Object.keys(MUSIC_TERM_VISUAL).sort((a, b) => b.length - a.length);
+  for (const term of sortedTerms) {
+    const regex = new RegExp("\\b" + term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
+    if (regex.test(result)) {
+      result = result.replace(regex, MUSIC_TERM_VISUAL[term]);
+    }
+  }
+  return result;
+}
+
+/* Extract the visual essence from lyrics — NOT literal words, but the IMAGERY and FEELING */
+function extractVisualEssence(lyrics) {
+  if (!lyrics) return "";
+  /* First: translate music/slang terms to their visual equivalents */
+  const translated = translateMusicTerms(lyrics);
+  const cleaned = translated.replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "").trim();
+  if (!cleaned) return "";
+
+  /* Split into lines and find the most visual/descriptive line */
+  const lines = cleaned.split(/\n/).filter(l => l.trim().length > 10);
+  if (lines.length === 0) return "";
+
+  /* Look for lines with concrete nouns and vivid imagery (not abstract concepts) */
+  const visualWords = /\b(sun|moon|stars?|sky|sea|ocean|fire|rain|storm|night|day|light|dark|shadow|color|red|blue|gold|silver|street|road|door|window|wall|floor|hand|face|eye|heart|bone|blood|stone|iron|steel|wood|glass|water|wind|dust|smoke|flame|neon|chrome|concrete|asphalt|jungle|forest|mountain|river|desert|city|town|speaker|stage|crowd|dancefloor|turntable|vinyl|microphone|amplifier|subwoofer|bass|drum|guitar|synthesizer)\b/gi;
+
+  let bestLine = "";
+  let bestScore = 0;
+  for (const line of lines) {
+    const matches = line.match(visualWords) || [];
+    if (matches.length > bestScore) {
+      bestScore = matches.length;
+      bestLine = line.trim();
+    }
+  }
+
+  /* Return the most visual line, cleaned up for image generation */
+  if (bestLine) {
+    return bestLine.replace(/[,;.!?]+$/, "").substring(0, 120);
+  }
+  /* Fallback: first non-empty line, trimmed */
+  return lines[0].trim().replace(/[,;.!?]+$/, "").substring(0, 120);
+}
+
+/* Section narrative position — where in the story arc does this section fall? */
+const SECTION_NARRATIVE = {
+  intro:      { position: "opening", energy: "low — establishing the world, setting the scene" },
+  verse:      { position: "developing", energy: "medium — introducing characters, building context" },
+  prechorus:  { position: "building", energy: "rising — tension escalating toward the peak" },
+  chorus:     { position: "peak", energy: "high — the emotional and visual climax of this moment" },
+  "post-chorus": { position: "afterglow", energy: "falling — the echo of the peak, reflection" },
+  bridge:     { position: "turning point", energy: "shifted — a new perspective, a twist in the story" },
+  interlude:  { position: "breathing", energy: "floating — a pause between chapters" },
+  outro:      { position: "closing", energy: "fading — resolution, the final image that lingers" },
+  instrumental: { position: "abstract", energy: "pure — no words, only visual emotion" }
+};
+
+function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex, totalSections }) {
   const scene = SINGER_SCENES[sectionType] || SINGER_SCENES.verse;
+  const narrative = SECTION_NARRATIVE[sectionType] || SECTION_NARRATIVE.verse;
   const genderWord = vocalistGender === "male" ? "a man" : vocalistGender === "female" ? "a woman" : "a singer";
-  const personDesc = subject || genderWord;
-  /* Extract a few evocative words from lyrics */
-  const lyricWords = (lyrics || "").replace(/\[.*?\]/g, "").split(/\s+/).filter(w => w.length > 5).slice(0, 3).join(", ");
+
+  /* ── 1. VISUAL WORLD (consistent across all sections) ──────────────── */
+  /* The subject IS the visual world. Every image lives in this world. */
+  const visualWorld = subject || `${genderWord} in a music performance setting`;
+
+  /* ── 2. GENRE AESTHETIC (consistent across all sections) ──────────── */
+  const genreKey = (style || "").toLowerCase().split(/[,\s]+/)[0] || "";
+  const genreVisual = GENRE_VISUAL_CONTEXT[genreKey] || "";
+
+  /* ── 3. NARRATIVE ARC (varies by section position) ────────────────── */
+  /* Where are we in the story? Early sections = setup, middle = conflict, late = resolution */
+  const idx = typeof sectionIndex === "number" ? sectionIndex : 0;
+  const total = typeof totalSections === "number" ? totalSections : 6;
+  const progress = total > 1 ? idx / (total - 1) : 0.5; /* 0.0 = first section, 1.0 = last */
+  let narrativeArc = "";
+  if (progress < 0.2) narrativeArc = "early chapter — introducing the world, first impressions, dawn of the story";
+  else if (progress < 0.4) narrativeArc = "rising action — deepening into the world, details emerging";
+  else if (progress < 0.6) narrativeArc = "middle of the story — the world is fully alive, stakes are real";
+  else if (progress < 0.8) narrativeArc = "climax approaching — intensity building, the world at its most vivid";
+  else narrativeArc = "final chapter — resolution, the world fading or transforming, lasting impression";
+
+  /* ── 4. SECTION-SPECIFIC MOOD (varies by section type) ────────────── */
+  /* Same world, different energy and atmosphere */
+
+  /* ── 5. VISUAL ESSENCE FROM LYRICS (the FEELING, not literal words) ─ */
+  const visualEssence = extractVisualEssence(lyrics);
+
   const parts = [
-    `${personDesc} performing on stage`,
-    scene.mood,
-    scene.pose,
-    style ? `style: ${style}` : "",
-    lyricWords ? `evoking: ${lyricWords}` : "",
-    title ? `song title thematic feel: ${title}` : "",
-    "cinematic concert photography, dramatic lighting, photorealistic, 8k"
+    /* Visual world — this is the ANCHOR that keeps all images consistent */
+    `Scene: ${visualWorld}`,
+    /* Narrative position — tells the model where we are in the story */
+    `Story arc: ${narrative.position}, ${narrative.energy}`,
+    `Narrative progression: ${narrativeArc}`,
+    /* Genre aesthetic — the visual language of this genre */
+    genreVisual ? `Visual style: ${genreVisual}` : "",
+    /* Section mood — how this moment FEELS within the same world */
+    `Atmosphere: ${scene.mood}`,
+    `Moment: ${scene.pose}`,
+    /* Visual essence from lyrics — the imagery and emotion of this specific section */
+    visualEssence ? `Imagery: ${visualEssence}` : "",
+    /* Song title — thematic thread tying everything together */
+    title ? `Song theme: ${title}` : "",
+    /* Visual continuity instruction — all images are frames of the same film */
+    `Visual continuity: all section images depict the same scene, same characters, same location, same lighting palette. This is one continuous visual story, not disconnected images.`,
+    /* Technical quality */
+    "cinematic film still, dramatic lighting, photorealistic, 8k, cohesive visual narrative"
   ].filter(Boolean);
   return parts.join(". ");
 }
@@ -298399,8 +298633,38 @@ router21.post("/comfyui/generate-image", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const { sectionType, lyrics, style, vocalistGender, title, subject, width, height, steps, cfg, seed, prompt: clientPrompt } = req.body;
-    const imagePrompt = clientPrompt || buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject });
+    let { sectionType, lyrics, style, vocalistGender, title, subject, songId, width, height, steps, cfg, seed, prompt: clientPrompt, sectionIndex, totalSections } = req.body;
+
+    /* If songId provided and fields missing, look up metadata from DB */
+    if (songId && (!lyrics || !style || !subject || !title)) {
+      try {
+        const song = await new Promise((resolve, reject) => {
+          db9.get("SELECT * FROM songs WHERE id = ? AND user_id = ?", [songId, userId], (err, row) => {
+            if (err) reject(err); else resolve(row);
+          });
+        });
+        if (song) {
+          if (!title) title = song.title || "";
+          if (!style) {
+            try { const gp = JSON.parse(song.generation_params || "{}"); style = gp.style || gp.caption || ""; } catch(e) {}
+          }
+          if (!lyrics) lyrics = song.lyrics || "";
+          if (!subject) {
+            try { const gp = JSON.parse(song.generation_params || "{}"); subject = gp.subject || gp.coverArtSubject || ""; } catch(e) {}
+          }
+          if (!vocalistGender) {
+            try { const gp = JSON.parse(song.generation_params || "{}"); vocalistGender = gp.vocalistGender || ""; } catch(e) {}
+          }
+        }
+      } catch(e) { /* DB lookup failed, continue with what we have */ }
+    }
+
+    /* If sectionType not provided, infer from section name */
+    if (!sectionType && req.body.section) {
+      sectionType = req.body.section.toLowerCase().replace(/\s+/g, "-");
+    }
+
+    const imagePrompt = clientPrompt || buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex: parseInt(sectionIndex) || 0, totalSections: parseInt(totalSections) || 6 });
     console.log(`[MVC] Image prompt: ${imagePrompt.substring(0, 120)}...`);
     const workflow = buildFLUX2Workflow({ prompt: imagePrompt, width: width||1024, height: height||1024, steps: steps||20, cfg: cfg||3.5, seed });
     const result = await comfySubmitAndWait(workflow);
