@@ -383,22 +383,31 @@
           mvcBtn.onmouseenter=function(){mvcBtn.style.color='#a78bfa';};
           mvcBtn.onmouseleave=function(){mvcBtn.style.color='#71717a';};
           mvcBtn.onclick=function(){
-            /* Get current song ID from playback state */
-            var songId=null;
-            try{
-              var stateEl=document.querySelector('[data-song-id]');
-              if(stateEl) songId=stateEl.getAttribute('data-song-id');
-              if(!songId){
-                /* Try to extract from URL or playback store */
-                var m=window.location.search.match(/id=([^&]+)/);
-                if(m) songId=m[1];
-              }
-              if(!songId){
-                /* Look for active song in the DOM */
-                var active=document.querySelector('.song-row.active,.track-active,[data-playing="true"]');
-                if(active) songId=active.getAttribute('data-song-id')||active.getAttribute('data-id');
-              }
-            }catch(ex){}
+            /* Get current song ID — try multiple sources */
+            var songId=window.__currentSongId||null;
+            if(!songId){
+              /* Try URL param */
+              var m=window.location.search.match(/id=([^&]+)/);
+              if(m) songId=m[1];
+            }
+            if(!songId){
+              /* Try to find from audio element src (React player may expose it) */
+              try{
+                var audioEls=document.querySelectorAll('audio');
+                for(var i=0;i<audioEls.length;i++){
+                  var src=audioEls[i].src||'';
+                  var match=src.match(/\/audio\/([^.]+)/);
+                  if(match){songId=match[1];break;}
+                }
+              }catch(ex){}
+            }
+            if(!songId){
+              /* Try React DevTools hook (if available) */
+              try{
+                var fiber=document.querySelector('#root')._reactRootContainer||document.querySelector('#root').__reactFiber;
+                /* Last resort: check all network requests for /api/songs/ pattern */
+              }catch(ex){}
+            }
             if(!songId){
               alert('No song selected. Please play a song first, then click Music Video Creator.');
               return;
@@ -412,6 +421,34 @@
         }
         setInterval(function(){if(!injected)injectMVCButton();},1000);
         if(typeof MutationObserver!=='undefined'){new MutationObserver(function(){setTimeout(function(){if(!injected)injectMVCButton();},300);}).observe(document.body,{childList:true,subtree:true});}
+      })();
+    </script>
+    <!-- Capture current song ID from React fetch calls (before React loads) -->
+    <script>
+      (function() {
+        window.__currentSongId = null;
+        var origFetch = window.fetch;
+        window.fetch = function() {
+          var url = typeof arguments[0] === 'string' ? arguments[0] : (arguments[0] && arguments[0].url) || '';
+          /* Capture song ID from /api/songs/:id patterns */
+          var m = url.match(/\/api\/songs\/([a-f0-9-]+)/i);
+          if (m) window.__currentSongId = m[1];
+          /* Also capture from audio URLs like /audio/songId.wav */
+          var m2 = url.match(/\/audio\/([^.]+)/);
+          if (m2) window.__currentSongId = m2[1];
+          return origFetch.apply(this, arguments);
+        };
+        /* Also intercept XMLHttpRequest for older React code */
+        var origOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url) {
+          if (typeof url === 'string') {
+            var m = url.match(/\/api\/songs\/([a-f0-9-]+)/i);
+            if (m) window.__currentSongId = m[1];
+            var m2 = url.match(/\/audio\/([^.]+)/);
+            if (m2) window.__currentSongId = m2[1];
+          }
+          return origOpen.apply(this, arguments);
+        };
       })();
     </script>
     <!-- Album Batch: Monkey-patch fetch to capture jobIds from POST /api/generate.
@@ -495,7 +532,7 @@
         backdrop.onclick = function() { if (!generating) { panel.remove(); backdrop.remove(); } };
         document.body.appendChild(backdrop);
 
-        var TOKEN = localStorage.getItem('hs-album-token') || '';
+        var TOKEN = localStorage.getItem('hs-album-token') || localStorage.getItem('hs-token') || localStorage.getItem('auth-token') || localStorage.getItem('ace-token') || '';
         var generating = false;
         var cancelled = false;
         var templateReady = false;

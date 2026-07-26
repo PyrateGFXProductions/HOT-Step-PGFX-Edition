@@ -298049,8 +298049,7 @@ router21.post("/video/create", async (req, res) => {
 const COMFYUI_URL = process.env.COMFYUI_URL || "http://127.0.0.1:8188";
 const COMFYUI_POLL_MS = 2000;
 const COMFYUI_TIMEOUT_MS = 600000; /* 10 min max per job */
-const fs9 = require("fs");
-const path9 = require("path");
+/* ── Reuse existing imports: fs9 (line 133307), path9 (line 133302) ── */
 const { randomUUID: uuid9 } = require("crypto");
 
 /* ── ComfyUI HTTP helpers ─────────────────────────────────────────── */
@@ -298638,11 +298637,7 @@ router21.post("/comfyui/generate-image", async (req, res) => {
     /* If songId provided and fields missing, look up metadata from DB */
     if (songId && (!lyrics || !style || !subject || !title)) {
       try {
-        const song = await new Promise((resolve, reject) => {
-          db9.get("SELECT * FROM songs WHERE id = ? AND user_id = ?", [songId, userId], (err, row) => {
-            if (err) reject(err); else resolve(row);
-          });
-        });
+        const song = getDb().prepare("SELECT * FROM songs WHERE id = ? AND user_id = ?").get(songId, userId);
         if (song) {
           if (!title) title = song.title || "";
           if (!style) {
@@ -298700,6 +298695,26 @@ router21.post("/comfyui/generate-video", async (req, res) => {
     } = req.body;
     if (!imageUrl) return res.status(400).json({ error: "imageUrl required" });
     if (!audioUrl) return res.status(400).json({ error: "audioUrl required" });
+
+    /* Map client field names: prompt → videoPrompt, section → sectionType */
+    if (!videoPrompt && req.body.prompt) videoPrompt = req.body.prompt;
+    if (!sectionType && req.body.section) {
+      sectionType = req.body.section.toLowerCase().replace(/\s+/g, "-");
+    }
+
+    /* If songId provided and fields missing, look up metadata from DB */
+    const songId2 = req.body.songId;
+    if (songId2 && (!sectionType || !style)) {
+      try {
+        const song = getDb().prepare("SELECT * FROM songs WHERE id = ? AND user_id = ?").get(songId2, userId);
+        if (song) {
+          if (!style) {
+            try { const gp = JSON.parse(song.generation_params || "{}"); style = gp.style || gp.caption || ""; } catch(e) {}
+          }
+          if (!sectionType) sectionType = "verse";
+        }
+      } catch(e) { /* DB lookup failed, continue */ }
+    }
 
     /* Resolve image file for upload */
     let imageLocalPath = imageUrl;
@@ -298826,15 +298841,7 @@ router21.delete("/comfyui/assets", async (req, res) => {
   }
 });
 
-/* Serve MVC static files */
-app.use("/data/mvc", (req, res, next) => {
-  const filePath = path9.normalize(path9.join(process.cwd(), "data", "mvc", req.path));
-  const mvcRoot = path9.normalize(path9.join(process.cwd(), "data", "mvc"));
-  if (!filePath.startsWith(mvcRoot)) { res.status(403).json({ error: "Forbidden" }); return; }
-  if (fs9.existsSync(filePath) && fs9.statSync(filePath).isFile()) {
-    res.sendFile(filePath);
-  } else { next(); }
-});
+/* Serve MVC static files — registered later via app.use after Express app is created */
 
 /* ═══════════════════════════════════════════════════════════════════════
    Export MP4 — Server-side FFmpeg Compositing
@@ -298881,7 +298888,7 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
             if (rawUrl.startsWith("/")) audioPath = path9.join(process.cwd(), rawUrl.replace(/^\//, ""));
           }
         }
-        if (!audioPath && audioSource) {
+        if (!audioPath && audioSource && (audioSource.startsWith("/") || audioSource.includes("."))) {
           if (audioSource.startsWith("/")) audioPath = path9.join(process.cwd(), audioSource.replace(/^\//, ""));
           else audioPath = audioSource;
         }
@@ -300576,6 +300583,15 @@ async function warmEngineOnStartup() {
     console.warn(`[Server] warm-on-startup: /warm failed (will warm on first user request instead): ${msg}`);
   }
 }
+/* Serve MVC static files */
+app.use("/data/mvc", (req, res, next) => {
+  const filePath = path9.normalize(path9.join(process.cwd(), "data", "mvc", req.path));
+  const mvcRoot = path9.normalize(path9.join(process.cwd(), "data", "mvc"));
+  if (!filePath.startsWith(mvcRoot)) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (fs9.existsSync(filePath) && fs9.statSync(filePath).isFile()) {
+    res.sendFile(filePath);
+  } else { next(); }
+});
 var server = app.listen(config.server.port, config.server.host, () => {
   console.log(`[Server] Listening on http://localhost:${config.server.port}`);
   console.log(`[Server] ace-server URL: ${config.aceServer.url}`);

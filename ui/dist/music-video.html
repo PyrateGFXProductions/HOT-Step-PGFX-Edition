@@ -1329,6 +1329,7 @@ function renderLayerList() {
     var soloBtn = document.createElement('button');
     soloBtn.textContent = 'S';
     soloBtn.title = 'Solo';
+    if (layer.solo) soloBtn.classList.add('active');
     soloBtn.addEventListener('click', function(e) {
       e.stopPropagation();
       layer.solo = !layer.solo;
@@ -1801,6 +1802,7 @@ async function generateImage(sectionName) {
     });
 
     var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Image generation failed (HTTP ' + resp.status + ')');
     var taskId = data.taskId || data.jobId;
 
     if (taskId) {
@@ -1858,6 +1860,7 @@ function renderImageThumbs() {
       container.appendChild(img);
     }
   });
+  populateSectionSelects();
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1895,6 +1898,7 @@ async function generateVideoClip(sectionName) {
     });
 
     var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Video generation failed (HTTP ' + resp.status + ')');
     var taskId = data.taskId || data.jobId;
 
     if (taskId) {
@@ -1955,6 +1959,7 @@ function renderVideoThumbs() {
       container.appendChild(vid);
     }
   });
+  populateSectionSelects();
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

@@ -371,12 +371,12 @@ function closeGenreDropdown(e) {
   const picker = document.getElementById('genre-picker');
   if (picker && !picker.contains(e.target)) {
     GENRE_DROPDOWN_OPEN = false;
-  render();
+    render();
+  }
+}
 
-  // Close genre dropdown on outside click
-  document.addEventListener('mousedown', closeGenreDropdown);
-}
-}
+// Close genre dropdown on outside click (registered once at load)
+document.addEventListener('mousedown', closeGenreDropdown);
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 function $(id) { return document.getElementById(id); }
@@ -471,8 +471,8 @@ function saveConfig() {
       provider: SELECTED_PROVIDER, model: SELECTED_MODEL,
       tracks: TRACKS.map(t => ({
         subject:t.subject,lyrics:t.lyrics,title:t.title,genreOverride:t.genreOverride,
-        bpm:t._bpm,key:t._key,duration:t._duration,timeSignature:t._timeSignature,
-        caption:t._caption
+        _bpm:t._bpm,_key:t._key,_duration:t._duration,_timeSignature:t._timeSignature,
+        _caption:t._caption
       }))
     }));
   } catch(e) {}
