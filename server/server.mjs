@@ -298029,6 +298029,735 @@ router21.post("/video/create", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+/* ═══════════════════════════════════════════════════════════════════════
+   ComfyUI Client & Music Video Creator Pipeline
+   ═══════════════════════════════════════════════════════════════════════ */
+const COMFYUI_URL = process.env.COMFYUI_URL || "http://127.0.0.1:8188";
+const COMFYUI_POLL_MS = 2000;
+const COMFYUI_TIMEOUT_MS = 600000; /* 10 min max per job */
+const fs9 = require("fs");
+const path9 = require("path");
+const { randomUUID: uuid9 } = require("crypto");
+
+/* ── ComfyUI HTTP helpers ─────────────────────────────────────────── */
+async function comfyPost(endpoint, body) {
+  const resp = await fetch(`${COMFYUI_URL}${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!resp.ok) throw new Error(`ComfyUI POST ${endpoint} failed: ${resp.status} ${await resp.text()}`);
+  return resp.json();
+}
+async function comfyGet(endpoint) {
+  const resp = await fetch(`${COMFYUI_URL}${endpoint}`, { signal: AbortSignal.timeout(10000) });
+  if (!resp.ok) throw new Error(`ComfyUI GET ${endpoint} failed: ${resp.status}`);
+  return resp.json();
+}
+async function comfyUpload(filePath, fileName) {
+  const fileBytes = fs9.readFileSync(filePath);
+  const blob = new Blob([fileBytes], { type: "application/octet-stream" });
+  const form = new FormData();
+  form.append("image", blob, fileName);
+  form.append("overwrite", "true");
+  const resp = await fetch(`${COMFYUI_URL}/upload/image`, {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(60000)
+  });
+  if (!resp.ok) throw new Error(`ComfyUI upload failed: ${resp.status}`);
+  return resp.json();
+}
+async function comfyDownload(filename, subfolder, type) {
+  const params = new URLSearchParams({ filename, subfolder: subfolder || "", type: type || "output" });
+  const resp = await fetch(`${COMFYUI_URL}/view?${params}`, { signal: AbortSignal.timeout(60000) });
+  if (!resp.ok) throw new Error(`ComfyUI download failed: ${resp.status}`);
+  return Buffer.from(await resp.arrayBuffer());
+}
+async function comfyFreeVRAM() {
+  try { await comfyPost("/free", {}); } catch {}
+}
+
+/* ── Submit + poll workflow ────────────────────────────────────────── */
+async function comfySubmitAndWait(workflow, onProgress) {
+  await comfyFreeVRAM();
+  const submitResp = await comfyPost("/prompt", { prompt: workflow });
+  if (submitResp.error) throw new Error(`Workflow error: ${JSON.stringify(submitResp.node_errors || submitResp.error)}`);
+  const promptId = submitResp.prompt_id;
+  if (!promptId) throw new Error("No prompt_id returned from ComfyUI");
+  console.log(`[ComfyUI] Submitted job: ${promptId}`);
+  const start = Date.now();
+  while (Date.now() - start < COMFYUI_TIMEOUT_MS) {
+    await new Promise(r => setTimeout(r, COMFYUI_POLL_MS));
+    const hist = await comfyGet(`/history/${promptId}`);
+    if (hist[promptId]) {
+      const entry = hist[promptId];
+      if (entry.status && entry.status.completed === false) continue;
+      if (entry.status && entry.status.status_str === "error") {
+        const msgs = entry.status.messages || [];
+        throw new Error(`ComfyUI execution error: ${JSON.stringify(msgs)}`);
+      }
+      if (entry.outputs) {
+        console.log(`[ComfyUI] Job ${promptId} completed in ${((Date.now()-start)/1000).toFixed(1)}s`);
+        return { promptId, outputs: entry.outputs };
+      }
+    }
+    if (onProgress) onProgress(((Date.now() - start) / COMFYUI_TIMEOUT_MS) * 100);
+  }
+  throw new Error(`ComfyUI job timed out after ${COMFYUI_TIMEOUT_MS/1000}s`);
+}
+
+/* ── Find output file from node outputs ────────────────────────────── */
+function comfyFindOutput(outputs, nodeType) {
+  for (const [nodeId, nodeOut] of Object.entries(outputs)) {
+    if (nodeOut.videos && nodeOut.videos.length > 0) {
+      return { type: "video", files: nodeOut.videos };
+    }
+    if (nodeOut.images && nodeOut.images.length > 0) {
+      return { type: "image", files: nodeOut.images };
+    }
+  }
+  /* Fallback: grab first available output */
+  for (const [nodeId, nodeOut] of Object.entries(outputs)) {
+    if (nodeOut.gifs) return { type: "gif", files: nodeOut.gifs };
+    if (nodeOut.audio) return { type: "audio", files: nodeOut.audio };
+  }
+  return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LTX2.3 Image-to-Video Workflow Builder
+   Based on user's working workflow: LTX_2.3_ia2v + RTX Super Scale
+   ═══════════════════════════════════════════════════════════════════════ */
+function buildLTX2Workflow({
+  imageFilename,        /* uploaded image filename (ComfyUI name) */
+  audioFilename,        /* uploaded audio filename (ComfyUI name) */
+  videoPrompt,          /* text prompt describing the action */
+  negativePrompt = "pc game, console game, video game, cartoon, childish, ugly",
+  width = 768,
+  height = 512,
+  frames = 97,          /* ~3.2 sec at 30fps */
+  audioDuration = 9,    /* seconds */
+  audioStart = 0,       /* start offset in audio seconds */
+  frameRate = 24,
+  steps1 = 9,           /* pass 1 sigma count */
+  steps2 = 4,           /* pass 2 sigma count */
+  cfg = 1.0,
+  imgStrength = 0.7,
+  imgCompression = 18,
+  upscale = true,
+  rtxUltra = true,
+  seed = null,
+  outputPrefix = "mvc_clip"
+}) {
+  if (seed === null) seed = Math.floor(Math.random() * 2**32);
+  const finalW = width * 2;  /* spatial upscaler x2 */
+  const finalH = height * 2;
+  const upsampledFrames = frames; /* frames stay same, just spatial upscale */
+  /* Build sigmas strings */
+  const sigmas1 = Array.from({length: steps1 + 1}, (_, i) => {
+    if (i === 0) return "1.0";
+    if (i === steps1) return "0.0";
+    return (1.0 - (i / steps1)).toFixed(4);
+  }).join(", ");
+  const sigmas2 = "0.85, 0.7250, 0.4219, 0.0";
+
+  const workflow = {
+    /* ── Model Loading ── */
+    "1": { class_type: "UnetLoaderGGUF", inputs: { unet_name: "ltx2.3\\LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf" } },
+    "2": { class_type: "VAELoader", inputs: { vae_name: "ltx2.3\\ltx-2.3-22b-distilled_audio_vae.safetensors" } },
+    "3": { class_type: "VAELoader", inputs: { vae_name: "ltx2.3\\ltx-2.3-22b-distilled_video_vae.safetensors" } },
+    "4": { class_type: "DualCLIPLoader", inputs: {
+      clip_name1: "gemma_3_12B_it_fp4_mixed.safetensors",
+      clip_name2: "ltx2.3\\ltx-2.3-22b-distilled_embeddings_connectors.safetensors",
+      type: "ltxv", device: "default"
+    }},
+    "5": { class_type: "LoraLoaderModelOnly", inputs: {
+      lora_name: "ltx2.3\\ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors",
+      strength_model: 0.5, strength_clip: 1.0,
+      model: ["1", 0]
+    }},
+
+    /* ── Text Encoding ── */
+    "10": { class_type: "CLIPTextEncode", inputs: { text: videoPrompt, clip: ["4", 0] } },
+    "11": { class_type: "CLIPTextEncode", inputs: { text: negativePrompt, clip: ["4", 0] } },
+
+    /* ── Image Input ── */
+    "20": { class_type: "LoadImage", inputs: { image: imageFilename } },
+    "21": { class_type: "ResizeImageMaskNode", inputs: {
+      input: ["20", 0],
+      resize_type: "scale dimensions",
+      width: finalW, height: finalH,upscale_method: "lanczos", crop: "center"
+    }},
+    "22": { class_type: "ResizeImagesByLongerEdge", inputs: { images: ["21", 0], longer_edge: Math.round(finalW * 0.8) } },
+
+    /* ── Audio Input ── */
+    "30": { class_type: "LoadAudio", inputs: { audio: audioFilename } },
+    "31": { class_type: "TrimAudioDuration", inputs: {
+      audio: ["30", 0], duration: audioDuration, start_index: audioStart
+    }},
+
+    /* ── Preprocessing ── */
+    "40": { class_type: "LTXVPreprocess", inputs: { image: ["22", 0], image_compression: imgCompression } },
+    "41": { class_type: "EmptyLTXVLatentVideo", inputs: { width, height, length: frames, batch_size: 1 } },
+    "42": { class_type: "LTXVImgToVideoInplace", inputs: {
+      vae: ["3", 0], image: ["40", 0], latent: ["41", 0], bypass: false,
+      strength: imgStrength, use_full_denoise: true
+    }},
+
+    /* ── Audio Encoding ── */
+    "50": { class_type: "LTXVAudioVAEEncode", inputs: { audio: ["31", 0], audio_vae: ["2", 0] } },
+
+    /* ── Merge A/V Latents ── */
+    "51": { class_type: "LTXVConcatAVLatent", inputs: { video_latent: ["42", 0], audio_latent: ["50", 0] } },
+    "52": { class_type: "SetLatentNoiseMask", inputs: { samples: ["51", 0], mask: ["53", 0] } },
+    "53": { class_type: "SolidMask", inputs: { value: 0, width, height } },
+
+    /* ── Conditioning ── */
+    "60": { class_type: "LTXVConditioning", inputs: { positive: ["10", 0], negative: ["11", 0], frame_rate: frameRate } },
+
+    /* ── Sampling Pass 1 ── */
+    "70": { class_type: "RandomNoise", inputs: { noise_seed: seed, control_after_generate: "randomize" } },
+    "71": { class_type: "KSamplerSelect", inputs: { sampler_name: "euler_ancestral_cfg_pp" } },
+    "72": { class_type: "ManualSigmas", inputs: { sigmas: sigmas1, scheduler: "normal" } },
+    "73": { class_type: "CFGGuider", inputs: {
+      model: ["5", 0], positive: ["60", 0], negative: ["60", 1], cfg
+    }},
+    "74": { class_type: "LTXVCropGuides", inputs: {
+      positive: ["60", 0], negative: ["60", 1], latent: ["52", 0]
+    }},
+    "75": { class_type: "SamplerCustomAdvanced", inputs: {
+      noise: ["70", 0], guider: ["73", 0], sampler: ["71", 0],
+      sigmas: ["72", 0], latent_image: ["52", 0]
+    }},
+
+    /* ── Pass 2: Refine with separate A/V ── */
+    "80": { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: ["75", 0] } },
+    "81": { class_type: "LTXVImgToVideoInplace", inputs: {
+      vae: ["3", 0], image: ["40", 0], latent: ["80", 0], bypass: false,
+      strength: imgStrength, use_full_denoise: false
+    }},
+    "82": { class_type: "LTXVConcatAVLatent", inputs: { video_latent: ["81", 0], audio_latent: ["80", 1] } },
+    "83": { class_type: "RandomNoise", inputs: { noise_seed: seed + 1, control_after_generate: "randomize" } },
+    "84": { class_type: "KSamplerSelect", inputs: { sampler_name: "euler_cfg_pp" } },
+    "85": { class_type: "ManualSigmas", inputs: { sigmas: sigmas2, scheduler: "normal" } },
+    "86": { class_type: "CFGGuider", inputs: {
+      model: ["5", 0], positive: ["60", 0], negative: ["60", 1], cfg
+    }},
+    "87": { class_type: "LTXVCropGuides", inputs: {
+      positive: ["60", 0], negative: ["60", 1], latent: ["82", 0]
+    }},
+    "88": { class_type: "SamplerCustomAdvanced", inputs: {
+      noise: ["83", 0], guider: ["86", 0], sampler: ["84", 0],
+      sigmas: ["85", 0], latent_image: ["82", 0]
+    }},
+
+    /* ── Decode A/V ── */
+    "90": { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: ["88", 0] } },
+    "91": { class_type: "LTXVAudioVAEDecode", inputs: { samples: ["90", 1], audio_vae: ["2", 0] } },
+    "92": { class_type: "VAEDecodeTiled", inputs: { samples: ["90", 0], vae: ["3", 0], tile_size: 768, overlap: 4 } },
+
+    /* ── Post-processing ── */
+    "100": { class_type: "ColorMatchV2", inputs: { image_target: ["92", 0], image_ref: ["22", 0], method: "mkl", mix_ratio: 1.0 } },
+  };
+
+  let lastNode = "100";
+
+  if (upscale) {
+    /* ── Latent Upscale ── */
+    workflow["110"] = { class_type: "LatentUpscaleModelLoader", inputs: { model_name: "ltx2.3\\ltx-2.3-spatial-upscaler-x2-1.1.safetensors" } };
+    workflow["111"] = { class_type: "LTXVLatentUpsampler", inputs: {
+      samples: ["90", 0], upscale_model: ["110", 0], vae: ["3", 0]
+    }};
+    workflow["112"] = { class_type: "VAEDecodeTiled", inputs: { samples: ["111", 0], vae: ["3", 0], tile_size: 768, overlap: 4 } };
+    workflow["113"] = { class_type: "ColorMatchV2", inputs: { image_target: ["112", 0], image_ref: ["22", 0], method: "mkl", mix_ratio: 1.0 } };
+    lastNode = "113";
+  }
+
+  if (rtxUltra) {
+    /* ── RTX Super Resolution ── */
+    workflow["120"] = { class_type: "RTXVideoSuperResolution", inputs: { images: [lastNode, 0], scale_type: "scale_by_multiplier", multiplier: 2, quality: "ULTRA" } };
+    workflow["121"] = { class_type: "ImageSharpenKJ", inputs: {
+      image: ["120", 0], sharpen_method: "adaptive_usm", strength: 1.0, radius: 0.05
+    }};
+    lastNode = "121";
+  }
+
+  /* ── Create + Save Video ── */
+  workflow["200"] = { class_type: "CreateVideo", inputs: { images: [lastNode, 0], audio: ["91", 0], fps: 30 } };
+  workflow["201"] = { class_type: "SaveVideo", inputs: {
+    video: ["200", 0], filename_prefix: outputPrefix, format: "auto"
+  }};
+
+  return workflow;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FLUX.2 Image Generation Workflow Builder
+   ═══════════════════════════════════════════════════════════════════════ */
+function buildFLUX2Workflow({
+  prompt,
+  negativePrompt = "text, lettering, words, typography, watermark, signature, logo, title, font, writing, caption, label, stamp, banner",
+  width = 1024,
+  height = 1024,
+  steps = 20,
+  cfg = 3.5,
+  seed = null,
+  outputPrefix = "mvc_image"
+}) {
+  if (seed === null) seed = Math.floor(Math.random() * 2**32);
+  return {
+    "1": { class_type: "UnetLoaderGGUF", inputs: { unet_name: "flux2\\Flux-2-Klein-9B-KV-Q8_0.gguf" } },
+    "2": { class_type: "VAELoader", inputs: { vae_name: "FLUX.2\\flux2-vae.safetensors" } },
+    "3": { class_type: "DualCLIPLoader", inputs: {
+      clip_name1: "awq-int4-flux.1-t5xxl.safetensors",
+      clip_name2: "clip_l.safetensors",
+      type: "flux", device: "default"
+    }},
+    "10": { class_type: "CLIPTextEncode", inputs: { text: prompt, clip: ["3", 0] } },
+    "11": { class_type: "CLIPTextEncode", inputs: { text: negativePrompt, clip: ["3", 1] } },
+    "20": { class_type: "EmptyLatentImage", inputs: { width, height, batch_size: 1 } },
+    "30": { class_type: "FluxGuidance", inputs: { conditioning: ["10", 0], guidance: cfg } },
+    "31": { class_type: "BasicGuider", inputs: { model: ["1", 0], conditioning: ["30", 0] } },
+    "32": { class_type: "BasicScheduler", inputs: { model: ["1", 0], scheduler: "beta", steps, denoise: 1.0 } },
+    "33": { class_type: "SamplerCustomAdvanced", inputs: {
+      noise: ["40", 0], guider: ["31", 0], sampler: ["41", 0],
+      sigmas: ["32", 0], latent_image: ["20", 0]
+    }},
+    "40": { class_type: "RandomNoise", inputs: { noise_seed: seed } },
+    "41": { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } },
+    "50": { class_type: "VAEDecode", inputs: { samples: ["33", 0], vae: ["2", 0] } },
+    "60": { class_type: "SaveImage", inputs: { images: ["50", 0], filename_prefix: outputPrefix } }
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Singer Image Prompt Builder
+   ═══════════════════════════════════════════════════════════════════════ */
+const SINGER_SCENES = {
+  intro:    { mood: "ethereal, soft ambient lighting, misty atmosphere", pose: "standing still, eyes closed, feeling the music" },
+  verse:    { mood: "intimate, warm spotlight, dark background", pose: "singing into microphone, gentle expression" },
+  prechorus:{ mood: "building energy, warm to cool transition lighting", pose: "leaning into the mic, intensity building" },
+  chorus:   { mood: "explosive energy, vivid colored stage lights, lens flare", pose: "singing passionately, arms expressive, dynamic pose" },
+  "post-chorus": { mood: "afterglow, soft neon, atmospheric haze", pose: "smiling, relaxed stage presence" },
+  bridge:   { mood: "contemplative, single warm light, shadows", pose: "turning to camera, emotional delivery" },
+  interlude:{ mood: "abstract, floating particles, dreamy", pose: "silhouette against colored lights" },
+  outro:    { mood: "fading, gentle backlight, silhouette", pose: "walking away, or final note held" },
+  instrumental: { mood: "atmospheric, abstract light patterns", pose: "no person, abstract visual" }
+};
+
+function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject }) {
+  const scene = SINGER_SCENES[sectionType] || SINGER_SCENES.verse;
+  const genderWord = vocalistGender === "male" ? "a man" : vocalistGender === "female" ? "a woman" : "a singer";
+  const personDesc = subject || genderWord;
+  /* Extract a few evocative words from lyrics */
+  const lyricWords = (lyrics || "").replace(/\[.*?\]/g, "").split(/\s+/).filter(w => w.length > 5).slice(0, 3).join(", ");
+  const parts = [
+    `${personDesc} performing on stage`,
+    scene.mood,
+    scene.pose,
+    style ? `style: ${style}` : "",
+    lyricWords ? `evoking: ${lyricWords}` : "",
+    title ? `song title thematic feel: ${title}` : "",
+    "cinematic concert photography, dramatic lighting, photorealistic, 8k"
+  ].filter(Boolean);
+  return parts.join(". ");
+}
+
+/* ── Video Prompt Builder (describes the image + action) ────────────── */
+function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender }) {
+  const scene = SINGER_SCENES[sectionType] || SINGER_SCENES.verse;
+  return `${imagePrompt}. ${scene.pose}. Subtle breathing movement, hair swaying gently, ambient stage haze drifting, slow camera push-in. Cinematic, photorealistic.`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   API Endpoints: /api/inspire/comfyui/*
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Check ComfyUI status + available models */
+router21.get("/comfyui/status", async (req, res) => {
+  try {
+    const queue = await comfyGet("/queue");
+    const unets = await comfyGet("/object_info/UnetLoaderGGUF").catch(() => null);
+    const ltxNodes = await comfyGet("/object_info/LTXVImgToVideoInplace").catch(() => null);
+    res.json({
+      connected: true,
+      url: COMFYUI_URL,
+      queueRunning: queue.queue_running?.length || 0,
+      queuePending: queue.queue_pending?.length || 0,
+      hasLTX: !!ltxNodes,
+      hasGGUF: !!unets
+    });
+  } catch (err) {
+    res.json({ connected: false, url: COMFYUI_URL, error: err.message });
+  }
+});
+
+/* Generate singer image via FLUX.2 */
+router21.post("/comfyui/generate-image", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const { sectionType, lyrics, style, vocalistGender, title, subject, width, height, steps, cfg, seed } = req.body;
+    const imagePrompt = buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject });
+    console.log(`[MVC] Image prompt: ${imagePrompt.substring(0, 120)}...`);
+    const workflow = buildFLUX2Workflow({ prompt: imagePrompt, width: width||1024, height: height||1024, steps: steps||20, cfg: cfg||3.5, seed });
+    const result = await comfySubmitAndWait(workflow);
+    const output = comfyFindOutput(result.outputs);
+    if (!output) throw new Error("No output found in workflow results");
+    /* Download the generated image */
+    const imgFile = output.files[0];
+    const imgBuffer = await comfyDownload(imgFile.filename, imgFile.subfolder, imgFile.type);
+    const outDir = path9.join(process.cwd(), "data", "mvc");
+    if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
+    const localName = `singer_${uuid9().substring(0,8)}.png`;
+    const localPath = path9.join(outDir, localName);
+    fs9.writeFileSync(localPath, imgBuffer);
+    res.json({ imageUrl: `/data/mvc/${localName}`, prompt: imagePrompt, filename: imgFile.filename });
+  } catch (err) {
+    console.error("[MVC] Image generation failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* Generate video clip via LTX2.3 I2V */
+router21.post("/comfyui/generate-video", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const {
+      imageUrl,         /* local path or URL to reference image */
+      audioUrl,         /* local path or URL to audio segment */
+      videoPrompt,      /* auto-generated or user-provided */
+      negativePrompt, width, height, frames, audioDuration, audioStart,
+      frameRate, cfg, imgStrength, imgCompression, upscale, rtxUltra, seed,
+      sectionType, vocalistGender, style
+    } = req.body;
+    if (!imageUrl) return res.status(400).json({ error: "imageUrl required" });
+    if (!audioUrl) return res.status(400).json({ error: "audioUrl required" });
+
+    /* Resolve image file for upload */
+    let imageLocalPath = imageUrl;
+    if (imageUrl.startsWith("/")) imageLocalPath = path9.join(process.cwd(), imageUrl.replace(/^\//, ""));
+    if (!fs9.existsSync(imageLocalPath)) return res.status(404).json({ error: "Image not found: " + imageLocalPath });
+    const imageFileName = path9.basename(imageLocalPath);
+
+    /* Resolve audio file for upload */
+    let audioLocalPath = audioUrl;
+    if (audioUrl.startsWith("/")) audioLocalPath = path9.join(process.cwd(), audioUrl.replace(/^\//, ""));
+    if (!fs9.existsSync(audioLocalPath)) return res.status(404).json({ error: "Audio not found: " + audioLocalPath });
+    const audioFileName = path9.basename(audioLocalPath);
+
+    /* Upload both to ComfyUI */
+    console.log(`[MVC] Uploading image: ${imageFileName}`);
+    await comfyUpload(imageLocalPath, imageFileName);
+    console.log(`[MVC] Uploading audio: ${audioFileName}`);
+    await comfyUpload(audioLocalPath, audioFileName);
+
+    /* Auto-generate video prompt if not provided */
+    let finalVideoPrompt = videoPrompt;
+    if (!finalVideoPrompt) {
+      const autoPrompt = buildVideoPrompt({ imagePrompt: req.body.imagePrompt || "", sectionType: sectionType || "verse", vocalistGender });
+      finalVideoPrompt = autoPrompt;
+    }
+    console.log(`[MVC] Video prompt: ${finalVideoPrompt.substring(0, 120)}...`);
+
+    /* Build workflow */
+    const workflow = buildLTX2Workflow({
+      imageFilename: imageFileName,
+      audioFilename: audioFileName,
+      videoPrompt: finalVideoPrompt,
+      negativePrompt, width: width||768, height: height||512,
+      frames: frames||97, audioDuration: audioDuration||9,
+      audioStart: audioStart||0, frameRate: frameRate||24,
+      cfg: cfg||1.0, imgStrength: imgStrength||0.7,
+      imgCompression: imgCompression||18,
+      upscale: upscale !== false, rtxUltra: rtxUltra !== false,
+      seed, outputPrefix: `mvc_${sectionType || "clip"}`
+    });
+
+    const result = await comfySubmitAndWait(workflow);
+    const output = comfyFindOutput(result.outputs);
+    if (!output) throw new Error("No video output found");
+    /* Download video */
+    const vidFile = output.files[0];
+    const vidBuffer = await comfyDownload(vidFile.filename, vidFile.subfolder || "", vidFile.type || "output");
+    const outDir = path9.join(process.cwd(), "data", "mvc");
+    if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
+    const localName = `clip_${uuid9().substring(0,8)}.mp4`;
+    const localPath = path9.join(outDir, vidBuffer.length > 0 ? localName : "error.mp4");
+    fs9.writeFileSync(localPath, vidBuffer);
+    console.log(`[MVC] Video clip saved: ${localPath} (${(vidBuffer.length/1024/1024).toFixed(1)} MB)`);
+    res.json({ videoUrl: `/data/mvc/${localName}`, prompt: finalVideoPrompt, filename: vidFile.filename, sizeMB: (vidBuffer.length/1024/1024).toFixed(1) });
+  } catch (err) {
+    console.error("[MVC] Video generation failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* Extract audio segment for a section (FFmpeg) */
+router21.post("/comfyui/extract-audio", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const { audioUrl, startTime, duration } = req.body;
+    if (!audioUrl) return res.status(400).json({ error: "audioUrl required" });
+    let audioLocalPath = audioUrl;
+    if (audioUrl.startsWith("/")) audioLocalPath = path9.join(process.cwd(), audioUrl.replace(/^\//, ""));
+    if (!fs9.existsSync(audioLocalPath)) return res.status(404).json({ error: "Audio not found" });
+    const outDir = path9.join(process.cwd(), "data", "mvc");
+    if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
+    const outName = `audio_seg_${uuid9().substring(0,8)}.wav`;
+    const outPath = path9.join(outDir, outName);
+    const ffmpegPath = path9.join(process.cwd(), "ffmpeg.exe");
+    const args = ["-y", "-ss", String(startTime||0), "-t", String(duration||9), "-i", audioLocalPath, "-vn", "-ar", "44100", "-ac", "2", outPath];
+    const { execFile } = require("child_process");
+    await new Promise((resolve, reject) => {
+      execFile(ffmpegPath, args, { timeout: 30000 }, (err, stdout, stderr) => {
+        if (err) reject(new Error(`FFmpeg failed: ${err.message}`));
+        else resolve();
+      });
+    });
+    if (!fs9.existsSync(outPath)) throw new Error("FFmpeg did not produce output");
+    res.json({ audioUrl: `/data/mvc/${outName}`, duration, startTime });
+  } catch (err) {
+    console.error("[MVC] Audio extraction failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* List generated MVC assets */
+router21.get("/comfyui/assets", async (req, res) => {
+  try {
+    const outDir = path9.join(process.cwd(), "data", "mvc");
+    if (!fs9.existsSync(outDir)) return res.json({ assets: [] });
+    const files = fs9.readdirSync(outDir).filter(f => !f.startsWith("_"));
+    const assets = files.map(f => {
+      const stat = fs9.statSync(path9.join(outDir, f));
+      return { name: f, url: `/data/mvc/${f}`, sizeMB: (stat.size / 1024 / 1024).toFixed(2), created: stat.mtime };
+    });
+    res.json({ assets });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* Clean up MVC assets */
+router21.delete("/comfyui/assets", async (req, res) => {
+  try {
+    const outDir = path9.join(process.cwd(), "data", "mvc");
+    if (fs9.existsSync(outDir)) {
+      const files = fs9.readdirSync(outDir);
+      for (const f of files) fs9.unlinkSync(path9.join(outDir, f));
+    }
+    res.json({ cleaned: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* Serve MVC static files */
+app.use("/data/mvc", (req, res, next) => {
+  const filePath = path9.join(process.cwd(), "data", "mvc", req.path);
+  if (fs9.existsSync(filePath) && fs9.statSync(filePath).isFile()) {
+    res.sendFile(filePath);
+  } else { next(); }
+});
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Export MP4 — Server-side FFmpeg Compositing
+   Composites LTX video clips + images + Ken Burns → single MP4
+   ═══════════════════════════════════════════════════════════════════════ */
+const exportJobs = {}; /* jobId -> { status, progress, outputPath, error } */
+
+router21.post("/comfyui/export-mp4", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const { songId, width, fps, audioSource, sections, layers, duration } = req.body;
+    if (!sections || !sections.length) return res.status(400).json({ error: "sections required" });
+
+    const jobId = uuid9();
+    exportJobs[jobId] = { status: "queued", progress: 0, outputPath: null, error: null };
+    res.json({ jobId, status: "queued" });
+
+    /* Run export async */
+    (async () => {
+      try {
+        exportJobs[jobId].status = "running";
+        const outDir = path9.join(process.cwd(), "data", "mvc");
+        if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
+        const outName = `export_${jobId.substring(0,8)}.mp4`;
+        const outPath = path9.join(outDir, outName);
+        const ffmpegPath = path9.join(process.cwd(), "ffmpeg.exe");
+
+        /* Resolve audio file */
+        let audioPath = null;
+        if (songId) {
+          const songData = getDb().prepare("SELECT audio_url, mastered_audio_url FROM songs WHERE id = ? AND user_id = ?").get(songId, userId);
+          if (songData) {
+            const rawUrl = songData.mastered_audio_url || songData.audio_url || "";
+            if (rawUrl.startsWith("/")) audioPath = path9.join(process.cwd(), rawUrl.replace(/^\//, ""));
+          }
+        }
+        if (!audioPath && audioSource) {
+          if (audioSource.startsWith("/")) audioPath = path9.join(process.cwd(), audioSource.replace(/^\//, ""));
+          else audioPath = audioSource;
+        }
+
+        /* Separate video sections and image-only sections */
+        const videoSections = sections.filter(s => s.videoUrl);
+        const imageSections = sections.filter(s => !s.videoUrl && s.imageUrl);
+        const totalW = width || 1920;
+        const totalH = Math.round(totalW * 9 / 16);
+        const totalFps = fps || 30;
+        const totalDuration = duration || 180;
+
+        /* If we have video clips, use concat demuxer */
+        if (videoSections.length > 0) {
+          const concatFile = path9.join(outDir, `concat_${jobId.substring(0,8)}.txt`);
+          const clipPaths = [];
+          for (const sec of videoSections) {
+            let vPath = sec.videoUrl;
+            if (vPath.startsWith("/")) vPath = path9.join(process.cwd(), vPath.replace(/^\//, ""));
+            if (fs9.existsSync(vPath)) clipPaths.push(vPath);
+          }
+          /* Add image-only sections as Ken Burns clips */
+          for (const sec of imageSections) {
+            let iPath = sec.imageUrl;
+            if (iPath.startsWith("/")) iPath = path9.join(process.cwd(), iPath.replace(/^\//, ""));
+            if (!fs9.existsSync(iPath)) continue;
+            const secDur = (sec.endTime || 0) - (sec.startTime || 0);
+            if (secDur <= 0) continue;
+            const clipName = `kb_${jobId.substring(0,8)}_${clipPaths.length}.mp4`;
+            const clipPath = path9.join(outDir, clipName);
+            /* Generate Ken Burns clip from image */
+            const kbArgs = [
+              "-y", "-loop", "1", "-t", String(Math.max(secDur, 3)),
+              "-i", iPath,
+              "-vf", `scale=${totalW*2}:${totalH*2},zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps},format=yuv420p`,
+              "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+              clipPath
+            ];
+            await new Promise((resolve, reject) => {
+              require("child_process").execFile(ffmpegPath, kbArgs, { timeout: 60000 }, (err) => {
+                if (err) { console.error("[Export] KB failed:", err.message); resolve(); }
+                else { clipPaths.push(clipPath); resolve(); }
+              });
+            });
+            exportJobs[jobId].progress = Math.min(80, 10 + (clipPaths.length / (videoSections.length + imageSections.length)) * 70);
+          }
+
+          if (clipPaths.length === 0) throw new Error("No video clips or images to export");
+
+          /* Write concat file */
+          const concatContent = clipPaths.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join("\n");
+          fs9.writeFileSync(concatFile, concatContent);
+
+          /* Concat + mux audio */
+          const args = [
+            "-y", "-f", "concat", "-safe", "0", "-i", concatFile,
+          ];
+          if (audioPath && fs9.existsSync(audioPath)) {
+            args.push("-i", audioPath);
+          }
+          args.push(
+            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+            "-vf", `scale=${totalW}:${totalH}:force_original_aspect_ratio=decrease,pad=${totalW}:${totalH}:-1:-1,format=yuv420p`
+          );
+          if (audioPath && fs9.existsSync(audioPath)) {
+            args.push("-c:a", "aac", "-b:a", "192k", "-shortest");
+          }
+          args.push("-movflags", "+faststart", outPath);
+
+          await new Promise((resolve, reject) => {
+            require("child_process").execFile(ffmpegPath, args, { timeout: 300000 }, (err) => {
+              if (err) reject(new Error(`FFmpeg concat failed: ${err.message}`));
+              else resolve();
+            });
+          });
+
+          /* Cleanup temp files */
+          try { fs9.unlinkSync(concatFile); } catch {}
+          for (const cp of clipPaths) {
+            if (cp.includes(jobId.substring(0,8))) try { fs9.unlinkSync(cp); } catch {}
+          }
+        } else if (imageSections.length > 0) {
+          /* Image-only: create slideshow with Ken Burns + crossfade */
+          const inputs = [];
+          const filterParts = [];
+          let inputIdx = 0;
+          for (const sec of imageSections) {
+            let iPath = sec.imageUrl;
+            if (iPath.startsWith("/")) iPath = path9.join(process.cwd(), iPath.replace(/^\//, ""));
+            if (!fs9.existsSync(iPath)) continue;
+            const secDur = Math.max((sec.endTime || 0) - (sec.startTime || 0), 3);
+            inputs.push("-loop", "1", "-t", String(secDur), "-i", iPath);
+            const zpIdx = inputIdx;
+            const zoomDir = inputIdx % 6;
+            let zp;
+            switch (zoomDir) {
+              case 0: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              case 1: zp = `zoompan=z='if(lte(zoom,1.0),1.15,max(zoom-0.0005,1.0))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              case 2: zp = `zoompan=z='min(zoom+0.0004,1.12)':x='0':y='ih/2-(ih/zoom/2)':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              case 3: zp = `zoompan=z='min(zoom+0.0004,1.12)':x='iw-iw/zoom':y='ih/2-(ih/zoom/2)':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              case 4: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='0':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              case 5: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih-ih/zoom':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+            }
+            filterParts.push(`[${inputIdx}:v]scale=${totalW*2}:${totalH*2},${zp},format=yuv420p[zp${zpIdx}]`);
+            inputIdx++;
+          }
+          if (filterParts.length === 0) throw new Error("No valid images for export");
+
+          /* Chain xfade transitions */
+          let prevLabel = `zp0`;
+          for (let i = 1; i < filterParts.length; i++) {
+            const offset = i * 4; /* rough offset */
+            const transFade = ["fade", "dissolve", "fadeblack", "smoothleft", "smoothright", "circlecrop"][i % 6];
+            filterParts.push(`[${prevLabel}][zp${i}]xfade=transition=${transFade}:duration=0.5:offset=${offset}[xf${i}]`);
+            prevLabel = `xf${i}`;
+          }
+
+          const args = ["-y", ...inputs, "-filter_complex", filterParts.join(";"), "-map", `[${prevLabel}]`];
+          if (audioPath && fs9.existsSync(audioPath)) {
+            args.push("-i", audioPath, "-map", `${inputIdx}:a`, "-c:a", "aac", "-b:a", "192k", "-shortest");
+          }
+          args.push("-c:v", "libx264", "-preset", "fast", "-crf", "20", "-movflags", "+faststart", outPath);
+
+          await new Promise((resolve, reject) => {
+            require("child_process").execFile(ffmpegPath, args, { timeout: 600000 }, (err) => {
+              if (err) reject(new Error(`FFmpeg slideshow failed: ${err.message}`));
+              else resolve();
+            });
+          });
+        } else {
+          throw new Error("No video clips or images provided");
+        }
+
+        exportJobs[jobId].status = "completed";
+        exportJobs[jobId].progress = 100;
+        exportJobs[jobId].videoUrl = `/data/mvc/${outName}`;
+        exportJobs[jobId].outputPath = `/data/mvc/${outName}`;
+        console.log(`[Export] Complete: ${outName} (${(fs9.statSync(outPath).size/1024/1024).toFixed(1)} MB)`);
+      } catch (err) {
+        console.error("[Export] Failed:", err.message);
+        exportJobs[jobId].status = "failed";
+        exportJobs[jobId].error = err.message;
+      }
+    })();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* Poll export status */
+router21.get("/comfyui/export-status/:jobId", async (req, res) => {
+  const job = exportJobs[req.params.jobId];
+  if (!job) return res.status(404).json({ error: "Job not found" });
+  res.json(job);
+});
+
 function parseStructuredLlmResponse(raw) {
   let cleaned = raw.replace(/^```(?:json)?\s*|\s*```$/gm, "").trim();
   try {

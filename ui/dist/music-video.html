@@ -1,0 +1,2290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HOT-Step Music Video Creator</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--text2:#8b949e;--text3:#484f58;--accent:#58a6ff;--orange:#f78166;--green:#3fb950;--red:#f85149;--purple:#bc8cff;--btn-bg:#21262d;--btn-text:#c9d1d9;--radius:8px}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:12px;user-select:none}
+button{font-family:inherit}
+input,select,textarea{font-family:inherit}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+
+/* Layout */
+.app{display:flex;flex-direction:column;width:100%;height:100%}
+
+/* ── Top Bar ────────────────────────────────── */
+.top-bar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--border);flex-shrink:0;height:42px}
+.top-bar .song-title{flex:1;font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top-bar .song-title .dim{color:var(--text3);font-weight:400}
+.btn{padding:6px 14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--btn-bg);color:var(--btn-text);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.btn:hover{background:var(--border);color:var(--text)}
+.btn-primary{background:rgba(88,166,255,0.15);border-color:rgba(88,166,255,0.3);color:var(--accent)}
+.btn-primary:hover{background:rgba(88,166,255,0.25)}
+.btn-green{background:rgba(63,185,80,0.12);border-color:rgba(63,185,80,0.3);color:var(--green)}
+.btn-green:hover{background:rgba(63,185,80,0.22)}
+.btn-orange{background:rgba(247,129,102,0.12);border-color:rgba(247,129,102,0.3);color:var(--orange)}
+.btn-orange:hover{background:rgba(247,129,102,0.22)}
+.btn-sm{padding:4px 8px;font-size:10px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── Main Area ──────────────────────────────── */
+.main{display:flex;flex:1;overflow:hidden}
+
+/* ── Left Panel: Layers ─────────────────────── */
+.left-panel{width:240px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.panel-header{padding:8px 10px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.7px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.panel-header .count{color:var(--accent);font-weight:400}
+.layer-list{flex:1;overflow-y:auto;padding:4px}
+.layer-item{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:4px;padding:8px;cursor:default;transition:border-color .15s}
+.layer-item.selected{border-color:var(--accent)}
+.layer-item.muted{opacity:.45}
+.layer-top{display:flex;align-items:center;gap:4px;margin-bottom:6px}
+.layer-drag{cursor:grab;color:var(--text3);font-size:10px;padding:0 2px}
+.layer-name{flex:1;font-size:11px;font-weight:600;color:var(--text);background:none;border:none;outline:none;padding:2px 4px;border-radius:3px;width:100%}
+.layer-name:focus{background:var(--btn-bg);color:var(--text)}
+.layer-del{background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 2px;line-height:1}
+.layer-del:hover{color:var(--red)}
+.layer-row{display:flex;gap:4px;margin-bottom:4px;align-items:center}
+.layer-row label{font-size:9px;color:var(--text3);text-transform:uppercase;min-width:28px;flex-shrink:0}
+.layer-row select{flex:1;background:var(--btn-bg);border:1px solid var(--border);color:var(--text);font-size:10px;padding:2px 4px;border-radius:4px;outline:none;cursor:pointer}
+.layer-row select:focus{border-color:var(--accent)}
+.layer-slider-row{display:flex;align-items:center;gap:4px}
+.layer-slider-row label{font-size:9px;color:var(--text3);min-width:14px}
+.layer-slider-row input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:3px;background:var(--border);border-radius:2px;outline:none;cursor:pointer}
+.layer-slider-row input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;border-radius:50%;background:var(--accent);cursor:pointer}
+.layer-slider-row .val{font-size:9px;color:var(--text3);min-width:24px;text-align:right;font-variant-numeric:tabular-nums}
+.layer-btns{display:flex;gap:3px;margin-top:4px}
+.layer-btns button{flex:1;padding:2px 0;border:1px solid var(--border);border-radius:3px;background:var(--btn-bg);color:var(--text3);font-size:9px;font-weight:700;cursor:pointer;transition:all .15s}
+.layer-btns button:hover{color:var(--text);background:var(--border)}
+.layer-btns button.active{color:var(--accent);border-color:rgba(88,166,255,0.4);background:rgba(88,166,255,0.1)}
+.layer-color{width:18px;height:18px;border-radius:4px;border:1px solid var(--border);cursor:pointer;padding:0;flex-shrink:0}
+.add-layer-btn{margin:6px;padding:6px;border:1px dashed var(--border);border-radius:var(--radius);background:none;color:var(--text3);font-size:10px;font-weight:600;cursor:pointer;transition:all .15s}
+.add-layer-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Center: Preview Canvas ─────────────────── */
+.center-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.canvas-wrap{flex:1;position:relative;background:#000;overflow:hidden}
+.canvas-wrap canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+.fps-counter{position:absolute;top:8px;right:8px;font-size:10px;color:var(--text3);font-variant-numeric:tabular-nums;pointer-events:none;z-index:10}
+.no-preview{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--text3);pointer-events:none}
+.no-preview .icon{font-size:40px;opacity:.3}
+.no-preview p{font-size:11px}
+
+/* ── Right Panel ────────────────────────────── */
+.right-panel{width:280px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.right-section{border-bottom:1px solid var(--border);flex-shrink:0}
+.right-section:last-child{border-bottom:none;flex:1;overflow:hidden;display:flex;flex-direction:column}
+.right-section-header{padding:8px 10px;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;cursor:pointer;display:flex;align-items:center;justify-content:space-between}
+.right-section-header .chevron{transition:transform .2s;font-size:9px}
+.right-section-header .chevron.collapsed{transform:rotate(-90deg)}
+.right-section-body{padding:6px 10px 10px}
+.right-section-body.collapsed{display:none}
+
+/* Effects Grid */
+.effects-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.effect-thumb{aspect-ratio:1;border-radius:4px;border:1px solid var(--border);cursor:pointer;position:relative;overflow:hidden;transition:all .15s}
+.effect-thumb:hover{border-color:var(--text3)}
+.effect-thumb.selected{border-color:var(--accent);box-shadow:0 0 8px rgba(88,166,255,0.2)}
+.effect-thumb canvas{width:100%;height:100%}
+.effect-thumb .label{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.7);font-size:8px;text-align:center;padding:1px 0;color:var(--text2);font-weight:600}
+
+/* Generation panels */
+.gen-field{margin-bottom:6px}
+.gen-field label{display:block;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px}
+.gen-field select,.gen-field textarea,.gen-field input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text);font-size:11px;outline:none;transition:border-color .15s}
+.gen-field select:focus,.gen-field textarea:focus,.gen-field input:focus{border-color:var(--accent)}
+.gen-field textarea{min-height:48px;resize:vertical;line-height:1.4}
+.gen-btns{display:flex;gap:4px;margin-bottom:6px}
+.gen-btns .btn{flex:1}
+.gen-status{font-size:10px;color:var(--text3);min-height:14px;margin-bottom:4px}
+.gen-thumbs{display:flex;gap:4px;flex-wrap:wrap;max-height:80px;overflow-y:auto}
+.gen-thumb{width:48px;height:48px;border-radius:4px;border:1px solid var(--border);object-fit:cover;cursor:pointer;transition:border-color .15s}
+.gen-thumb:hover{border-color:var(--accent)}
+.gen-thumb.active{border-color:var(--green)}
+.gen-progress{height:3px;background:var(--bg);border-radius:2px;overflow:hidden;margin:4px 0}
+.gen-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));border-radius:2px;transition:width .3s;width:0}
+
+/* ── Timeline (Bottom) ──────────────────────── */
+.timeline{height:80px;flex-shrink:0;background:var(--panel);border-top:1px solid var(--border);display:flex;flex-direction:column}
+.transport{display:flex;align-items:center;gap:6px;padding:4px 12px;border-bottom:1px solid var(--border)}
+.transport-btn{background:none;border:none;color:var(--text2);font-size:16px;cursor:pointer;width:30px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:all .15s}
+.transport-btn:hover{color:var(--text);background:var(--btn-bg)}
+.transport-btn.play{font-size:18px;color:var(--text)}
+.transport-btn.play:hover{color:var(--accent)}
+.time-display{font-size:11px;color:var(--text3);font-variant-numeric:tabular-nums;min-width:70px;text-align:center}
+.seek-bar{flex:1;-webkit-appearance:none;appearance:none;height:4px;background:var(--border);border-radius:2px;outline:none;cursor:pointer}
+.seek-bar::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--accent);cursor:pointer;transition:transform .1s}
+.seek-bar::-webkit-slider-thumb:hover{transform:scale(1.2)}
+.transport-sep{width:1px;height:20px;background:var(--border)}
+.timeline-track{flex:1;display:flex;align-items:stretch;padding:4px 12px 6px;gap:2px;overflow-x:auto}
+.timeline-section{border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:rgba(255,255,255,0.7);cursor:pointer;transition:all .15s;flex-shrink:0;min-width:40px;padding:0 6px;position:relative;overflow:hidden}
+.timeline-section:hover{filter:brightness(1.2);color:#fff}
+.timeline-section.active{box-shadow:inset 0 0 0 2px var(--accent)}
+.playhead{position:absolute;top:0;width:2px;background:var(--accent);height:100%;pointer-events:none;z-index:5;transition:left .05s linear}
+
+/* ── Modal Overlay ──────────────────────────── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:500}
+.modal-overlay.open{display:flex}
+.modal-box{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:400px;width:90%;display:flex;flex-direction:column;gap:10px}
+.modal-box h3{font-size:14px;font-weight:700;color:var(--text)}
+.modal-box p{font-size:11px;color:var(--text2);line-height:1.5}
+
+/* ── Stem Loading Overlay ───────────────────── */
+.stem-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.8);display:none;align-items:center;justify-content:center;z-index:600;flex-direction:column;gap:12px}
+.stem-overlay.open{display:flex}
+.stem-overlay .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.stem-overlay p{color:var(--text);font-size:13px}
+.stem-overlay .progress{width:200px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.stem-overlay .progress-fill{height:100%;background:var(--accent);transition:width .3s}
+
+/* ── Settings Modal ─────────────────────────── */
+.settings-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.settings-row label{font-size:11px;color:var(--text2);min-width:80px}
+.settings-row select,.settings-row input[type=text]{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-size:11px;outline:none}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- Top Bar -->
+<div class="top-bar">
+  <div class="song-title" id="song-title"><span class="dim">No song loaded</span></div>
+  <button class="btn btn-primary" id="btn-generate-all" title="Generate all images and video clips">Generate All</button>
+  <button class="btn btn-green" id="btn-export" title="Export to MP4">Export MP4</button>
+  <button class="btn" id="btn-settings" title="Settings">Settings</button>
+</div>
+
+<!-- Main 3-column -->
+<div class="main">
+
+  <!-- Left: Layers -->
+  <div class="left-panel">
+    <div class="panel-header">Layers <span class="count" id="layer-count">0</span></div>
+    <div class="layer-list" id="layer-list"></div>
+    <button class="add-layer-btn" id="btn-add-layer">+ Add Layer</button>
+  </div>
+
+  <!-- Center: Preview -->
+  <div class="center-panel">
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="preview-canvas"></canvas>
+      <div class="fps-counter" id="fps-counter">0 FPS</div>
+      <div class="no-preview" id="no-preview">
+        <div class="icon">&#9654;</div>
+        <p>Load a song to begin</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Effects & Generation -->
+  <div class="right-panel">
+    <!-- Effects Library -->
+    <div class="right-section">
+      <div class="right-section-header" data-toggle="effects-body">Effect Library <span class="chevron">&#9660;</span></div>
+      <div class="right-section-body" id="effects-body">
+        <div class="effects-grid" id="effects-grid"></div>
+      </div>
+    </div>
+
+    <!-- Image Generation -->
+    <div class="right-section">
+      <div class="right-section-header" data-toggle="image-body">Image Generation <span class="chevron">&#9660;</span></div>
+      <div class="right-section-body" id="image-body">
+        <div class="gen-field">
+          <label>Section</label>
+          <select id="img-section"></select>
+        </div>
+        <div class="gen-field">
+          <label>Prompt</label>
+          <textarea id="img-prompt" placeholder="Describe the image for this section..."></textarea>
+        </div>
+        <div class="gen-btns">
+          <button class="btn btn-primary btn-sm" id="btn-gen-image">Generate Image</button>
+          <button class="btn btn-sm" id="btn-gen-all-images">All Sections</button>
+        </div>
+        <div class="gen-progress" id="img-progress"><div class="gen-progress-fill" id="img-progress-fill"></div></div>
+        <div class="gen-status" id="img-status"></div>
+        <div class="gen-thumbs" id="img-thumbs"></div>
+      </div>
+    </div>
+
+    <!-- Video Generation -->
+    <div class="right-section">
+      <div class="right-section-header" data-toggle="video-body">Video Generation <span class="chevron">&#9660;</span></div>
+      <div class="right-section-body" id="video-body">
+        <div class="gen-field">
+          <label>Section</label>
+          <select id="vid-section"></select>
+        </div>
+        <div class="gen-field">
+          <label>Prompt</label>
+          <textarea id="vid-prompt" placeholder="Describe the video clip for this section..."></textarea>
+        </div>
+        <div class="gen-btns">
+          <button class="btn btn-primary btn-sm" id="btn-gen-video">Generate Clip</button>
+          <button class="btn btn-sm" id="btn-gen-all-videos">All Sections</button>
+        </div>
+        <div class="gen-progress" id="vid-progress"><div class="gen-progress-fill" id="vid-progress-fill"></div></div>
+        <div class="gen-status" id="vid-status"></div>
+        <div class="gen-thumbs" id="vid-thumbs"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Timeline -->
+<div class="timeline">
+  <div class="transport">
+    <button class="transport-btn" id="btn-prev" title="Previous Section">&#9198;</button>
+    <button class="transport-btn play" id="btn-play" title="Play/Pause (Space)">&#9654;</button>
+    <button class="transport-btn" id="btn-stop" title="Stop (Esc)">&#9632;</button>
+    <button class="transport-btn" id="btn-next" title="Next Section">&#9197;</button>
+    <div class="transport-sep"></div>
+    <span class="time-display" id="time-display">0:00 / 0:00</span>
+    <div class="transport-sep"></div>
+    <input type="range" class="seek-bar" id="seek-bar" min="0" max="1000" step="1" value="0">
+  </div>
+  <div class="timeline-track" id="timeline-track">
+    <div class="playhead" id="playhead" style="left:0"></div>
+  </div>
+</div>
+
+</div>
+
+<!-- Stem Loading Overlay -->
+<div class="stem-overlay" id="stem-overlay">
+  <div class="spinner"></div>
+  <p id="stem-status">Loading stems...</p>
+  <div class="progress"><div class="progress-fill" id="stem-progress-fill" style="width:0"></div></div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal-box">
+    <h3>Settings</h3>
+    <div class="settings-row"><label>Canvas BG</label><select id="opt-bg"><option value="#000000">Black</option><option value="#0d1117">Dark</option><option value="transparent">Transparent</option></select></div>
+    <div class="settings-row"><label>Audio Source</label><select id="opt-audio"><option value="mix">Original Mix</option><option value="stems">Stem Mix</option></select></div>
+    <div class="settings-row"><label>Smoothing</label><input type="range" id="opt-smoothing" min="0.5" max="0.95" step="0.01" value="0.8" style="flex:1"></div>
+    <div class="settings-row"><label>Sensitivity</label><input type="range" id="opt-sensitivity" min="0.5" max="3" step="0.1" value="1.3" style="flex:1"></div>
+    <button class="btn" id="btn-settings-close" style="align-self:flex-end">Close</button>
+  </div>
+</div>
+
+<!-- Export Modal -->
+<div class="modal-overlay" id="export-modal">
+  <div class="modal-box">
+    <h3>Export MP4</h3>
+    <p>Server-side FFmpeg will composite LTX video clips, visualization frames, Ken Burns on static images, crossfade transitions, and audio.</p>
+    <div class="gen-field"><label>Resolution</label><select id="export-res"><option value="1920x1080">1080p (1920x1080)</option><option value="1280x720">720p (1280x720)</option><option value="3840x2160">4K (3840x2160)</option></select></div>
+    <div class="gen-field"><label>FPS</label><select id="export-fps"><option value="30">30</option><option value="24">24</option><option value="60">60</option></select></div>
+    <div class="gen-field"><label>Audio</label><select id="export-audio"><option value="mix">Original Mix</option><option value="stems">Stem Mix</option></select></div>
+    <div class="gen-progress" id="export-progress"><div class="gen-progress-fill" id="export-progress-fill"></div></div>
+    <div class="gen-status" id="export-status"></div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn" id="btn-export-close">Cancel</button>
+      <button class="btn btn-green" id="btn-export-start">Start Export</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CONSTANTS
+   ═══════════════════════════════════════════════════════════════════════ */
+const EFFECTS = [
+  {id:'bars',name:'Bars',color:'#58a6ff'},
+  {id:'wave',name:'Wave',color:'#3fb950'},
+  {id:'particles',name:'Particles',color:'#f78166'},
+  {id:'circular',name:'Circular',color:'#bc8cff'},
+  {id:'plasma',name:'Plasma',color:'#f0f'},
+  {id:'tunnel',name:'Tunnel',color:'#ff0'},
+  {id:'rings',name:'Rings',color:'#0ff'},
+  {id:'liquid',name:'Liquid',color:'#3b82f6'},
+  {id:'starfield',name:'Starfield',color:'#fff'},
+  {id:'circular-bars',name:'Circular Bars',color:'#22c55e'},
+  {id:'spectrum',name:'Spectrum',color:'#ec4899'},
+  {id:'galaxy',name:'Galaxy',color:'#a855f7'}
+];
+
+const STEMS = ['Kick','Snare','Toms','HiHat','Ride','Crash','Lead Vocals','Backing Vocals','Bass','Guitar','Piano','Other'];
+const LAYER_TYPES = [...STEMS,'Image','Video'];
+const BLEND_MODES = ['source-over','lighter','screen','multiply','overlay','soft-light'];
+const BLEND_LABELS = ['Normal','Add','Screen','Multiply','Overlay','Soft Light'];
+const SECTIONS = ['Intro','Verse 1','Pre-Chorus','Chorus 1','Verse 2','Pre-Chorus 2','Chorus 2','Bridge','Chorus 3','Outro'];
+
+const SECTION_COLORS = [
+  '#484f58','#58a6ff','#bc8cff','#f78166','#58a6ff',
+  '#bc8cff','#f78166','#3fb950','#f78166','#484f58'
+];
+
+const DEFAULT_LAYER_CONFIGS = [
+  {name:'Kick',stem:'Kick',effect:'bars',blend:0,color:'#58a6ff'},
+  {name:'Snare',stem:'Snare',effect:'wave',blend:0,color:'#3fb950'},
+  {name:'HiHat',stem:'HiHat',effect:'particles',blend:1,color:'#f78166'},
+  {name:'Lead Vocals',stem:'Lead Vocals',effect:'circular',blend:0,color:'#bc8cff'},
+  {name:'Bass',stem:'Bass',effect:'liquid',blend:2,color:'#3b82f6'},
+  {name:'Backing Vocals',stem:'Backing Vocals',effect:'rings',blend:1,color:'#ec4899'}
+];
+
+const FFT = 2048;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════════════════════════════ */
+const params = new URLSearchParams(window.location.search);
+const S = {
+  songId: params.get('id') || null,
+  songTitle: params.get('title') || 'Untitled',
+  songDuration: 0,
+  playing: false,
+  smoothing: 0.8,
+  sensitivity: 1.3,
+  sections: [],
+  selectedLayerIndex: 0,
+  selectedEffectId: null,
+  exportJobId: null
+};
+
+let audioCtx, masterAnalyser, masterSource, audioEl, destNode;
+let masterFreqData, masterTimeData;
+let stemAnalyserMap = {};
+let stemAudioEls = {};
+let stemSourceNodes = {};
+
+const layers = [];
+let nextLayerId = 1;
+
+let globalTime = 0;
+let lastFrameTime = 0;
+let frameCount = 0;
+let fpsTimer = 0;
+let displayFps = 0;
+
+let isBeat = false, beatEnergy = 0, kickE = 0, snareE = 0, hihatE = 0;
+let runningEnergy = 0.01, lastBeatTime = 0;
+const MIN_BEAT_MS = 150;
+let beatHistory = [];
+let bpm = 0;
+let avgEnergy = 0.1;
+
+let animFrameId = null;
+let seekDragging = false;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DOM
+   ═══════════════════════════════════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+const canvas = $('preview-canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resizeCanvas() {
+  var wrap = $('canvas-wrap');
+  W = canvas.width = wrap.clientWidth;
+  H = canvas.height = wrap.clientHeight;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+/* ═══════════════════════════════════════════════════════════════════════
+   AUDIO INITIALIZATION
+   ═══════════════════════════════════════════════════════════════════════ */
+function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterAnalyser = audioCtx.createAnalyser();
+  masterAnalyser.fftSize = FFT;
+  masterAnalyser.smoothingTimeConstant = S.smoothing;
+  destNode = audioCtx.destination;
+  masterFreqData = new Uint8Array(masterAnalyser.frequencyBinCount);
+  masterTimeData = new Uint8Array(masterAnalyser.frequencyBinCount);
+}
+
+function loadAudio(url, title) {
+  initAudio();
+  if (audioEl) { audioEl.pause(); audioEl.removeAttribute('src'); audioEl.load(); }
+  if (masterSource) { try { masterSource.disconnect(); } catch(e){} }
+
+  $('no-preview').style.display = 'none';
+  $('song-title').textContent = title || 'Untitled';
+  S.songTitle = title;
+
+  audioEl = new Audio();
+  audioEl.crossOrigin = 'anonymous';
+  audioEl.src = url;
+  audioEl.preload = 'auto';
+
+  masterSource = audioCtx.createMediaElementSource(audioEl);
+  masterSource.connect(masterAnalyser);
+  masterAnalyser.connect(destNode);
+
+  audioEl.addEventListener('loadedmetadata', function() {
+    S.songDuration = audioEl.duration;
+    updateTimeDisplay();
+    buildTimeline();
+  });
+  audioEl.addEventListener('ended', function() {
+    S.playing = false;
+    $('btn-play').innerHTML = '&#9654;';
+  });
+  audioEl.addEventListener('timeupdate', function() {
+    if (!seekDragging) {
+      var pct = S.songDuration > 0 ? audioEl.currentTime / S.songDuration : 0;
+      $('seek-bar').value = Math.round(pct * 1000);
+      updatePlayhead(pct);
+      updateTimeDisplay();
+    }
+  });
+
+  if (S.songId) {
+    loadStemsForSong(S.songId);
+  }
+}
+
+function formatTime(sec) {
+  if (!sec || !isFinite(sec)) return '0:00';
+  var m = Math.floor(sec / 60);
+  var s = Math.floor(sec % 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+function updateTimeDisplay() {
+  $('time-display').textContent = formatTime(audioEl ? audioEl.currentTime : 0) + ' / ' + formatTime(S.songDuration);
+}
+
+function updatePlayhead(pct) {
+  $('playhead').style.left = (pct * 100) + '%';
+}
+
+function togglePlay() {
+  if (!audioEl) return;
+  initAudio();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (S.playing) {
+    audioEl.pause();
+    S.playing = false;
+    $('btn-play').innerHTML = '&#9654;';
+  } else {
+    audioEl.play();
+    S.playing = true;
+    $('btn-play').innerHTML = '&#9646;&#9646;';
+    if (!animFrameId) renderLoop();
+  }
+}
+
+function stopAudio() {
+  if (!audioEl) return;
+  audioEl.pause();
+  audioEl.currentTime = 0;
+  S.playing = false;
+  $('btn-play').innerHTML = '&#9654;';
+  $('seek-bar').value = 0;
+  updatePlayhead(0);
+  updateTimeDisplay();
+}
+
+function seekTo(pct) {
+  if (!audioEl) return;
+  audioEl.currentTime = pct * S.songDuration;
+  updatePlayhead(pct);
+  updateTimeDisplay();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BEAT DETECTION
+   ═══════════════════════════════════════════════════════════════════════ */
+function hzBin(hz) {
+  return Math.round(hz * FFT / (audioCtx ? audioCtx.sampleRate : 44100));
+}
+
+function detectBeat(now) {
+  if (!masterFreqData || !masterAnalyser) return;
+  masterAnalyser.getByteFrequencyData(masterFreqData);
+  masterAnalyser.getByteTimeDomainData(masterTimeData);
+
+  var kL = hzBin(50), kH = hzBin(200);
+  var sL = hzBin(200), sH = hzBin(2000);
+  var hL = hzBin(4000), hH = hzBin(16000);
+  var kE = 0, sE = 0, hE = 0, kC = 0, sC = 0, hC = 0;
+
+  for (var i = kL; i <= kH && i < masterFreqData.length; i++) { kE += masterFreqData[i]; kC++; }
+  for (var i = sL; i <= sH && i < masterFreqData.length; i++) { sE += masterFreqData[i]; sC++; }
+  for (var i = hL; i <= hH && i < masterFreqData.length; i++) { hE += masterFreqData[i]; hC++; }
+
+  kickE = kC ? kE / kC / 255 : 0;
+  snareE = sC ? sE / sC / 255 : 0;
+  hihatE = hC ? hE / hC / 255 : 0;
+
+  var total = kickE * 0.6 + snareE * 0.3 + hihatE * 0.1;
+  avgEnergy = avgEnergy * 0.995 + total * 0.005;
+
+  runningEnergy += (total - runningEnergy) * 0.05;
+  isBeat = false;
+  beatEnergy = 0;
+
+  if (total > runningEnergy * S.sensitivity && (now - lastBeatTime) > MIN_BEAT_MS) {
+    isBeat = true;
+    beatEnergy = Math.min(1, (total - runningEnergy * S.sensitivity) / (runningEnergy + 0.01));
+    lastBeatTime = now;
+    beatHistory.push(now);
+    if (beatHistory.length > 30) beatHistory.shift();
+    if (beatHistory.length >= 3) {
+      var iv = [];
+      for (var j = 1; j < beatHistory.length; j++) iv.push(beatHistory[j] - beatHistory[j - 1]);
+      iv.sort(function(a, b) { return a - b; });
+      bpm = Math.round(60000 / iv[Math.floor(iv.length / 2)]);
+      if (bpm < 40 || bpm > 220) bpm = 0;
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   COLOR UTILITIES
+   ═══════════════════════════════════════════════════════════════════════ */
+function hexToRgb(hex) {
+  var r = parseInt(hex.slice(1, 3), 16);
+  var g = parseInt(hex.slice(3, 5), 16);
+  var b = parseInt(hex.slice(5, 7), 16);
+  return [r, g, b];
+}
+
+function rgbStr(r, g, b, a) {
+  if (a !== undefined) return 'rgba(' + Math.round(r) + ',' + Math.round(g) + ',' + Math.round(b) + ',' + a + ')';
+  return 'rgb(' + Math.round(r) + ',' + Math.round(g) + ',' + Math.round(b) + ')';
+}
+
+function lerpColor(hex1, hex2, t, alpha) {
+  var c1 = hexToRgb(hex1), c2 = hexToRgb(hex2);
+  return rgbStr(
+    c1[0] + (c2[0] - c1[0]) * t,
+    c1[1] + (c2[1] - c1[1]) * t,
+    c1[2] + (c2[2] - c1[2]) * t,
+    alpha
+  );
+}
+
+function tintWithAlpha(baseHex, alpha) {
+  var c = hexToRgb(baseHex);
+  return rgbStr(c[0], c[1], c[2], alpha);
+}
+
+function hsl(h, s, l, a) {
+  if (a !== undefined) return 'hsla(' + h + ',' + s + '%,' + l + '%,' + a + ')';
+  return 'hsl(' + h + ',' + s + '%,' + l + '%)';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FREQUENCY HELPERS (per-stem or master)
+   ═══════════════════════════════════════════════════════════════════════ */
+function getFreqDataForLayer(layer) {
+  if (layer.analyser) {
+    var fd = layer._freqData;
+    if (!fd) { fd = layer._freqData = new Uint8Array(layer.analyser.frequencyBinCount); }
+    layer.analyser.getByteFrequencyData(fd);
+    return fd;
+  }
+  return masterFreqData;
+}
+
+function getTimeDataForLayer(layer) {
+  if (layer.analyser) {
+    var td = layer._timeData;
+    if (!td) { td = layer._timeData = new Uint8Array(layer.analyser.frequencyBinCount); }
+    layer.analyser.getByteTimeDomainData(td);
+    return td;
+  }
+  return masterTimeData;
+}
+
+function barHeightFromData(freqData, i, total) {
+  if (!freqData) return 0;
+  var logMin = Math.log(1), logMax = Math.log(freqData.length);
+  var idx = Math.exp(logMin + (logMax - logMin) * (i / total));
+  var i0 = Math.floor(idx), i1 = Math.min(i0 + 1, freqData.length - 1), frac = idx - i0;
+  return (freqData[i0] * (1 - frac) + freqData[i1] * frac) / 255;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EFFECT RENDERERS
+   Each receives: (ctx, analyser, freqData, timeData, W, H, time, beat, layer)
+   ═══════════════════════════════════════════════════════════════════════ */
+const effectRenderers = {};
+
+/* Bars */
+effectRenderers.bars = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  var BAR_COUNT = 48;
+  var gap = 2, barW = (W - gap * (BAR_COUNT + 1)) / BAR_COUNT;
+  var baseline = H * 0.85, maxH = H * 0.7;
+  var color = layer.color || '#58a6ff';
+
+  for (var i = 0; i < BAR_COUNT; i++) {
+    var h = barHeightFromData(freqData, i, BAR_COUNT) * maxH * (0.8 + layer.beatSensitivity * 0.4);
+    var x = gap + i * (barW + gap);
+    var t = i / BAR_COUNT;
+    var grad = ctx.createLinearGradient(x, baseline - h, x, baseline);
+    grad.addColorStop(0, tintWithAlpha(color, 1));
+    grad.addColorStop(0.5, tintWithAlpha(color, 0.7));
+    grad.addColorStop(1, tintWithAlpha(color, 0.3));
+    ctx.fillStyle = grad;
+    if (h > 2) {
+      var r = Math.min(barW / 2, 3);
+      ctx.beginPath();
+      ctx.moveTo(x + r, baseline - h);
+      ctx.arcTo(x + barW, baseline - h, x + barW, baseline - h + r, r);
+      ctx.lineTo(x + barW, baseline);
+      ctx.lineTo(x, baseline);
+      ctx.lineTo(x, baseline - h + r);
+      ctx.arcTo(x, baseline - h, x + r, baseline - h, r);
+      ctx.closePath();
+      ctx.fill();
+    }
+    /* Reflection */
+    var rH = Math.min(h * 0.15, 30);
+    if (rH > 1) {
+      ctx.globalAlpha = 0.1;
+      ctx.fillStyle = tintWithAlpha(color, 0.4);
+      ctx.fillRect(x, baseline + 2, barW, rH);
+      ctx.globalAlpha = 1;
+    }
+  }
+  /* Baseline */
+  ctx.globalAlpha = 0.08;
+  ctx.strokeStyle = tintWithAlpha(color, 0.4);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, baseline + 1);
+  ctx.lineTo(W, baseline + 1);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+};
+
+/* Wave */
+effectRenderers.wave = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  if (!timeData) return;
+  var color = layer.color || '#3fb950';
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  for (var pass = 0; pass < 3; pass++) {
+    var lw = pass === 0 ? 2.5 : pass === 1 ? 1.5 : 1;
+    var alpha = pass === 0 ? 0.9 : pass === 1 ? 0.3 : 0.15;
+    var off = (pass - 1) * 3;
+    ctx.beginPath();
+    ctx.strokeStyle = tintWithAlpha(color, alpha);
+    ctx.lineWidth = lw;
+    var sliceW = W / timeData.length;
+    var baseY = H / 2 + off;
+    var fY = baseY + ((timeData[0] - 128) / 128) * H * 0.3;
+    ctx.moveTo(0, fY);
+    for (var i = 1; i < timeData.length; i++) {
+      var v = (timeData[i] - 128) / 128;
+      var x = i * sliceW;
+      var y = baseY + v * H * 0.3;
+      var pv = (timeData[i - 1] - 128) / 128;
+      var px = (i - 1) * sliceW;
+      var py = baseY + pv * H * 0.3;
+      ctx.quadraticCurveTo(px, py, (px + x) / 2, (py + y) / 2);
+    }
+    ctx.stroke();
+  }
+};
+
+/* Particles */
+var _particles = [];
+var MAX_PARTICLES = 400;
+for (var _pi = 0; _pi < MAX_PARTICLES; _pi++) {
+  _particles.push({x:0,y:0,vx:0,vy:0,sz:1,life:0,ml:1,on:false});
+}
+effectRenderers.particles = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  var color = layer.color || '#f78166';
+  if (beat.isBeat) {
+    var count = 10 + Math.floor(beat.beatEnergy * 20);
+    var spawned = 0;
+    for (var i = 0; i < MAX_PARTICLES && spawned < count; i++) {
+      var p = _particles[i];
+      if (p.on) continue;
+      p.on = true;
+      p.x = W / 2 + (Math.random() - 0.5) * W * 0.3;
+      p.y = H * 0.8;
+      var ang = -Math.PI / 2 + (Math.random() - 0.5) * 1.8;
+      var spd = 2 + Math.random() * 6;
+      p.vx = Math.cos(ang) * spd;
+      p.vy = Math.sin(ang) * spd;
+      p.sz = 1 + Math.random() * 3;
+      p.ml = p.life = 40 + Math.random() * 60;
+      spawned++;
+    }
+  }
+  for (var i = 0; i < MAX_PARTICLES; i++) {
+    var p = _particles[i];
+    if (!p.on) continue;
+    p.x += p.vx; p.y += p.vy; p.vy += 0.03; p.vx *= 0.998; p.life--;
+    if (p.life <= 0) { p.on = false; continue; }
+    var a = p.life / p.ml;
+    var sz = p.sz * (0.3 + a * 0.7);
+    ctx.globalAlpha = a * 0.8;
+    ctx.fillStyle = tintWithAlpha(color, 0.7);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, sz, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = a * 0.3;
+    ctx.fillStyle = tintWithAlpha(color, 0.3);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, sz * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+};
+
+/* Circular */
+effectRenderers.circular = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  if (!freqData) return;
+  var color = layer.color || '#bc8cff';
+  var cx = W / 2, cy = H / 2;
+  var baseR = Math.min(W, H) * 0.18;
+  var bars = 80;
+  var maxL = Math.min(W, H) * 0.28;
+  var rot = time * 0.15;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot * Math.PI / 180);
+
+  ctx.beginPath();
+  ctx.arc(0, 0, baseR, 0, Math.PI * 2);
+  ctx.strokeStyle = tintWithAlpha(color, 0.2);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  var bW = Math.max(1.5, (Math.PI * 2 * baseR / bars) * 0.55);
+  for (var i = 0; i < bars; i++) {
+    var ang = (i / bars) * Math.PI * 2 - Math.PI / 2;
+    var h = barHeightFromData(freqData, i, bars) * maxL;
+    var x1 = Math.cos(ang) * baseR, y1 = Math.sin(ang) * baseR;
+    var x2 = Math.cos(ang) * (baseR + h), y2 = Math.sin(ang) * (baseR + h);
+    ctx.strokeStyle = tintWithAlpha(color, 0.7);
+    ctx.lineWidth = bW;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+  ctx.restore();
+};
+
+/* Plasma */
+effectRenderers.plasma = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  var color = layer.color || '#f0f';
+  var sc = 6;
+  var pw = Math.ceil(W / sc), ph = Math.ceil(H / sc);
+  if (!layer._plasmaBuf || layer._plasmaBuf.width !== pw || layer._plasmaBuf.height !== ph) {
+    layer._plasmaBuf = document.createElement('canvas');
+    layer._plasmaBuf.width = pw;
+    layer._plasmaBuf.height = ph;
+    layer._plasmaCtx = layer._plasmaBuf.getContext('2d');
+  }
+  var t = time * 0.03;
+  var fMod = kickE * 0.5 + snareE * 0.3 + hihatE * 0.2;
+  var baseRgb = hexToRgb(color);
+  var imgD = layer._plasmaCtx.createImageData(pw, ph);
+  var d = imgD.data;
+
+  for (var y = 0; y < ph; y++) {
+    for (var x = 0; x < pw; x++) {
+      var sx = x + Math.sin(y / 28 + t * (1 + fMod * 4)) * (8 + fMod * 15);
+      var sy = y + Math.cos(x / 22 + t * 0.7 * (1 + fMod * 3)) * (6 + fMod * 12);
+      var v1 = Math.sin(sx / 50 + t);
+      var v2 = Math.sin(sy / 40 + t * 0.7);
+      var v3 = Math.sin((sx + sy) / 60 + t * 0.5);
+      var v4 = Math.sin(Math.sqrt(sx * sx + sy * sy) / 30 + t * 0.3);
+      var v = (v1 + v2 + v3 + v4) / 4;
+      var brightness = v * 0.5 + 0.5;
+      var idx = (y * pw + x) * 4;
+      d[idx] = Math.round(baseRgb[0] * brightness);
+      d[idx + 1] = Math.round(baseRgb[1] * brightness);
+      d[idx + 2] = Math.round(baseRgb[2] * brightness);
+      d[idx + 3] = 255;
+    }
+  }
+  layer._plasmaCtx.putImageData(imgD, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(layer._plasmaBuf, 0, 0, W, H);
+};
+
+/* Tunnel */
+effectRenderers.tunnel = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  var color = layer.color || '#ffff00';
+  var cx = W / 2, cy = H / 2;
+  var t = time * 0.02;
+  var depth = 30;
+  var speed = t * 2;
+
+  for (var i = depth; i >= 1; i--) {
+    var frac = i / depth;
+    var z = (frac + speed) % 1;
+    var sz = Math.pow(1 - z, 2) * Math.max(W, H) * 0.9;
+    if (sz < 2) continue;
+    var alpha = (1 - z) * 0.35;
+    var hue = (i * 8 + t * 40) % 360;
+    ctx.strokeStyle = hsl(hue, 80, 40 + z * 20, alpha);
+    ctx.lineWidth = 1 + z * 2;
+    ctx.beginPath();
+    var r = sz / 2;
+    var rr = r * 0.15;
+    ctx.moveTo(cx - r + rr, cy - r);
+    ctx.lineTo(cx + r - rr, cy - r);
+    ctx.arcTo(cx + r, cy - r, cx + r, cy - r + rr, rr);
+    ctx.lineTo(cx + r, cy + r - rr);
+    ctx.arcTo(cx + r, cy + r, cx + r - rr, cy + r, rr);
+    ctx.lineTo(cx - r + rr, cy + r);
+    ctx.arcTo(cx - r, cy + r, cx - r, cy + r - rr, rr);
+    ctx.lineTo(cx - r, cy - r + rr);
+    ctx.arcTo(cx - r, cy - r, cx - r + rr, cy - r, rr);
+    ctx.closePath();
+    ctx.stroke();
+  }
+};
+
+/* Rings */
+effectRenderers.rings = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  if (!freqData) return;
+  var color = layer.color || '#00ffff';
+  var cx = W / 2, cy = H / 2;
+  var ringCount = 6;
+  var t = time * 0.01;
+
+  for (var r = 0; r < ringCount; r++) {
+    var frac = r / ringCount;
+    var baseR = Math.min(W, H) * 0.06 + r * Math.min(W, H) * 0.07;
+    var h = barHeightFromData(freqData, Math.floor(frac * freqData.length * 0.5), freqData.length) * Math.min(W, H) * 0.12;
+    var pulse = 1 + beat.beatEnergy * 0.08;
+    var rot = t * (0.5 + r * 0.3) * (r % 2 ? 1 : -1);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    ctx.arc(0, 0, baseR * pulse + h, 0, Math.PI * 2);
+    ctx.strokeStyle = tintWithAlpha(color, 0.4 + beat.beatEnergy * 0.3);
+    ctx.lineWidth = 1.5 + r * 0.2;
+    ctx.stroke();
+    if (r % 2 === 0) {
+      ctx.beginPath();
+      ctx.arc(0, 0, baseR * pulse * 0.85, 0, Math.PI * 2);
+      ctx.strokeStyle = tintWithAlpha(color, 0.12);
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+};
+
+/* Liquid */
+effectRenderers.liquid = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  var color = layer.color || '#3b82f6';
+  var t = time * 0.01;
+  var layerCount = 4;
+
+  for (var l = 0; l < layerCount; l++) {
+    var frac = l / layerCount;
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (var x = 0; x <= W; x += 4) {
+      var nx = x / W;
+      var y = H * 0.25 + H * 0.35 * frac;
+      y += Math.sin(nx * 4 + t * (1 + frac * 2)) * 25 * (1 + kickE * 2);
+      y += Math.sin(nx * 7 - t * 0.8 + frac * 3) * 12 * (1 + snareE);
+      y += Math.sin(nx * 2.5 + t * 0.5) * 15 * hihatE;
+      if (x === 0) ctx.moveTo(0, y); else ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.fillStyle = tintWithAlpha(color, 0.06 + frac * 0.02);
+    ctx.fill();
+    ctx.strokeStyle = tintWithAlpha(color, 0.2 + frac * 0.05);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+};
+
+/* Starfield */
+var _stars = [];
+for (var _si = 0; _si < 300; _si++) {
+  _stars.push({x:(Math.random()-0.5)*4,y:(Math.random()-0.5)*4,z:Math.random()*4,sz:0.5+Math.random()*1.5});
+}
+effectRenderers.starfield = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  var color = layer.color || '#ffffff';
+  var cx = W / 2, cy = H / 2;
+  var speed = beat.isBeat ? 0.02 + beat.beatEnergy * 0.05 : 0.01;
+  var t = time * 0.001;
+
+  for (var i = 0; i < _stars.length; i++) {
+    var s = _stars[i];
+    s.z -= speed;
+    if (s.z <= 0) {
+      s.x = (Math.random() - 0.5) * 4;
+      s.y = (Math.random() - 0.5) * 4;
+      s.z = 4;
+      s.sz = 0.5 + Math.random() * 1.5;
+    }
+    var px = cx + s.x / s.z * W * 0.5;
+    var py = cy + s.y / s.z * H * 0.5;
+    if (px < 0 || px > W || py < 0 || py > H) continue;
+    var alpha = (1 - s.z / 4);
+    var sz = s.sz * (1 - s.z / 4) * 3;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = tintWithAlpha(color, 1);
+    ctx.beginPath();
+    ctx.arc(px, py, sz, 0, Math.PI * 2);
+    ctx.fill();
+    if (s.z < 2) {
+      var sx2 = cx + s.x / (s.z + 0.05) * W * 0.5;
+      var sy2 = cy + s.y / (s.z + 0.05) * H * 0.5;
+      ctx.globalAlpha = alpha * 0.35;
+      ctx.strokeStyle = tintWithAlpha(color, 0.4);
+      ctx.lineWidth = sz * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(sx2, sy2);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+};
+
+/* Circular Bars (radial spectrum with inner filled circle) */
+effectRenderers['circular-bars'] = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  if (!freqData) return;
+  var color = layer.color || '#22c55e';
+  var cx = W / 2, cy = H / 2;
+  var baseR = Math.min(W, H) * 0.12;
+  var bars = 64;
+  var maxL = Math.min(W, H) * 0.3;
+  var rot = time * 0.1;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  /* Filled center */
+  var pulse = 1 + beat.beatEnergy * 0.1;
+  ctx.beginPath();
+  ctx.arc(0, 0, baseR * pulse, 0, Math.PI * 2);
+  ctx.fillStyle = tintWithAlpha(color, 0.06);
+  ctx.fill();
+  ctx.strokeStyle = tintWithAlpha(color, 0.2);
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  /* Bars */
+  for (var i = 0; i < bars; i++) {
+    var ang = rot + (i / bars) * Math.PI * 2;
+    var h = barHeightFromData(freqData, i, bars) * maxL;
+    var x1 = Math.cos(ang) * baseR;
+    var y1 = Math.sin(ang) * baseR;
+    var x2 = Math.cos(ang) * (baseR + h);
+    var y2 = Math.sin(ang) * (baseR + h);
+    ctx.strokeStyle = tintWithAlpha(color, 0.6 + h / maxL * 0.4);
+    ctx.lineWidth = Math.max(1, (Math.PI * 2 * baseR / bars) * 0.5);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  /* Inner mirror bars (inward) */
+  for (var i = 0; i < bars; i++) {
+    var ang = rot + (i / bars) * Math.PI * 2;
+    var h = barHeightFromData(freqData, i, bars) * maxL * 0.25;
+    var x1 = Math.cos(ang) * (baseR - 2);
+    var y1 = Math.sin(ang) * (baseR - 2);
+    var x2 = Math.cos(ang) * (baseR - 2 - h);
+    var y2 = Math.sin(ang) * (baseR - 2 - h);
+    ctx.globalAlpha = 0.2;
+    ctx.strokeStyle = tintWithAlpha(color, 0.4);
+    ctx.lineWidth = Math.max(0.5, (Math.PI * 2 * baseR / bars) * 0.25);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+};
+
+/* Spectrum (horizontal waveform bars across full width) */
+effectRenderers.spectrum = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  if (!freqData) return;
+  var color = layer.color || '#ec4899';
+  var barCount = Math.min(freqData.length, 128);
+  var barW = W / barCount;
+  var baseline = H * 0.5;
+
+  for (var i = 0; i < barCount; i++) {
+    var val = freqData[i] / 255;
+    var h = val * H * 0.4;
+    var t = i / barCount;
+    ctx.fillStyle = tintWithAlpha(color, 0.3 + val * 0.7);
+    ctx.fillRect(i * barW, baseline - h, barW - 1, h);
+    ctx.fillStyle = tintWithAlpha(color, 0.15 + val * 0.15);
+    ctx.fillRect(i * barW, baseline, barW - 1, h * 0.3);
+  }
+
+  /* Top line */
+  ctx.beginPath();
+  ctx.strokeStyle = tintWithAlpha(color, 0.5);
+  ctx.lineWidth = 1.5;
+  for (var i = 0; i < barCount; i++) {
+    var val = freqData[i] / 255;
+    var x = i * barW + barW / 2;
+    var y = baseline - val * H * 0.4;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+};
+
+/* Galaxy (spinning spiral with frequency-reactive arms) */
+effectRenderers.galaxy = function(ctx, freqData, timeData, W, H, time, beat, layer) {
+  if (!freqData) return;
+  var color = layer.color || '#a855f7';
+  var cx = W / 2, cy = H / 2;
+  var maxR = Math.min(W, H) * 0.4;
+  var t = time * 0.005;
+  var arms = 3;
+
+  for (var a = 0; a < arms; a++) {
+    var armOffset = (a / arms) * Math.PI * 2;
+    ctx.beginPath();
+    for (var i = 0; i < 120; i++) {
+      var frac = i / 120;
+      var freqIdx = Math.floor(frac * freqData.length * 0.5);
+      var val = freqData[freqIdx] / 255;
+      var angle = armOffset + frac * Math.PI * 4 + t;
+      var r = frac * maxR * (0.5 + val * 0.5);
+      var x = cx + Math.cos(angle) * r;
+      var y = cy + Math.sin(angle) * r;
+      var size = 1 + val * 4 + (1 - frac) * 2;
+      ctx.globalAlpha = (1 - frac * 0.7) * (0.3 + val * 0.7);
+      ctx.fillStyle = tintWithAlpha(color, 1);
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+};
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LAYER MANAGEMENT
+   ═══════════════════════════════════════════════════════════════════════ */
+function createLayer(config) {
+  var id = nextLayerId++;
+  return {
+    id: id,
+    name: config.name || 'Layer ' + id,
+    type: 'stem',
+    stem: config.stem || 'Other',
+    effectId: config.effect || 'bars',
+    blendMode: config.blend !== undefined ? BLEND_MODES[config.blend] : 'source-over',
+    opacity: 1.0,
+    muted: false,
+    solo: false,
+    color: config.color || '#58a6ff',
+    beatSensitivity: 1.0,
+    analyser: null,
+    _freqData: null,
+    _timeData: null,
+    _plasmaBuf: null,
+    _plasmaCtx: null,
+    imageUrl: null,
+    videoUrl: null
+  };
+}
+
+function addDefaultLayers() {
+  DEFAULT_LAYER_CONFIGS.forEach(function(cfg) {
+    layers.push(createLayer(cfg));
+  });
+  S.selectedLayerIndex = 0;
+  renderLayerList();
+  updateLayerCount();
+}
+
+function addNewLayer() {
+  layers.push(createLayer({
+    name: 'Layer ' + nextLayerId,
+    stem: 'Other',
+    effect: EFFECTS[Math.floor(Math.random() * EFFECTS.length)].id,
+    color: '#' + Math.floor(Math.random() * 0xFFFFFF).toString(16).padStart(6, '0')
+  }));
+  renderLayerList();
+  updateLayerCount();
+}
+
+function removeLayer(index) {
+  if (layers.length <= 1) return;
+  layers.splice(index, 1);
+  if (S.selectedLayerIndex >= layers.length) S.selectedLayerIndex = layers.length - 1;
+  renderLayerList();
+  updateLayerCount();
+}
+
+function selectLayer(index) {
+  S.selectedLayerIndex = index;
+  renderLayerList();
+  var layer = layers[index];
+  if (layer) {
+    S.selectedEffectId = layer.effectId;
+    renderEffectThumbs();
+  }
+}
+
+function updateLayerCount() {
+  $('layer-count').textContent = layers.length;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LAYER LIST RENDERING
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderLayerList() {
+  var list = $('layer-list');
+  list.innerHTML = '';
+
+  layers.forEach(function(layer, i) {
+    var div = document.createElement('div');
+    div.className = 'layer-item' + (i === S.selectedLayerIndex ? ' selected' : '') + (layer.muted ? ' muted' : '');
+    div.addEventListener('click', function(e) {
+      if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+      selectLayer(i);
+    });
+
+    /* Top row: name + delete */
+    var top = document.createElement('div');
+    top.className = 'layer-top';
+
+    var drag = document.createElement('span');
+    drag.className = 'layer-drag';
+    drag.textContent = '\u2630';
+    drag.draggable = true;
+    drag.addEventListener('dragstart', function(e) {
+      e.dataTransfer.setData('text/plain', i.toString());
+    });
+    top.appendChild(drag);
+
+    var nameInput = document.createElement('input');
+    nameInput.className = 'layer-name';
+    nameInput.value = layer.name;
+    nameInput.addEventListener('change', function() { layer.name = this.value; });
+    nameInput.addEventListener('click', function() { selectLayer(i); });
+    top.appendChild(nameInput);
+
+    var delBtn = document.createElement('button');
+    delBtn.className = 'layer-del';
+    delBtn.textContent = '\u00D7';
+    delBtn.title = 'Remove layer';
+    delBtn.addEventListener('click', function(e) { e.stopPropagation(); removeLayer(i); });
+    top.appendChild(delBtn);
+
+    div.appendChild(top);
+
+    /* Stem / Type row */
+    var row1 = document.createElement('div');
+    row1.className = 'layer-row';
+    var lbl1 = document.createElement('label');
+    lbl1.textContent = 'Stem';
+    row1.appendChild(lbl1);
+    var stemSel = document.createElement('select');
+    LAYER_TYPES.forEach(function(s) {
+      var opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      if (s === layer.stem) opt.selected = true;
+      stemSel.appendChild(opt);
+    });
+    stemSel.addEventListener('change', function() { layer.stem = this.value; });
+    stemSel.addEventListener('click', function() { selectLayer(i); });
+    row1.appendChild(stemSel);
+    div.appendChild(row1);
+
+    /* Effect row */
+    var row2 = document.createElement('div');
+    row2.className = 'layer-row';
+    var lbl2 = document.createElement('label');
+    lbl2.textContent = 'FX';
+    row2.appendChild(lbl2);
+    var fxSel = document.createElement('select');
+    EFFECTS.forEach(function(e) {
+      var opt = document.createElement('option');
+      opt.value = e.id;
+      opt.textContent = e.name;
+      if (e.id === layer.effectId) opt.selected = true;
+      fxSel.appendChild(opt);
+    });
+    fxSel.addEventListener('change', function() { layer.effectId = this.value; });
+    fxSel.addEventListener('click', function() { selectLayer(i); });
+    row2.appendChild(fxSel);
+    div.appendChild(row2);
+
+    /* Blend row */
+    var row3 = document.createElement('div');
+    row3.className = 'layer-row';
+    var lbl3 = document.createElement('label');
+    lbl3.textContent = 'Bld';
+    row3.appendChild(lbl3);
+    var blendSel = document.createElement('select');
+    BLEND_LABELS.forEach(function(label, bi) {
+      var opt = document.createElement('option');
+      opt.value = BLEND_MODES[bi];
+      opt.textContent = label;
+      if (BLEND_MODES[bi] === layer.blendMode) opt.selected = true;
+      blendSel.appendChild(opt);
+    });
+    blendSel.addEventListener('change', function() { layer.blendMode = this.value; });
+    blendSel.addEventListener('click', function() { selectLayer(i); });
+    row3.appendChild(blendSel);
+    div.appendChild(row3);
+
+    /* Opacity slider */
+    var row4 = document.createElement('div');
+    row4.className = 'layer-slider-row';
+    var lbl4 = document.createElement('label');
+    lbl4.textContent = 'Op';
+    row4.appendChild(lbl4);
+    var opSlider = document.createElement('input');
+    opSlider.type = 'range';
+    opSlider.min = '0';
+    opSlider.max = '100';
+    opSlider.value = Math.round(layer.opacity * 100).toString();
+    var opVal = document.createElement('span');
+    opVal.className = 'val';
+    opVal.textContent = opSlider.value + '%';
+    opSlider.addEventListener('input', function() {
+      layer.opacity = parseInt(this.value) / 100;
+      opVal.textContent = this.value + '%';
+    });
+    row4.appendChild(opSlider);
+    row4.appendChild(opVal);
+    div.appendChild(row4);
+
+    /* Beat sensitivity slider */
+    var row5 = document.createElement('div');
+    row5.className = 'layer-slider-row';
+    var lbl5 = document.createElement('label');
+    lbl5.textContent = 'Bt';
+    row5.appendChild(lbl5);
+    var btSlider = document.createElement('input');
+    btSlider.type = 'range';
+    btSlider.min = '0';
+    btSlider.max = '200';
+    btSlider.value = Math.round(layer.beatSensitivity * 100).toString();
+    var btVal = document.createElement('span');
+    btVal.className = 'val';
+    btVal.textContent = (layer.beatSensitivity).toFixed(1);
+    btSlider.addEventListener('input', function() {
+      layer.beatSensitivity = parseInt(this.value) / 100;
+      btVal.textContent = layer.beatSensitivity.toFixed(1);
+    });
+    row5.appendChild(btSlider);
+    row5.appendChild(btVal);
+    div.appendChild(row5);
+
+    /* Bottom row: color, mute, solo */
+    var row6 = document.createElement('div');
+    row6.className = 'layer-btns';
+
+    var colorPick = document.createElement('input');
+    colorPick.type = 'color';
+    colorPick.className = 'layer-color';
+    colorPick.value = layer.color;
+    colorPick.addEventListener('input', function() { layer.color = this.value; });
+    row6.appendChild(colorPick);
+
+    var muteBtn = document.createElement('button');
+    muteBtn.textContent = 'M';
+    muteBtn.title = 'Mute';
+    if (layer.muted) muteBtn.classList.add('active');
+    muteBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      layer.muted = !layer.muted;
+      renderLayerList();
+    });
+    row6.appendChild(muteBtn);
+
+    var soloBtn = document.createElement('button');
+    soloBtn.textContent = 'S';
+    soloBtn.title = 'Solo';
+    soloBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      layer.solo = !layer.solo;
+      renderLayerList();
+    });
+    row6.appendChild(soloBtn);
+
+    /* Drag & drop reorder */
+    div.addEventListener('dragover', function(e) { e.preventDefault(); });
+    div.addEventListener('drop', function(e) {
+      e.preventDefault();
+      var fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+      var toIdx = i;
+      if (fromIdx === toIdx || isNaN(fromIdx)) return;
+      var moved = layers.splice(fromIdx, 1)[0];
+      layers.splice(toIdx, 0, moved);
+      S.selectedLayerIndex = toIdx;
+      renderLayerList();
+    });
+
+    div.appendChild(row6);
+    list.appendChild(div);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EFFECT THUMBNAILS
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderEffectThumbs() {
+  var grid = $('effects-grid');
+  grid.innerHTML = '';
+
+  EFFECTS.forEach(function(fx) {
+    var thumb = document.createElement('div');
+    thumb.className = 'effect-thumb' + (fx.id === S.selectedEffectId ? ' selected' : '');
+
+    var c = document.createElement('canvas');
+    c.width = 60;
+    c.height = 60;
+    thumb.appendChild(c);
+
+    var label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = fx.name;
+    thumb.appendChild(label);
+
+    /* Draw mini preview */
+    var tctx = c.getContext('2d');
+    drawEffectMini(tctx, fx.id, fx.color, 60, 60);
+
+    thumb.addEventListener('click', function() {
+      S.selectedEffectId = fx.id;
+      if (layers[S.selectedLayerIndex]) {
+        layers[S.selectedLayerIndex].effectId = fx.id;
+        renderLayerList();
+      }
+      renderEffectThumbs();
+    });
+
+    grid.appendChild(thumb);
+  });
+}
+
+function drawEffectMini(ctx, id, color, w, h) {
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, w, h);
+
+  var rgb = hexToRgb(color);
+  var t = Date.now() * 0.001;
+
+  switch (id) {
+    case 'bars':
+      for (var i = 0; i < 12; i++) {
+        var bh = 8 + Math.abs(Math.sin(t + i * 0.5)) * 20;
+        ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',0.7)';
+        ctx.fillRect(2 + i * 4.5, h - bh - 2, 3.5, bh);
+      }
+      break;
+    case 'wave':
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      for (var x = 0; x < w; x++) {
+        var y = h / 2 + Math.sin(x / 6 + t) * 12 + Math.sin(x / 3 + t * 2) * 5;
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      break;
+    case 'particles':
+      for (var i = 0; i < 20; i++) {
+        var px = Math.random() * w, py = Math.random() * h;
+        ctx.globalAlpha = 0.2 + Math.random() * 0.5;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(px, py, 1 + Math.random() * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      break;
+    case 'circular':
+      ctx.strokeStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',0.6)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2, 12, 0, Math.PI * 2);
+      ctx.stroke();
+      for (var i = 0; i < 16; i++) {
+        var ang = (i / 16) * Math.PI * 2;
+        var bh = 3 + Math.abs(Math.sin(t + i)) * 8;
+        ctx.beginPath();
+        ctx.moveTo(w / 2 + Math.cos(ang) * 12, h / 2 + Math.sin(ang) * 12);
+        ctx.lineTo(w / 2 + Math.cos(ang) * (12 + bh), h / 2 + Math.sin(ang) * (12 + bh));
+        ctx.stroke();
+      }
+      break;
+    case 'plasma':
+      for (var y = 0; y < h; y += 3) {
+        for (var x = 0; x < w; x += 3) {
+          var v = Math.sin(x / 8 + t) + Math.sin(y / 6 + t * 0.7);
+          ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (Math.abs(v) * 0.3) + ')';
+          ctx.fillRect(x, y, 3, 3);
+        }
+      }
+      break;
+    case 'tunnel':
+      for (var i = 5; i >= 1; i--) {
+        var r = i * 6;
+        ctx.strokeStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (0.2 + i * 0.08) + ')';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(w / 2 - r, h / 2 - r, r * 2, r * 2);
+      }
+      break;
+    case 'rings':
+      for (var i = 0; i < 4; i++) {
+        ctx.strokeStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (0.3 + i * 0.1) + ')';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(w / 2, h / 2, 5 + i * 5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      break;
+    case 'liquid':
+      for (var l = 0; l < 3; l++) {
+        ctx.beginPath();
+        for (var x = 0; x <= w; x++) {
+          var y = h * 0.4 + l * 8 + Math.sin(x / 5 + t + l) * 6;
+          if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.lineTo(w, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (0.1 + l * 0.05) + ')';
+        ctx.fill();
+      }
+      break;
+    case 'starfield':
+      for (var i = 0; i < 30; i++) {
+        ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (0.3 + Math.random() * 0.5) + ')';
+        ctx.beginPath();
+        ctx.arc(Math.random() * w, Math.random() * h, 0.5 + Math.random() * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    case 'circular-bars':
+      ctx.strokeStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',0.5)';
+      for (var i = 0; i < 24; i++) {
+        var ang = (i / 24) * Math.PI * 2;
+        var bh = 3 + Math.abs(Math.sin(t + i * 0.3)) * 10;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(w / 2 + Math.cos(ang) * 10, h / 2 + Math.sin(ang) * 10);
+        ctx.lineTo(w / 2 + Math.cos(ang) * (10 + bh), h / 2 + Math.sin(ang) * (10 + bh));
+        ctx.stroke();
+      }
+      break;
+    case 'spectrum':
+      for (var i = 0; i < 20; i++) {
+        var bh = 3 + Math.abs(Math.sin(t + i * 0.4)) * 15;
+        ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',0.6)';
+        ctx.fillRect(i * 3, h / 2 - bh, 2, bh);
+      }
+      break;
+    case 'galaxy':
+      for (var a = 0; a < 3; a++) {
+        for (var i = 0; i < 20; i++) {
+          var frac = i / 20;
+          var angle = (a / 3) * Math.PI * 2 + frac * Math.PI * 3 + t;
+          var r = frac * 22;
+          var x = w / 2 + Math.cos(angle) * r;
+          var y = h / 2 + Math.sin(angle) * r;
+          ctx.globalAlpha = 1 - frac * 0.6;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(x, y, 1 + (1 - frac) * 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+      break;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SECTION / TIMELINE
+   ═══════════════════════════════════════════════════════════════════════ */
+function buildTimeline() {
+  if (S.songDuration <= 0) return;
+
+  /* Create default sections by dividing the song evenly */
+  var sectionCount = Math.min(SECTIONS.length, Math.max(4, Math.floor(S.songDuration / 15)));
+  var dur = S.songDuration / sectionCount;
+  S.sections = [];
+  for (var i = 0; i < sectionCount; i++) {
+    S.sections.push({
+      name: SECTIONS[i] || ('Section ' + (i + 1)),
+      startTime: i * dur,
+      endTime: (i + 1) * dur,
+      color: SECTION_COLORS[i % SECTION_COLORS.length],
+      imagePrompt: '',
+      videoPrompt: '',
+      imageUrl: null,
+      videoUrl: null
+    });
+  }
+
+  renderTimeline();
+  populateSectionSelects();
+}
+
+function renderTimeline() {
+  var track = $('timeline-track');
+  /* Keep playhead */
+  var playhead = $('playhead');
+  track.innerHTML = '';
+  track.appendChild(playhead);
+
+  if (S.sections.length === 0) return;
+
+  S.sections.forEach(function(sec, i) {
+    var pct = ((sec.endTime - sec.startTime) / S.songDuration) * 100;
+    var div = document.createElement('div');
+    div.className = 'timeline-section';
+    div.style.width = pct + '%';
+    div.style.background = sec.color;
+    div.textContent = sec.name;
+    div.title = sec.name + ' (' + formatTime(sec.startTime) + ' - ' + formatTime(sec.endTime) + ')';
+    div.addEventListener('click', function() {
+      seekTo(sec.startTime / S.songDuration);
+      highlightActiveSection();
+    });
+    track.appendChild(div);
+  });
+}
+
+function highlightActiveSection() {
+  if (!audioEl || S.sections.length === 0) return;
+  var now = audioEl.currentTime;
+  var items = document.querySelectorAll('.timeline-section');
+  S.sections.forEach(function(sec, i) {
+    if (i < items.length) {
+      if (now >= sec.startTime && now < sec.endTime) {
+        items[i].classList.add('active');
+      } else {
+        items[i].classList.remove('active');
+      }
+    }
+  });
+}
+
+function getCurrentSection() {
+  if (!audioEl || S.sections.length === 0) return null;
+  var now = audioEl.currentTime;
+  for (var i = 0; i < S.sections.length; i++) {
+    if (now >= S.sections[i].startTime && now < S.sections[i].endTime) return S.sections[i];
+  }
+  return S.sections[S.sections.length - 1];
+}
+
+function populateSectionSelects() {
+  ['img-section', 'vid-section'].forEach(function(selId) {
+    var sel = $(selId);
+    sel.innerHTML = '';
+    S.sections.forEach(function(sec) {
+      var opt = document.createElement('option');
+      opt.value = sec.name;
+      opt.textContent = sec.name;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STEM LOADING
+   ═══════════════════════════════════════════════════════════════════════ */
+async function loadStemsForSong(songId) {
+  var overlay = $('stem-overlay');
+  overlay.classList.add('open');
+  $('stem-status').textContent = 'Running stem separation...';
+  $('stem-progress-fill').style.width = '10%';
+
+  try {
+    /* Get song metadata for audio URL */
+    var token = null;
+    try { token = JSON.parse(localStorage.getItem('ace-settings') || '{}').token || null; } catch(e) {}
+    if (!token) { try { token = JSON.parse(localStorage.getItem('hs-auth') || '{}').token || null; } catch(e) {} }
+    if (!token) {
+      var ks = ['hs-album-token', 'hs-token', 'auth-token', 'ace-token'];
+      for (var k = 0; k < ks.length; k++) { var v = localStorage.getItem(ks[k]); if (v) { token = v; break; } }
+    }
+    var headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    var songResp = await fetch('/api/songs/' + encodeURIComponent(songId), { headers: headers });
+    var songData = await songResp.json();
+    var audioUrl = songData.audio_url || songData.mastered_audio_url || '';
+    if (audioUrl && !audioUrl.startsWith('http') && !audioUrl.startsWith('/')) audioUrl = '/audio/' + audioUrl;
+
+    /* Start stem separation */
+    var sepResp = await fetch('/api/stem-studio/supersep', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({
+        sourceAudioUrl: audioUrl || '/audio/' + encodeURIComponent(songId) + '.wav',
+        sourceFileName: S.songTitle + '.wav',
+        level: 'htdemucs'
+      })
+    });
+    var sepData = await sepResp.json();
+    var jobId = sepData.jobId;
+    if (!jobId) throw new Error('No job ID returned');
+
+    $('stem-status').textContent = 'Separating stems...';
+    $('stem-progress-fill').style.width = '20%';
+
+    /* Poll progress */
+    var completed = false;
+    while (!completed) {
+      await new Promise(function(r) { setTimeout(r, 1500); });
+      var progResp = await fetch('/api/stem-studio/' + jobId + '/progress', { headers: headers });
+      var progData = await progResp.json();
+
+      var pct = 20 + (progData.progress || 0) * 0.6;
+      $('stem-progress-fill').style.width = pct + '%';
+      $('stem-status').textContent = 'Separating stems... ' + Math.round(progData.progress * 100) + '%';
+
+      if (progData.status === 'completed' || progData.status === 'done') {
+        completed = true;
+      } else if (progData.status === 'failed') {
+        throw new Error(progData.error || 'Stem separation failed');
+      }
+    }
+
+    $('stem-progress-fill').style.width = '85%';
+    $('stem-status').textContent = 'Loading stems...';
+
+    /* Get result and load each stem */
+    var resultResp = await fetch('/api/stem-studio/' + jobId + '/result', { headers: headers });
+    var resultData = await resultResp.json();
+    var stemNames = resultData.stems || resultData.tracks || ['drums', 'bass', 'other', 'vocals'];
+
+    var stemNameMap = {
+      'drums': ['Kick', 'Snare', 'HiHat', 'Toms', 'Ride', 'Crash'],
+      'bass': ['Bass'],
+      'other': ['Guitar', 'Piano', 'Other'],
+      'vocals': ['Lead Vocals', 'Backing Vocals']
+    };
+
+    for (var s = 0; s < stemNames.length; s++) {
+      var rawName = stemNames[s];
+      var stemUrl = '/api/stem-studio/' + jobId + '/stem/' + encodeURIComponent(rawName);
+      var mappedNames = stemNameMap[rawName] || [rawName];
+
+      for (var m = 0; m < mappedNames.length; m++) {
+        var trackName = mappedNames[m];
+        try {
+          var stemAudio = new Audio();
+          stemAudio.crossOrigin = 'anonymous';
+          stemAudio.src = stemUrl;
+          stemAudio.preload = 'auto';
+
+          var stemSource = audioCtx.createMediaElementSource(stemAudio);
+          var stemAnalyser = audioCtx.createAnalyser();
+          stemAnalyser.fftSize = FFT;
+          stemAnalyser.smoothingTimeConstant = S.smoothing;
+          stemSource.connect(stemAnalyser);
+          stemAnalyser.connect(destNode);
+
+          stemAnalyserMap[trackName] = stemAnalyser;
+          stemAudioEls[trackName] = stemAudio;
+          stemSourceNodes[trackName] = stemSource;
+        } catch(e) {
+          console.warn('[MV] Failed to load stem ' + trackName + ':', e.message);
+        }
+      }
+
+      var loadPct = 85 + (s / stemNames.length) * 15;
+      $('stem-progress-fill').style.width = loadPct + '%';
+      $('stem-status').textContent = 'Loading stem ' + (s + 1) + '/' + stemNames.length + '...';
+    }
+
+    /* Assign analysers to layers */
+    layers.forEach(function(layer) {
+      if (stemAnalyserMap[layer.stem]) {
+        layer.analyser = stemAnalyserMap[layer.stem];
+      }
+    });
+
+    $('stem-status').textContent = 'Stems loaded!';
+    $('stem-progress-fill').style.width = '100%';
+
+    setTimeout(function() {
+      overlay.classList.remove('open');
+    }, 800);
+
+  } catch (e) {
+    console.warn('[MV] Stem loading failed:', e.message);
+    $('stem-status').textContent = 'Stem loading failed: ' + e.message + ' — Using master audio.';
+    $('stem-progress-fill').style.width = '100%';
+    setTimeout(function() {
+      overlay.classList.remove('open');
+    }, 2500);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   COMFYUI: IMAGE GENERATION
+   ═══════════════════════════════════════════════════════════════════════ */
+async function generateImage(sectionName) {
+  var section = S.sections.find(function(s) { return s.name === sectionName; });
+  if (!section) return;
+  var prompt = $('img-prompt').value || section.imagePrompt || 'A cinematic scene for ' + section.name + ' of a music video';
+  section.imagePrompt = prompt;
+
+  $('img-status').textContent = 'Generating image for ' + section.name + '...';
+  $('img-progress-fill').style.width = '10%';
+
+  try {
+    var resp = await fetch('/api/inspire/comfyui/generate-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: prompt,
+        section: section.name,
+        songId: S.songId,
+        width: 1920,
+        height: 1080
+      })
+    });
+
+    var data = await resp.json();
+    var taskId = data.taskId || data.jobId;
+
+    if (taskId) {
+      /* Poll for completion */
+      var done = false;
+      while (!done) {
+        await new Promise(function(r) { setTimeout(r, 2000); });
+        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId));
+        var statusData = await statusResp.json();
+        $('img-progress-fill').style.width = (statusData.progress || 50) + '%';
+
+        if (statusData.status === 'completed' || statusData.status === 'done') {
+          section.imageUrl = statusData.imageUrl || statusData.outputPath;
+          done = true;
+        } else if (statusData.status === 'failed') {
+          throw new Error(statusData.error || 'Image generation failed');
+        }
+      }
+    } else if (data.imageUrl || data.outputPath) {
+      section.imageUrl = data.imageUrl || data.outputPath;
+    }
+
+    $('img-progress-fill').style.width = '100%';
+    $('img-status').textContent = 'Image generated for ' + section.name;
+    renderImageThumbs();
+
+  } catch (e) {
+    $('img-status').textContent = 'Failed: ' + e.message;
+    $('img-progress-fill').style.width = '0%';
+  }
+}
+
+async function generateAllImages() {
+  for (var i = 0; i < S.sections.length; i++) {
+    $('img-section').value = S.sections[i].name;
+    $('img-prompt').value = S.sections[i].imagePrompt || '';
+    await generateImage(S.sections[i].name);
+  }
+  $('img-status').textContent = 'All images generated!';
+}
+
+function renderImageThumbs() {
+  var container = $('img-thumbs');
+  container.innerHTML = '';
+  S.sections.forEach(function(sec) {
+    if (sec.imageUrl) {
+      var img = document.createElement('img');
+      img.className = 'gen-thumb';
+      img.src = sec.imageUrl;
+      img.title = sec.name;
+      img.addEventListener('click', function() {
+        $('img-section').value = sec.name;
+        $('img-prompt').value = sec.imagePrompt || '';
+      });
+      container.appendChild(img);
+    }
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   COMFYUI: VIDEO GENERATION
+   ═══════════════════════════════════════════════════════════════════════ */
+async function generateVideoClip(sectionName) {
+  var section = S.sections.find(function(s) { return s.name === sectionName; });
+  if (!section) return;
+  var prompt = $('vid-prompt').value || section.videoPrompt || 'Music video clip for ' + section.name;
+  section.videoPrompt = prompt;
+
+  $('vid-status').textContent = 'Generating video clip for ' + section.name + '...';
+  $('vid-progress-fill').style.width = '10%';
+
+  try {
+    var resp = await fetch('/api/inspire/comfyui/generate-video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: prompt,
+        section: section.name,
+        songId: S.songId,
+        imageUrl: section.imageUrl || null,
+        width: 1920,
+        height: 1080,
+        duration: section.endTime - section.startTime
+      })
+    });
+
+    var data = await resp.json();
+    var taskId = data.taskId || data.jobId;
+
+    if (taskId) {
+      var done = false;
+      while (!done) {
+        await new Promise(function(r) { setTimeout(r, 3000); });
+        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId));
+        var statusData = await statusResp.json();
+        $('vid-progress-fill').style.width = (statusData.progress || 30) + '%';
+
+        if (statusData.status === 'completed' || statusData.status === 'done') {
+          section.videoUrl = statusData.videoUrl || statusData.outputPath;
+          done = true;
+        } else if (statusData.status === 'failed') {
+          throw new Error(statusData.error || 'Video generation failed');
+        }
+      }
+    } else if (data.videoUrl || data.outputPath) {
+      section.videoUrl = data.videoUrl || data.outputPath;
+    }
+
+    $('vid-progress-fill').style.width = '100%';
+    $('vid-status').textContent = 'Video clip generated for ' + section.name;
+    renderVideoThumbs();
+
+  } catch (e) {
+    $('vid-status').textContent = 'Failed: ' + e.message;
+    $('vid-progress-fill').style.width = '0%';
+  }
+}
+
+async function generateAllVideoClips() {
+  for (var i = 0; i < S.sections.length; i++) {
+    $('vid-section').value = S.sections[i].name;
+    $('vid-prompt').value = S.sections[i].videoPrompt || '';
+    await generateVideoClip(S.sections[i].name);
+  }
+  $('vid-status').textContent = 'All video clips generated!';
+}
+
+function renderVideoThumbs() {
+  var container = $('vid-thumbs');
+  container.innerHTML = '';
+  S.sections.forEach(function(sec) {
+    if (sec.videoUrl) {
+      var vid = document.createElement('video');
+      vid.className = 'gen-thumb';
+      vid.src = sec.videoUrl;
+      vid.title = sec.name;
+      vid.muted = true;
+      vid.loop = true;
+      vid.addEventListener('mouseenter', function() { this.play(); });
+      vid.addEventListener('mouseleave', function() { this.pause(); this.currentTime = 0; });
+      vid.addEventListener('click', function() {
+        $('vid-section').value = sec.name;
+        $('vid-prompt').value = sec.videoPrompt || '';
+      });
+      container.appendChild(vid);
+    }
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   EXPORT
+   ═══════════════════════════════════════════════════════════════════════ */
+async function startExport() {
+  var res = $('export-res').value.split('x');
+  var fps = parseInt($('export-fps').value);
+  var audioSrc = $('export-audio').value;
+
+  $('export-status').textContent = 'Starting export...';
+  $('export-progress-fill').style.width = '5%';
+  $('btn-export-start').disabled = true;
+
+  try {
+    /* Build layer configs for server-side rendering */
+    var layerConfigs = layers.map(function(l) {
+      return {
+        name: l.name,
+        stem: l.stem,
+        effect: l.effectId,
+        blendMode: l.blendMode,
+        opacity: l.opacity,
+        color: l.color,
+        beatSensitivity: l.beatSensitivity,
+        muted: l.muted
+      };
+    });
+
+    var resp = await fetch('/api/inspire/comfyui/export-mp4', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        songId: S.songId,
+        width: parseInt(res[0]),
+        height: parseInt(res[1]),
+        fps: fps,
+        audioSource: audioSrc,
+        sections: S.sections.map(function(s) {
+          return {
+            name: s.name,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            imageUrl: s.imageUrl,
+            videoUrl: s.videoUrl
+          };
+        }),
+        layers: layerConfigs,
+        duration: S.songDuration
+      })
+    });
+
+    var data = await resp.json();
+    S.exportJobId = data.jobId || data.taskId;
+
+    if (S.exportJobId) {
+      /* Poll export progress */
+      var done = false;
+      while (!done) {
+        await new Promise(function(r) { setTimeout(r, 3000); });
+        var progResp = await fetch('/api/inspire/comfyui/export-status/' + encodeURIComponent(S.exportJobId));
+        var progData = await progResp.json();
+        $('export-progress-fill').style.width = (progData.progress || 10) + '%';
+        $('export-status').textContent = 'Exporting... ' + Math.round(progData.progress || 0) + '%';
+
+        if (progData.status === 'completed' || progData.status === 'done') {
+          $('export-progress-fill').style.width = '100%';
+          $('export-status').innerHTML = 'Export complete! <a href="' + (progData.outputPath || progData.videoUrl) + '" target="_blank" style="color:var(--accent)">Download MP4</a>';
+          done = true;
+        } else if (progData.status === 'failed') {
+          throw new Error(progData.error || 'Export failed');
+        }
+      }
+    } else if (data.outputPath || data.videoUrl) {
+      $('export-progress-fill').style.width = '100%';
+      $('export-status').innerHTML = 'Export complete! <a href="' + (data.outputPath || data.videoUrl) + '" target="_blank" style="color:var(--accent)">Download MP4</a>';
+    }
+
+  } catch (e) {
+    $('export-status').textContent = 'Export failed: ' + e.message;
+    $('export-progress-fill').style.width = '0%';
+  }
+  $('btn-export-start').disabled = false;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   MAIN RENDER LOOP
+   ═══════════════════════════════════════════════════════════════════════ */
+function renderLoop(ts) {
+  animFrameId = requestAnimationFrame(renderLoop);
+
+  if (!ts) ts = performance.now();
+  var dt = (ts - lastFrameTime) / 1000;
+  lastFrameTime = ts;
+  globalTime = ts;
+
+  /* Beat detection */
+  detectBeat(ts);
+
+  /* FPS */
+  frameCount++;
+  fpsTimer += dt;
+  if (fpsTimer >= 0.5) {
+    displayFps = Math.round(frameCount / fpsTimer);
+    $('fps-counter').textContent = displayFps + ' FPS';
+    frameCount = 0;
+    fpsTimer = 0;
+  }
+
+  /* Clear canvas */
+  var bgColor = $('opt-bg').value;
+  if (bgColor === 'transparent') {
+    ctx.clearRect(0, 0, W, H);
+  } else {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  /* Sync stem playback with master audio */
+  if (audioEl && S.playing) {
+    var ct = audioEl.currentTime;
+    var stems = Object.values(stemAudioEls);
+    for (var s = 0; s < stems.length; s++) {
+      if (Math.abs(stems[s].currentTime - ct) > 0.15) {
+        stems[s].currentTime = ct;
+      }
+      if (stems[s].paused && !stems[s].ended) {
+        stems[s].play().catch(function(){});
+      }
+    }
+  }
+
+  /* Render each layer */
+  var beatObj = { isBeat: isBeat, beatEnergy: beatEnergy, kickE: kickE, snareE: snareE, hihatE: hihatE };
+
+  for (var i = 0; i < layers.length; i++) {
+    var layer = layers[i];
+    if (layer.muted) continue;
+
+    var hasSolo = layers.some(function(l) { return l.solo; });
+    if (hasSolo && !layer.solo) continue;
+
+    var freqData = getFreqDataForLayer(layer);
+    var timeData = getTimeDataForLayer(layer);
+
+    ctx.save();
+    ctx.globalAlpha = layer.opacity;
+    ctx.globalCompositeOperation = layer.blendMode;
+
+    var renderer = effectRenderers[layer.effectId];
+    if (renderer) {
+      try {
+        renderer(ctx, freqData, timeData, W, H, globalTime, beatObj, layer);
+      } catch(e) {
+        /* Skip broken effect frame */
+      }
+    }
+
+    ctx.restore();
+  }
+
+  /* Update time display and playhead during playback */
+  if (S.playing) {
+    updateTimeDisplay();
+    highlightActiveSection();
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   UI EVENT HANDLERS
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Transport */
+$('btn-play').addEventListener('click', togglePlay);
+$('btn-stop').addEventListener('click', stopAudio);
+$('btn-prev').addEventListener('click', function() {
+  if (!audioEl || S.sections.length === 0) return;
+  var cur = getCurrentSection();
+  var idx = cur ? S.sections.indexOf(cur) : 0;
+  idx--;
+  if (idx < 0) idx = S.sections.length - 1;
+  seekTo(S.sections[idx].startTime / S.songDuration);
+});
+$('btn-next').addEventListener('click', function() {
+  if (!audioEl || S.sections.length === 0) return;
+  var cur = getCurrentSection();
+  var idx = cur ? S.sections.indexOf(cur) : 0;
+  idx++;
+  if (idx >= S.sections.length) idx = 0;
+  seekTo(S.sections[idx].startTime / S.songDuration);
+});
+
+/* Seek */
+$('seek-bar').addEventListener('input', function() {
+  seekDragging = true;
+  var pct = parseInt(this.value) / 1000;
+  updatePlayhead(pct);
+  updateTimeDisplay();
+});
+$('seek-bar').addEventListener('change', function() {
+  seekDragging = false;
+  seekTo(parseInt(this.value) / 1000);
+});
+
+/* Layers */
+$('btn-add-layer').addEventListener('click', addNewLayer);
+
+/* Section prompts */
+$('img-section').addEventListener('change', function() {
+  var sec = S.sections.find(function(s) { return s.name === this.value; }.bind(this));
+  if (sec) $('img-prompt').value = sec.imagePrompt || '';
+});
+$('vid-section').addEventListener('change', function() {
+  var sec = S.sections.find(function(s) { return s.name === this.value; }.bind(this));
+  if (sec) $('vid-prompt').value = sec.videoPrompt || '';
+});
+
+/* Generate buttons */
+$('btn-gen-image').addEventListener('click', function() {
+  generateImage($('img-section').value);
+});
+$('btn-gen-all-images').addEventListener('click', generateAllImages);
+$('btn-gen-video').addEventListener('click', function() {
+  generateVideoClip($('vid-section').value);
+});
+$('btn-gen-all-videos').addEventListener('click', generateAllVideoClips);
+
+/* Generate All (top bar) */
+$('btn-generate-all').addEventListener('click', async function() {
+  this.disabled = true;
+  await generateAllImages();
+  await generateAllVideoClips();
+  this.disabled = false;
+});
+
+/* Export */
+$('btn-export').addEventListener('click', function() {
+  $('export-modal').classList.add('open');
+});
+$('btn-export-close').addEventListener('click', function() {
+  $('export-modal').classList.remove('open');
+});
+$('btn-export-start').addEventListener('click', startExport);
+$('export-modal').addEventListener('click', function(e) {
+  if (e.target === $('export-modal')) $('export-modal').classList.remove('open');
+});
+
+/* Settings */
+$('btn-settings').addEventListener('click', function() {
+  $('settings-modal').classList.toggle('open');
+});
+$('btn-settings-close').addEventListener('click', function() {
+  $('settings-modal').classList.remove('open');
+});
+$('settings-modal').addEventListener('click', function(e) {
+  if (e.target === $('settings-modal')) $('settings-modal').classList.remove('open');
+});
+$('opt-smoothing').addEventListener('input', function() {
+  S.smoothing = parseFloat(this.value);
+  if (masterAnalyser) masterAnalyser.smoothingTimeConstant = S.smoothing;
+});
+$('opt-sensitivity').addEventListener('input', function() {
+  S.sensitivity = parseFloat(this.value);
+});
+
+/* Section collapse toggles */
+document.querySelectorAll('.right-section-header[data-toggle]').forEach(function(header) {
+  header.addEventListener('click', function() {
+    var targetId = this.getAttribute('data-toggle');
+    var body = $(targetId);
+    var chevron = this.querySelector('.chevron');
+    body.classList.toggle('collapsed');
+    if (chevron) chevron.classList.toggle('collapsed');
+  });
+});
+
+/* Keyboard shortcuts */
+document.addEventListener('keydown', function(e) {
+  /* Don't capture if typing in an input */
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+
+  switch (e.code) {
+    case 'Space':
+      e.preventDefault();
+      togglePlay();
+      break;
+    case 'Escape':
+      stopAudio();
+      $('settings-modal').classList.remove('open');
+      $('export-modal').classList.remove('open');
+      break;
+    case 'KeyM':
+      if (layers[S.selectedLayerIndex]) {
+        layers[S.selectedLayerIndex].muted = !layers[S.selectedLayerIndex].muted;
+        renderLayerList();
+      }
+      break;
+    case 'KeyS':
+      if (layers[S.selectedLayerIndex]) {
+        layers[S.selectedLayerIndex].solo = !layers[S.selectedLayerIndex].solo;
+        renderLayerList();
+      }
+      break;
+    case 'KeyA':
+      if (e.ctrlKey || e.metaKey) break;
+      addNewLayer();
+      break;
+    case 'Delete':
+    case 'Backspace':
+      if (layers.length > 1) {
+        removeLayer(S.selectedLayerIndex);
+      }
+      break;
+    default:
+      /* Number keys 1-9 to select layer */
+      var num = parseInt(e.key);
+      if (num >= 1 && num <= 9 && num <= layers.length) {
+        selectLayer(num - 1);
+      }
+      break;
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════════════
+   INITIALIZATION
+   ═══════════════════════════════════════════════════════════════════════ */
+addDefaultLayers();
+renderEffectThumbs();
+
+/* Load song from URL params */
+if (S.songId) {
+  var initToken = null;
+  try { initToken = JSON.parse(localStorage.getItem('ace-settings') || '{}').token || null; } catch(e) {}
+  if (!initToken) { try { initToken = JSON.parse(localStorage.getItem('hs-auth') || '{}').token || null; } catch(e) {} }
+  if (!initToken) {
+    var ks = ['hs-album-token', 'hs-token', 'auth-token', 'ace-token'];
+    for (var k = 0; k < ks.length; k++) { var v = localStorage.getItem(ks[k]); if (v) { initToken = v; break; } }
+  }
+  var initHeaders = { 'Content-Type': 'application/json' };
+  if (initToken) initHeaders['Authorization'] = 'Bearer ' + initToken;
+
+  fetch('/api/songs/' + encodeURIComponent(S.songId), { headers: initHeaders })
+    .then(function(r) { if (!r.ok) throw new Error('fetch song ' + r.status); return r.json(); })
+    .then(function(data) {
+      var audioUrl = data.audio_url || data.mastered_audio_url || '';
+      if (audioUrl && !audioUrl.startsWith('http') && !audioUrl.startsWith('/')) audioUrl = '/audio/' + audioUrl;
+      var title = S.songTitle || data.title || 'Track';
+      S.songTitle = title;
+      if (audioUrl) {
+        loadAudio(audioUrl, title);
+      } else {
+        loadAudio('/audio/' + encodeURIComponent(S.songId) + '.wav', title);
+      }
+    })
+    .catch(function(e) {
+      console.warn('[MV] Failed to fetch song metadata:', e.message);
+      loadAudio('/audio/' + encodeURIComponent(S.songId) + '.wav', S.songTitle);
+    });
+}
+
+})();
+</script>
+</body>
+</html>

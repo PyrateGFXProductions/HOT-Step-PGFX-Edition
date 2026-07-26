@@ -368,292 +368,51 @@
         if(typeof MutationObserver!=='undefined'){new MutationObserver(function(){setTimeout(function(){if(!injected)injectButton();},300);}).observe(document.body,{childList:true,subtree:true});}
       })();
     </script>
-    <!-- Album Library Floating Button + Panel -->
+    <!-- Music Video Creator Button -->
     <script>
       (function() {
-        var panelOpen = false;
-        var panelEl = null;
-        var albumsData = [];
-
-        /* Create floating button */
-        var btn = document.createElement('button');
-        btn.title = 'Album Library — browse and download albums';
-        btn.textContent = '🗂️';
-        btn.style.cssText = 'position:fixed;bottom:164px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;z-index:9999;box-shadow:0 4px 14px rgba(245,158,11,0.4);transition:all 0.2s;cursor:pointer;border:none;';
-        btn.onmouseenter = function() { this.style.transform = 'scale(1.1)'; this.style.boxShadow = '0 6px 20px rgba(245,158,11,0.6)'; };
-        btn.onmouseleave = function() { this.style.transform = 'scale(1)'; this.style.boxShadow = '0 4px 14px rgba(245,158,11,0.4)'; };
-        btn.onclick = function() { togglePanel(); };
-        document.body.appendChild(btn);
-
-        function togglePanel() {
-          if (panelOpen) { closePanel(); } else { openPanel(); }
-        }
-
-        function openPanel() {
-          if (panelEl) { panelEl.remove(); }
-          panelOpen = true;
-          btn.textContent = '✕';
-          btn.style.background = 'linear-gradient(135deg,#6b7280,#4b5563)';
-
-          panelEl = document.createElement('div');
-          panelEl.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(720px,92vw);max-height:80vh;background:rgba(24,24,27,0.97);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.08);border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.7);z-index:99998;display:flex;flex-direction:column;overflow:hidden;font-family:system-ui,-apple-system,sans-serif;color:#e4e4e7;';
-
-          /* Header */
-          var header = document.createElement('div');
-          header.style.cssText = 'padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;';
-          var title = document.createElement('div');
-          title.innerHTML = '<span style="font-size:18px;font-weight:700;">🗂️ Album Library</span><span id="alb-count" style="font-size:12px;color:#a1a1aa;margin-left:8px;"></span>';
-          header.appendChild(title);
-          var closeBtn = document.createElement('button');
-          closeBtn.textContent = '✕';
-          closeBtn.style.cssText = 'background:none;border:none;color:#a1a1aa;font-size:18px;cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.15s;';
-          closeBtn.onmouseenter = function() { this.style.background = 'rgba(255,255,255,0.1)'; };
-          closeBtn.onmouseleave = function() { this.style.background = 'none'; };
-          closeBtn.onclick = closePanel;
-          header.appendChild(closeBtn);
-          panelEl.appendChild(header);
-
-          /* Body */
-          var body = document.createElement('div');
-          body.id = 'alb-body';
-          body.style.cssText = 'flex:1;overflow-y:auto;padding:12px 16px;';
-          body.innerHTML = '<div style="text-align:center;padding:40px;color:#71717a;">Loading albums...</div>';
-          panelEl.appendChild(body);
-
-          /* Unreleased section */
-          var unreleased = document.createElement('div');
-          unreleased.id = 'alb-unreleased';
-          unreleased.style.cssText = 'border-top:1px solid rgba(255,255,255,0.08);padding:12px 16px;';
-          panelEl.appendChild(unreleased);
-
-          document.body.appendChild(panelEl);
-          loadAlbums();
-        }
-
-        function closePanel() {
-          panelOpen = false;
-          btn.textContent = '🗂️';
-          btn.style.background = 'linear-gradient(135deg,#f59e0b,#ef4444)';
-          if (panelEl) { panelEl.remove(); panelEl = null; }
-        }
-
-        /* Get auth token — try React's autoLogin endpoint */
-        var _albToken = null;
-        async function getAuthToken() {
-          if (_albToken) return _albToken;
-          try {
-            var r = await fetch('/api/auth/auto');
-            var d = await r.json();
-            if (d && d.token) { _albToken = d.token; return _albToken; }
-          } catch(e) {}
-          /* Fallback: check common localStorage keys */
-          var keys = ['ace-settings','hs-auth','hs-token','auth-token'];
-          for (var i = 0; i < keys.length; i++) {
-            try {
-              var raw = localStorage.getItem(keys[i]);
-              if (!raw) continue;
-              var obj = JSON.parse(raw);
-              if (obj && obj.token) { _albToken = obj.token; return _albToken; }
-            } catch(ex) {}
-          }
-          return null;
-        }
-
-        async function loadAlbums() {
-          var body = document.getElementById('alb-body');
-          var unreleasedEl = document.getElementById('alb-unreleased');
-          if (!body) return;
-          try {
-            var token = await getAuthToken();
-            var headers = {};
-            if (token) headers['Authorization'] = 'Bearer ' + token;
-            var resp = await fetch('/api/songs/albums', { headers: headers });
-            if (!resp.ok) {
-              body.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;">Failed to load albums: HTTP ' + resp.status + '</div>';
+        var injected=false;
+        function injectMVCButton(){
+          if(injected)return;
+          /* Find the visualizer button we just injected */
+          var allBtns=document.querySelectorAll('button'),vizBtnRef=null;
+          for(var i=0;i<allBtns.length;i++){var t=allBtns[i].title||'';if(t.indexOf('Visualizer')>=0){vizBtnRef=allBtns[i];break;}}
+          if(!vizBtnRef||!vizBtnRef.parentNode)return;
+          var mvcBtn=document.createElement('button');
+          mvcBtn.title='Music Video Creator — stem-reactive layers + AI video generation';
+          mvcBtn.style.cssText='padding:6px;border-radius:8px;color:#71717a;background:transparent;border:none;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+          mvcBtn.onmouseenter=function(){mvcBtn.style.color='#a78bfa';};
+          mvcBtn.onmouseleave=function(){mvcBtn.style.color='#71717a';};
+          mvcBtn.onclick=function(){
+            /* Get current song ID from playback state */
+            var songId=null;
+            try{
+              var stateEl=document.querySelector('[data-song-id]');
+              if(stateEl) songId=stateEl.getAttribute('data-song-id');
+              if(!songId){
+                /* Try to extract from URL or playback store */
+                var m=window.location.search.match(/id=([^&]+)/);
+                if(m) songId=m[1];
+              }
+              if(!songId){
+                /* Look for active song in the DOM */
+                var active=document.querySelector('.song-row.active,.track-active,[data-playing="true"]');
+                if(active) songId=active.getAttribute('data-song-id')||active.getAttribute('data-id');
+              }
+            }catch(ex){}
+            if(!songId){
+              alert('No song selected. Please play a song first, then click Music Video Creator.');
               return;
             }
-            var data = await resp.json();
-            albumsData = data.albums || [];
-            var countEl = document.getElementById('alb-count');
-            if (countEl) countEl.textContent = '(' + albumsData.length + ' album' + (albumsData.length !== 1 ? 's' : '') + ')';
-
-            if (albumsData.length === 0) {
-              body.innerHTML = '<div style="text-align:center;padding:40px;color:#71717a;">No albums found.<br><span style="font-size:12px;">Albums are detected from generation params or metadata overrides.</span></div>';
-              if (unreleasedEl) unreleasedEl.innerHTML = '';
-              return;
-            }
-
-            body.innerHTML = '';
-            albumsData.forEach(function(album) {
-              var card = document.createElement('div');
-              card.style.cssText = 'background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:default;transition:all 0.15s;';
-              card.onmouseenter = function() { this.style.borderColor = 'rgba(168,85,247,0.3)'; this.style.background = 'rgba(255,255,255,0.06)'; };
-              card.onmouseleave = function() { this.style.borderColor = 'rgba(255,255,255,0.06)'; this.style.background = 'rgba(255,255,255,0.04)'; };
-
-              /* Album header row */
-              var row = document.createElement('div');
-              row.style.cssText = 'display:flex;align-items:center;gap:12px;';
-
-              /* Cover */
-              var cover = document.createElement('div');
-              cover.style.cssText = 'width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg,#7c3aed,#ec4899);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;overflow:hidden;';
-              if (album.coverUrl) {
-                cover.innerHTML = '<img src="' + album.coverUrl.replace(/"/g, '&quot;') + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML=\'🎵\'">';
-              } else {
-                cover.textContent = '🎵';
-              }
-
-              /* Info */
-              var info = document.createElement('div');
-              info.style.cssText = 'flex:1;min-width:0;';
-              var nameEl = document.createElement('div');
-              nameEl.style.cssText = 'font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-              nameEl.textContent = album.name;
-              info.appendChild(nameEl);
-              var metaEl = document.createElement('div');
-              metaEl.style.cssText = 'font-size:12px;color:#a1a1aa;margin-top:2px;';
-              metaEl.textContent = (album.artist || 'Unknown Artist') + ' · ' + album.songs.length + ' track' + (album.songs.length !== 1 ? 's' : '');
-              info.appendChild(metaEl);
-
-              /* Quick action buttons */
-              var actions = document.createElement('div');
-              actions.style.cssText = 'display:flex;gap:4px;flex-shrink:0;';
-              var dlBtn = document.createElement('button');
-              dlBtn.textContent = '📦';
-              dlBtn.title = 'Download ZIP (right-click for format options)';
-              dlBtn.style.cssText = 'width:32px;height:32px;border-radius:8px;border:none;background:rgba(168,85,247,0.15);color:#a78bfa;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;';
-              dlBtn.onmouseenter = function() { this.style.background = 'rgba(168,85,247,0.3)'; };
-              dlBtn.onmouseleave = function() { this.style.background = 'rgba(168,85,247,0.15)'; };
-              var pref = 'wav';
-              try { var s = JSON.parse(localStorage.getItem('ace-settings') || '{}'); pref = s.downloadFormat || 'wav'; } catch(ex) {}
-              dlBtn.onclick = function(e) {
-                e.stopPropagation();
-                if (window.__albumLib) window.__albumLib.downloadAlbumZip(album.name, pref);
-              };
-              dlBtn.oncontextmenu = function(e) {
-                if (window.__albumLib) window.__albumLib.showAlbumMenu(e, album);
-              };
-              actions.appendChild(dlBtn);
-              var chevron = document.createElement('span');
-              chevron.textContent = '▾';
-              chevron.style.cssText = 'color:#71717a;font-size:12px;cursor:pointer;padding:4px;';
-              actions.appendChild(chevron);
-
-              row.appendChild(cover);
-              row.appendChild(info);
-              row.appendChild(actions);
-              card.appendChild(row);
-
-              /* Track list (collapsible) */
-              var trackList = document.createElement('div');
-              trackList.style.cssText = 'display:none;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.06);';
-              var expanded = false;
-
-              chevron.onclick = function() {
-                expanded = !expanded;
-                trackList.style.display = expanded ? 'block' : 'none';
-                chevron.textContent = expanded ? '▴' : '▾';
-              };
-              card.onclick = function() { chevron.click(); };
-
-              album.songs.forEach(function(song, idx) {
-                var tr = document.createElement('div');
-                tr.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:default;transition:background 0.12s;';
-                tr.onmouseenter = function() { this.style.background = 'rgba(255,255,255,0.05)'; };
-                tr.onmouseleave = function() { this.style.background = 'transparent'; };
-                var num = document.createElement('span');
-                num.style.cssText = 'color:#71717a;font-size:12px;width:20px;text-align:right;flex-shrink:0;';
-                num.textContent = String(idx + 1).padStart(2, '0');
-                var trTitle = document.createElement('span');
-                trTitle.style.cssText = 'flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-                trTitle.textContent = song.title || 'Untitled';
-                var trDur = document.createElement('span');
-                trDur.style.cssText = 'color:#71717a;font-size:11px;flex-shrink:0;';
-                trDur.textContent = song.duration ? formatDuration(song.duration) : '';
-                var trDl = document.createElement('button');
-                trDl.textContent = '⬇';
-                trDl.title = 'Right-click for format options';
-                trDl.style.cssText = 'width:24px;height:24px;border-radius:4px;border:none;background:transparent;color:#71717a;font-size:12px;cursor:pointer;opacity:0;transition:opacity 0.15s;';
-                tr.onmouseenter = function() { trDl.style.opacity = '1'; };
-                tr.onmouseleave = function() { trDl.style.opacity = '0'; };
-                trDl.onclick = function(e) {
-                  e.stopPropagation();
-                  if (window.__albumLib) window.__albumLib.downloadSong(song.id, pref);
-                };
-                trDl.oncontextmenu = function(e) {
-                  if (window.__albumLib) window.__albumLib.showSongMenu(e, song);
-                };
-                tr.oncontextmenu = function(e) {
-                  if (window.__albumLib) window.__albumLib.showSongMenu(e, song);
-                };
-                tr.appendChild(num);
-                tr.appendChild(trTitle);
-                tr.appendChild(trDur);
-                tr.appendChild(trDl);
-                trackList.appendChild(tr);
-              });
-
-              card.appendChild(trackList);
-              body.appendChild(card);
-            });
-
-            /* Unreleased tracks (no album) */
-            try {
-              var songsResp = await fetch('/api/songs', { headers: headers });
-              var songsData = await songsResp.json();
-              var allSongs = songsData.songs || songsData || [];
-              if (!Array.isArray(allSongs)) allSongs = [];
-              var albumSongIds = new Set();
-              albumsData.forEach(function(a) { a.songs.forEach(function(s) { albumSongIds.add(s.id); }); });
-              var unreleased = allSongs.filter(function(s) { return !albumSongIds.has(s.id); });
-              if (unreleased.length > 0 && unreleasedEl) {
-                unreleasedEl.innerHTML = '<div style="font-size:12px;color:#a1a1aa;font-weight:600;margin-bottom:8px;">📦 Unreleased Tracks (' + unreleased.length + ')</div>';
-                var urList = document.createElement('div');
-                urList.style.cssText = 'max-height:120px;overflow-y:auto;';
-                unreleased.forEach(function(song) {
-                  var tr = document.createElement('div');
-                  tr.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:default;font-size:12px;transition:background 0.12s;';
-                  tr.onmouseenter = function() { this.style.background = 'rgba(255,255,255,0.05)'; };
-                  tr.onmouseleave = function() { this.style.background = 'transparent'; };
-                  var trTitle = document.createElement('span');
-                  trTitle.style.cssText = 'flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#d4d4d8;';
-                  trTitle.textContent = song.title || 'Untitled';
-                  var trDl = document.createElement('button');
-                  trDl.textContent = '⬇';
-                  trDl.style.cssText = 'width:22px;height:22px;border:none;background:transparent;color:#71717a;font-size:11px;cursor:pointer;opacity:0;transition:opacity 0.15s;';
-                  tr.onmouseenter = function() { trDl.style.opacity = '1'; };
-                  tr.onmouseleave = function() { trDl.style.opacity = '0'; };
-                  trDl.onclick = function(e) {
-                    e.stopPropagation();
-                    if (window.__albumLib) window.__albumLib.downloadSong(song.id, pref);
-                  };
-                  trDl.oncontextmenu = function(e) {
-                    if (window.__albumLib) window.__albumLib.showSongMenu(e, song);
-                  };
-                  tr.oncontextmenu = function(e) {
-                    if (window.__albumLib) window.__albumLib.showSongMenu(e, song);
-                  };
-                  tr.appendChild(trTitle);
-                  tr.appendChild(trDl);
-                  urList.appendChild(tr);
-                });
-                unreleasedEl.appendChild(urList);
-              } else if (unreleasedEl) {
-                unreleasedEl.innerHTML = '';
-              }
-            } catch(ex) {
-              console.warn('[AlbumLib] Could not load unreleased tracks:', ex);
-            }
-          } catch(err) {
-            body.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444;">Failed to load albums: ' + err.message + '</div>';
-          }
+            window.open('/music-video.html?id='+songId,'_blank');
+          };
+          /* Film clapper icon */
+          mvcBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4 7.55 4.24"></path><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>';
+          vizBtnRef.parentNode.insertBefore(mvcBtn,vizBtnRef.nextSibling);
+          injected=true;
         }
-
-        function formatDuration(secs) {
-          var m = Math.floor(secs / 60);
-          var s = Math.floor(secs % 60);
-          return m + ':' + (s < 10 ? '0' : '') + s;
-        }
+        setInterval(function(){if(!injected)injectMVCButton();},1000);
+        if(typeof MutationObserver!=='undefined'){new MutationObserver(function(){setTimeout(function(){if(!injected)injectMVCButton();},300);}).observe(document.body,{childList:true,subtree:true});}
       })();
     </script>
     <!-- Album Batch: Monkey-patch fetch to capture jobIds from POST /api/generate.
