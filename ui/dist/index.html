@@ -77,6 +77,7 @@
         var MIN_BEAT_MS = 150;
 
         var MODES = ['Bars','Wave','Circular','Tunnel','Starfield','Liquid'];
+        if(isNaN(vizMode)||vizMode<0||vizMode>=MODES.length)vizMode=0;
         var COLOR_SCHEMES = [
           ['#00ffff','#ff00ff','#00ff66','#ff8800','#ffff00','#ff4488'],
           ['#ff2200','#ff6600','#ffaa00','#ff4400','#cc0000','#ff8844'],
@@ -161,7 +162,6 @@
         function renderCircular(ctx,W,H){
           ctx.clearRect(0,0,W,H);if(!freqData)return;
           var cx=W/2,cy=H/2,baseR=Math.min(W,H)*0.2,bars=128,maxL=Math.min(W,H)*0.3;
-          globalTime+=isBeat?0.15:0.02;
           ctx.save();ctx.translate(cx,cy);ctx.rotate(globalTime*0.15*Math.PI/180);
           var bW=Math.max(1.5,(Math.PI*2*baseR/bars)*0.55);
           for(var i=0;i<bars;i++){
@@ -177,7 +177,6 @@
         }
         function renderTunnel(ctx,W,H){
           ctx.clearRect(0,0,W,H);
-          globalTime+=isBeat?0.08:0.02;
           var cx=W/2,cy=H/2,speed=globalTime*2;
           for(var i=40;i>=1;i--){
             var t=i/40,z=(t+speed)%1,sz=Math.pow(1-z,2)*Math.max(W,H)*0.9;
@@ -359,7 +358,7 @@
           vizBtn.onmouseenter=function(){if(!vizActive)vizBtn.style.color='#22d3ee';};
           vizBtn.onmouseleave=function(){if(!vizActive)vizBtn.style.color='#71717a';};
           vizBtn.onclick=function(){if(vizActive)deactivate();else activate();};
-          vizBtn.oncontextmenu=function(e){e.preventDefault();vizMode=(vizMode+1)%MODES.length;localStorage.setItem('hs-viz-mode',String(vizMode));peakH.fill(0);peakF.fill(0);liquidT=0;if(vizBtn)vizBtn.title='Visualizer ON — Mode: '+MODES[vizMode]+' (click=toggle, right-click=cycle)';};
+          vizBtn.oncontextmenu=function(e){e.preventDefault();vizMode=(vizMode+1)%MODES.length;localStorage.setItem('hs-viz-mode',String(vizMode));peakH.fill(0);peakF.fill(0);liquidT=0;if(vizBtn)vizBtn.title='Visualizer ON — Mode: '+MODES[vizMode]+' (click=toggle, right-click=cycle)';if(vizModeLabel)vizModeLabel.textContent=MODES[vizMode];};
           vizBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="15" height="13" rx="2" ry="2"></rect><polygon points="17 2 22 7 17 12 17 2"></polygon><path d="M7 11v2a2 2 0 0 0 2 2h5"></path></svg>';
           discoBtn.parentNode.insertBefore(vizBtn,discoBtn.nextSibling);
           injected=true;
@@ -1141,121 +1140,6 @@
 
         /* Initialize: try to load template, then render */
         tryLoadTemplate();
-      })();
-    </script>
-    <!-- ═══════════════════════════════════════════════════════════════════
-         Album Library — Right-click context menus for album/track downloads
-         ═══════════════════════════════════════════════════════════════════ -->
-    <script>
-      (function() {
-        /* ─── Context Menu System ─── */
-        var activeMenu = null;
-        function closeMenu() { if (activeMenu) { activeMenu.remove(); activeMenu = null; } }
-        document.addEventListener('click', closeMenu);
-        document.addEventListener('contextmenu', function() { setTimeout(closeMenu, 50); });
-
-        function showMenu(x, y, items) {
-          closeMenu();
-          var menu = document.createElement('div');
-          menu.style.cssText = 'position:fixed;z-index:99999;background:rgba(24,24,27,0.97);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:6px 0;box-shadow:0 8px 32px rgba(0,0,0,0.6);min-width:200px;font-family:system-ui,-apple-system,sans-serif;font-size:13px;';
-          items.forEach(function(item) {
-            if (item === '---') {
-              var hr = document.createElement('div');
-              hr.style.cssText = 'height:1px;background:rgba(255,255,255,0.1);margin:4px 8px;';
-              menu.appendChild(hr);
-              return;
-            }
-            var btn = document.createElement('div');
-            btn.style.cssText = 'padding:8px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;color:#e4e4e7;transition:background 0.15s;';
-            btn.onmouseenter = function() { this.style.background = 'rgba(168,85,247,0.3)'; };
-            btn.onmouseleave = function() { this.style.background = 'transparent'; };
-            if (item.disabled) { btn.style.opacity = '0.4'; btn.style.pointerEvents = 'none'; }
-            var icon = document.createElement('span');
-            icon.textContent = item.icon || '';
-            icon.style.cssText = 'font-size:14px;width:20px;text-align:center;';
-            var label = document.createElement('span');
-            label.textContent = item.label;
-            if (item.bold) label.style.fontWeight = '600';
-            if (item.color) btn.style.color = item.color;
-            btn.appendChild(icon);
-            btn.appendChild(label);
-            if (item.sub) {
-              var sub = document.createElement('span');
-              sub.textContent = item.sub;
-              sub.style.cssText = 'margin-left:auto;font-size:11px;opacity:0.5;';
-              btn.appendChild(sub);
-            }
-            btn.addEventListener('click', function(e) { e.stopPropagation(); closeMenu(); if (item.action) item.action(); });
-            menu.appendChild(btn);
-          });
-          /* Position: flip if near edges */
-          document.body.appendChild(menu);
-          var mw = menu.offsetWidth, mh = menu.offsetHeight;
-          if (x + mw > window.innerWidth - 8) x = window.innerWidth - mw - 8;
-          if (y + mh > window.innerHeight - 8) y = window.innerHeight - mh - 8;
-          if (x < 8) x = 8; if (y < 8) y = 8;
-          menu.style.left = x + 'px';
-          menu.style.top = y + 'px';
-          activeMenu = menu;
-        }
-
-        /* ─── Download Helper ─── */
-        function downloadSong(songId, format, bitrate) {
-          bitrate = bitrate || 192;
-          var a = document.createElement('a');
-          a.href = '/api/download/' + encodeURIComponent(songId) + '?format=' + format + '&bitrate=' + bitrate;
-          a.download = '';
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(function() { a.remove(); }, 1000);
-        }
-        function downloadAlbumZip(albumName, format) {
-          var a = document.createElement('a');
-          a.href = '/api/download/album-zip?album=' + encodeURIComponent(albumName) + '&format=' + (format || 'wav');
-          a.download = '';
-          a.style.display = 'none';
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(function() { a.remove(); }, 1000);
-        }
-
-        /* ─── Expose to global scope for batch handler ─── */
-        window.__albumLib = {
-          showSongMenu: function(e, song) {
-            e.preventDefault(); e.stopPropagation();
-            showMenu(e.clientX, e.clientY, [
-              { icon: '🎵', label: 'Download WAV', bold: true, action: function() { downloadSong(song.id, 'wav'); } },
-              { icon: '📀', label: 'Download MP3', action: function() { downloadSong(song.id, 'mp3'); } },
-              { icon: '🎧', label: 'Download Opus', action: function() { downloadSong(song.id, 'opus'); } },
-              { icon: '💿', label: 'Download FLAC', action: function() { downloadSong(song.id, 'flac'); } },
-            ]);
-          },
-          showAlbumMenu: function(e, album) {
-            e.preventDefault(); e.stopPropagation();
-            var fmt = (localStorage.getItem('ace-settings') || '{}');
-            try { fmt = JSON.parse(fmt); } catch(ex) { fmt = {}; }
-            var pref = fmt.downloadFormat || 'wav';
-            showMenu(e.clientX, e.clientY, [
-              { icon: '📦', label: 'ZIP: All Tracks (' + pref.toUpperCase() + ')', bold: true, color: '#a78bfa', action: function() { downloadAlbumZip(album.name, pref); } },
-              { icon: '---' },
-              { icon: '🎵', label: 'ZIP: All Tracks as WAV', sub: album.songs.length + ' tracks', action: function() { downloadAlbumZip(album.name, 'wav'); } },
-              { icon: '📀', label: 'ZIP: All Tracks as MP3', sub: album.songs.length + ' tracks', action: function() { downloadAlbumZip(album.name, 'mp3'); } },
-              { icon: '🎧', label: 'ZIP: All Tracks as Opus', sub: album.songs.length + ' tracks', action: function() { downloadAlbumZip(album.name, 'opus'); } },
-              { icon: '💿', label: 'ZIP: All Tracks as FLAC', sub: album.songs.length + ' tracks', action: function() { downloadAlbumZip(album.name, 'flac'); } },
-              { icon: '---' },
-              { icon: '📋', label: 'Track List', disabled: false, action: function() {
-                var list = album.songs.map(function(s, i) { return (i+1) + '. ' + (s.title || 'Untitled'); }).join('\n');
-                navigator.clipboard.writeText(album.name + ' — ' + (album.artist || 'Unknown Artist') + '\n' + list).then(function() {
-                  alert('Track list copied to clipboard!');
-                });
-              }},
-            ]);
-          },
-          downloadAlbumZip: downloadAlbumZip,
-          downloadSong: downloadSong
-        };
-        console.log('[AlbumLib] Context menus ready');
       })();
     </script>
   </body>

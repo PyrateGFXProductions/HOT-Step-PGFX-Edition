@@ -14,7 +14,7 @@
 This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music generation tool built on ACE-Step. The PGFX Edition transforms it from a capable inference wrapper into a full **music production system** with genre-aware song structure, narrative intelligence, and creative workflow tools.
 
 **Base**: HOT-Step CPP v1.1.4 (Windows x64, CUDA 13.1)
-**Enhancements**: 57 sections of improvements across 7 phases
+**Enhancements**: 68 sections of improvements across 8 phases
 
 ---
 
@@ -113,8 +113,30 @@ Eleven visualization modes powered by client-side beat detection:
 
 *Note: This feature requires the cover art models (FLUX.2-klein-4B) to be installed and ffmpeg.exe in the server directory. Video generation adds ~3 minutes per track (image generation + ffmpeg render). Full 9-track album video pipeline takes approximately 25-30 minutes.*
 
+### Music Video Creator
+A full-featured music video production page with stem-reactive layered effects, AI image/video generation via ComfyUI, and MP4 export.
+
+- **Layer stack** — 6 default layers (Kick, Snare, HiHat, Lead Vocals, Bass, Backing Vocals), up to 17 total. Each layer has: stem assignment, visual effect, blend mode, opacity, beat sensitivity, color tint, mute/solo.
+- **12 visual effects** — Bars, Wave, Particles, Circular, Plasma, Tunnel, Rings, Liquid, Starfield, Circular Bars, Spectrum, Galaxy. Real-time multi-layer compositing with per-stem AnalyserNodes.
+- **Stem decomposition** — Server-side SuperSep splits audio into stems (Drums, Bass, Vocals, Other) before visualization. Stems are assigned to layers for beat-reactive effects.
+- **ComfyUI image generation** — Section-aware prompts with gender context. Generates a unique image per lyric section (Verse, Chorus, Bridge, etc.) using FLUX.2 Klein 9B. Supports single image or batch generation for all sections.
+- **ComfyUI video generation** — LTX 2.3 22B distilled image-to-video via ComfyUI. Two-pass sampling, audio+video latent concatenation, spatial upscaler, RTX Video Super Resolution, ColorMatch + Sharpen.
+- **Timeline** — Section blocks with transport controls (play/pause, stop, seek). Visual effects are synced to the timeline position.
+- **Export** — Server-side FFmpeg compositing: resolution/FPS/audio options, Ken Burns zoom on images, crossfade transitions, audio waveform overlay.
+- **Keyboard shortcuts** — Space (play/pause), Esc (exit), M (mute), S (solo), A (add layer), Delete (remove layer), 1-9 (select layer).
+
+*Requires ComfyUI running locally with LTX 2.3 and FLUX.2 models installed. See [ComfyUI Setup](#comfyui-setup) below.*
+
+#### ComfyUI Setup
+1. Install ComfyUI (e.g., via [Easy Install](https://github.com/ComfyUI-Easy-Install))
+2. Install custom nodes: ComfyUI-GGUF, ComfyUI-LTXVideo
+3. Download models and place in ComfyUI model directories:
+   - **LTX 2.3**: `LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf` (unet/ltx2.3/), `ltx-2.3-22b-distilled_video_vae.safetensors` + `audio_vae` (vae/), `gemma_3_12B_it_fp4_mixed.safetensors` (text_encoders/), `ltx-2.3-22b-distilled_embeddings_connectors.safetensors` (unet/ltx2.3/), `ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors` (loras/ltx2.3/), `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` (loras/ltx2.3/)
+   - **FLUX.2**: `Flux-2-Klein-9B-KV-Q8_0.gguf` (unet/flux2/), `flux2-vae.safetensors` (vae/FLUX.2/), `awq-int4-flux.1-t5xxl.safetensors` + `clip_l.safetensors` (text_encoders/)
+4. ComfyUI must be running on port 8188 when using MVC features
+
 ### Album Library — Browse & Download
-A floating 🗂️ button (bottom-right) opens a modal album browser that:
+An 🗂️ Album Library button in the album.html header opens a modal album browser that:
 - **Groups songs by album** — detects album name from generation params or metadata overrides
 - **Album cards** — cover art, artist name, track count, expandable track listing
 - **Right-click context menus** on albums:
@@ -152,6 +174,7 @@ All 18 languages natively supported by ACE-Step are available across the Album C
    - `ui/dist/index.html` — replaces the original
    - `ui/dist/assets/index-DscBS4mv.js` — replaces the original (minified React bundle)
    - `ui/dist/album.html` — **new file**, place in `ui/dist/`
+   - `ui/dist/music-video.html` — **new file**, place in `ui/dist/`
    - `ui/dist/visualizer.html` — **new file**, place in `ui/dist/`
    - `plugins/` — merge with existing plugins directory
 4. Copy `.env.example` to `.env` and configure your API keys
@@ -176,14 +199,15 @@ All 18 languages natively supported by ACE-Step are available across the Album C
 
 | File | Status | Size | Description |
 |------|--------|------|-------------|
-| `server/server.mjs` | Modified | ~300K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, unified video pipeline (`/api/inspire/video/create`), section-aware cover art with gender context, album ZIP download, album grouping API, 18-language support with 40+ fallback mappings, automatic vocal language remapping, code-switching guard (Patois variant detection), vocabulary lock Patois skip |
-| `ui/dist/album.html` | **New** | ~50 KB | Album Generator — 20-track workflow with multi-select genre picker (200+ genres, 15 categories), random genre-aware theme generator, gender/vocalist context fields, auto-fill, artist name, album title, persistent metadata, ZIP download with folder organization, 18-language selector |
-| `ui/dist/visualizer.html` | **New** | ~50 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation via unified endpoint, auth-aware playlist loading, new-tab opening for autoplay |
-| `ui/dist/index.html` | Modified | ~10 KB | Added floating album, visualizer & library buttons (new-tab visualizer), Album Batch Handler v3 (unified video endpoint, vocalLanguage in readSettingsFromStorage), Album Library panel with right-click context menus for album/track downloads |
+| `server/server.mjs` | Modified | ~300K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, unified video pipeline (`/api/inspire/video/create`), section-aware cover art with gender context, album ZIP download, album grouping API, 18-language support with 40+ fallback mappings, automatic vocal language remapping, code-switching guard (Patois variant detection), vocabulary lock Patois skip, ComfyUI client (LTX2.3 video + FLUX.2 image generation), stem decomposition (SuperSep), FFmpeg export with Ken Burns + concat, 8 new ComfyUI API endpoints |
+| `ui/dist/album.html` | Modified | ~50 KB | Album Generator — 20-track workflow with multi-select genre picker (200+ genres, 15 categories), random genre-aware theme generator, gender/vocalist context fields, auto-fill, artist name, album title, persistent metadata, ZIP download with folder organization, 18-language selector, Album Library button in header |
+| `ui/dist/music-video.html` | **New** | ~65 KB | Music Video Creator — stem-reactive layered effects (12 modes), layer stack (up to 17 layers), ComfyUI image/video generation, timeline with section blocks, FFmpeg export, keyboard shortcuts, multi-layer compositing |
+| `ui/dist/visualizer.html` | Modified | ~50 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation via unified endpoint, auth-aware playlist loading, new-tab opening for autoplay |
+| `ui/dist/index.html` | Modified | ~11 KB | Inline visualizer overlay (6 modes, transparent backdrop, Esc exit, disconnect for latency), MVC launcher button (clapper icon), Album Library removed from floating buttons (moved to album.html header), dead `window.__albumLib` code removed, vizMode NaN guard, vizModeLabel update on right-click cycle |
 | `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle with DJ/Turntablism genre group |
 
 ### Full Enhancement Report
-See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 56 enhancement sections across 6 phases, reproduction guide, and file locations.
+See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 68 enhancement sections across 8 phases, reproduction guide, and file locations.
 
 ---
 
@@ -200,6 +224,11 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
   - Ollama (local, free)
   - LM Studio (local, free)
   - Any OpenAI-compatible endpoint
+- **ComfyUI** (optional) — Required only for Music Video Creator AI image/video generation:
+  - [ComfyUI Easy Install](https://github.com/ComfyUI-Easy-Install) recommended
+  - LTX 2.3 22B distilled model (~12 GB) for video generation
+  - FLUX.2 Klein 9B (~5 GB) for image generation
+  - See [ComfyUI Setup](#comfyui-setup) section above
 
 ---
 
@@ -212,7 +241,7 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, multi-select genre picker, random genre-aware theme generator, gender/vocalist context system, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, unified MP4 video pipeline, album music video pipeline with lyric-driven image generation and beat-synced rendering, album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, and all Phase 1-7 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, multi-select genre picker, random genre-aware theme generator, gender/vocalist context system, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration, unified MP4 video pipeline, album music video pipeline with lyric-driven image generation and beat-synced rendering, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, and all Phase 1-8 enhancements.
 
 ---
 

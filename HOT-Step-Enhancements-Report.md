@@ -1,14 +1,14 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 25, 2026 (updated — Phase 7: Language Audit, 18-Language Support, Visualizer Fixes, Album Track Limit Increase, Code-Switching Guard, Vocabulary Lock Patois Skip)  
-**Modified Files**: `server/server.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`
+**Report Date**: July 25, 2026 (updated — Phase 8: Music Video Creator, ComfyUI Integration, Stem Decomposition, Audit Fixes)  
+**Modified Files**: `server/server.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`, `ui/dist/music-video.html`
 
 ---
 
 ## Summary
 
-This report documents all enhancements made to the HOT-Step CPP codebase. The work spans six major phases:
+This report documents all enhancements made to the HOT-Step CPP codebase. The work spans eight major phases:
 
 **Phase 1** (July 18–20): Anti-AI slop vocabulary, genre-adaptive structure rules, Patois dialect integration, new genre profiles (acapella, duet, adult/sensual), and lyric quality evaluation improvements.
 
@@ -25,6 +25,8 @@ This report documents all enhancements made to the HOT-Step CPP codebase. The wo
 The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net addition of ~5,135 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler + album library panel).
 
 **Phase 7** (July 25): Full language audit — 18 ACE-Step supported languages verified and exposed in UI, 40+ unsupported language fallback mappings, automatic vocal language remapping in `translateParams()`, code-switching guard (Patois variant detection to prevent unwanted bilingual mixing), vocabulary lock Patois skip (prevents English→Patois word replacement for non-Patois genres), visualizer fixes (auth token support, correct audio URL construction, auto-play, new-tab opening), album track limit increase (9→20), `vocalLanguage` added to `readSettingsFromStorage()`, `LANGUAGE_NAMES` cleanup (removed unsupported jam/jmc/jmd entries).
+
+**Phase 8** (July 25): Music Video Creator page with stem-reactive layered visual effects (12 modes, up to 17 layers), ComfyUI integration for AI image generation (FLUX.2 Klein 9B) and video generation (LTX 2.3 22B distilled), stem decomposition via SuperSep, FFmpeg export with Ken Burns + concat demuxer, inline visualizer overlay in index.html (6 modes, transparent backdrop, Esc exit, AudioContext monkey-patch), ComfyUI server-side client (~730 lines: native FormData upload, workflow builders, 8 API endpoints), data/mvc asset storage, section-aware image prompt builder, full audit with 30+ bug fixes (auth tokens, path traversal, field mismatches, dead code cleanup, vizMode NaN guard).
 
 ---
 
@@ -108,6 +110,12 @@ The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net
 62. [Visualizer New-Tab Opening](#62-visualizer-new-tab-opening)
 63. [Album Track Limit Increase (9→20)](#63-album-track-limit-increase-920)
 64. [vocalLanguage in readSettingsFromStorage()](#64-vocallanguage-in-readsettingsfromstorage)
+
+### Phase 8 — Music Video Creator, ComfyUI Integration & Audit Fixes
+65. [Music Video Creator Page](#65-music-video-creator-page)
+66. [ComfyUI Server-Side Client](#66-comfyui-server-side-client)
+67. [Stem Decomposition (SuperSep)](#67-stem-decomposition-supersep)
+68. [Inline Visualizer Overlay](#68-inline-visualizer-overlay)
 
 ---
 
@@ -1569,6 +1577,208 @@ User picks Ukrainian (uk) → translateParams() → resolveLanguageFallback("uk"
 
 ---
 
+## Phase 8 — Music Video Creator, ComfyUI Integration & Audit Fixes
+
+### 65. Music Video Creator Page
+
+**Problem:** No dedicated page for creating stem-reactive music videos with AI-generated images and video. The existing visualizer was playback-only with no layer system, no stem assignment, and no ComfyUI integration.
+
+**Solution:** Full-featured Music Video Creator page (`ui/dist/music-video.html`, ~2290 lines) with stem-reactive layered visual effects, ComfyUI AI image/video generation, timeline, and FFmpeg export.
+
+**New file**: `ui/dist/music-video.html`
+
+#### Layer System
+- **6 default layers**: Kick, Snare, HiHat, Lead Vocals, Bass, Backing Vocals
+- **Expandable to 17 layers** (Up/Down buttons)
+- **Per-layer controls**: Stem assignment dropdown, visual effect picker, blend mode, opacity slider, beat sensitivity slider, color tint, mute/solo buttons
+- **Layer management**: Add/remove layers, move up/down, select layer for editing
+
+#### Visual Effects (12 modes)
+| Effect | Description |
+|--------|-------------|
+| Bars | Classic spectrum analyzer with peaks and reflections |
+| Wave | 3-layer oscilloscope with afterglow |
+| Particles | 600-particle pool, beat-spawned with glow |
+| Circular | 128 radial bars with rotation |
+| Plasma | Audio-reactive pixel manipulation |
+| Tunnel | Perspective-correct depth tunnel |
+| Rings | Concentric rotating rings |
+| Liquid | Layered fluid waves |
+| Starfield | 400-star warp field |
+| Circular Bars | Circular spectrum variant |
+| Spectrum | Linear frequency display |
+| Galaxy | Spiral particle system |
+
+#### Preview Canvas
+- Real-time multi-layer compositing using `globalCompositeOperation` (blend modes: screen, multiply, overlay, lighten, darken, etc.)
+- Each layer's effect rendered to off-screen canvas, composited onto main canvas
+- Per-stem `AnalyserNode` data drives each layer's visual intensity
+- Semi-transparent background (rgba(0,0,0,0.78))
+
+#### Image Generation
+- Section-aware prompts: Verse, Chorus, Bridge, Intro, Outro, Pre-Chorus, Hook, Instrumental, Breakdown each get contextually different prompts
+- Gender-aware: Uses `VOCALIST_GENDER` and `ABOUT_GENDER` from state
+- Single image or batch (all sections)
+- Thumbnails displayed in panel after generation
+- Uses FLUX.2 Klein 9B via ComfyUI `POST /api/inspire/comfyui/generate-image`
+
+#### Video Generation
+- LTX 2.3 22B distilled image-to-video via ComfyUI
+- Takes a generated image and produces a 3.2-second clip with audio
+- Progress tracking via polling
+- Uses `POST /api/inspire/comfyui/generate-video`
+
+#### Timeline
+- Section blocks rendered as colored rectangles
+- Transport controls: play/pause, stop, seek bar
+- Section labels with type and timing
+- Click-to-seek on timeline
+
+#### Export
+- Resolution options: 720p, 1080p, 4K
+- FPS: 24, 30, 60
+- Audio: Original audio, stems only, no audio
+- Server-side FFmpeg compositing
+- Ken Burns zoom on image sections, crossfade transitions
+
+#### Keyboard Shortcuts
+| Key | Action |
+|-----|--------|
+| Space | Play/pause |
+| Esc | Exit MVC |
+| M | Mute/unmute selected layer |
+| S | Solo/unmute selected layer |
+| A | Add new layer |
+| Delete | Remove selected layer |
+| 1-9 | Select layer by number |
+
+**Location**: `ui/dist/music-video.html` — launched from index.html via MVC button (🎬 clapper icon)
+
+---
+
+### 66. ComfyUI Server-Side Client
+
+**Problem:** No server-side integration with ComfyUI for AI image and video generation. The existing cover art system used `stable-diffusion.cpp` (FLUX.2-klein-4B via `sd-cli.exe`), which is limited to single images and doesn't support video generation.
+
+**Solution:** Native ComfyUI HTTP client (~730 lines added to `server/server.mjs`) with workflow builders for LTX 2.3 and FLUX.2, plus 8 new API endpoints.
+
+**Location**: `server/server.mjs`, ComfyUI section (after existing code, ~line 298032)
+
+#### Core Functions
+| Function | Description |
+|----------|-------------|
+| `comfyUpload(filePath)` | Native FormData upload to ComfyUI `/upload/image` and `/upload/input` — no external dependencies |
+| `comfySubmitAndWait(workflow, timeoutMs)` | Submit workflow via `/prompt`, poll `/history/{promptId}` every 2s, 10-minute default timeout |
+| `comfyFreeVRAM()` | Post-job VRAM cleanup via empty prompt with `FreeU_V2` node |
+| `buildLTX2Workflow(opts)` | Builds complete LTX 2.3 workflow — two-pass sampling, audio+video latent concat, spatial upscaler, RTX Video Super Resolution ULTRA, ColorMatch + Sharpen |
+| `buildFLUX2Workflow(opts)` | Builds FLUX.2 Klein 9B image generation workflow with T5 + CLIP text encoders |
+| `buildSingerImagePrompt(opts)` | Section-aware prompt builder — 9 section types with different visual styles, gender-aware person descriptors |
+| `buildVideoPrompt(imagePrompt, sectionType)` | Auto-generates action description from image prompt + section mood |
+
+#### LTX 2.3 Workflow (mirrors user's working workflow)
+1. Load GGUF unet (LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf)
+2. First pass: 768×512, 97 frames (~3.2s), 10 steps
+3. Encode video to latent
+4. Extract audio from source video, encode to audio latent
+5. Concatenate video + audio latents
+6. Second pass: Decode combined latents
+7. Spatial upscaler (ltx-2.3-spatial-upscaler-x2-1.1.safetensors)
+8. RTX Video Super Resolution ULTRA (scale_factor=2)
+9. ColorMatch + Sharpen post-processing
+
+#### FLUX.2 Workflow
+1. Load GGUF unet (Flux-2-Klein-9B-KV-Q8_0.gguf)
+2. T5 text encoder (awq-int4-flux.1-t5xxl) + CLIP-L
+3. Single-pass sampling: 1024×1024, cfg_scale=1.0 (FLUX-native, negative prompts ignored)
+4. Save output image
+
+#### API Endpoints (8 new)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/inspire/comfyui/status` | GET | ComfyUI connection check |
+| `/api/inspire/comfyui/generate-image` | POST | FLUX.2 image generation |
+| `/api/inspire/comfyui/generate-video` | POST | LTX 2.3 video generation |
+| `/api/inspire/comfyui/extract-audio` | POST | Extract audio segment from WAV |
+| `/api/inspire/comfyui/assets` | GET | List generated assets |
+| `/api/inspire/comfyui/assets` | DELETE | Remove generated assets |
+| `/api/inspire/comfyui/export-mp4` | POST | FFmpeg export with Ken Burns + concat |
+| `/api/inspire/comfyui/export-status/:jobId` | GET | Poll export progress |
+
+#### FFmpeg Export
+- **Image sections**: Ken Burns zoom (6 directions: center-in, center-out, left, right, top, bottom) with crossfade transitions
+- **Video clips**: Concat demuxer for sequential playback with original audio
+- **Audio overlay**: Original track mixed with video
+- **Output formats**: 720p, 1080p, 4K at 24/30/60 FPS
+
+#### Section-Aware Image Prompts
+| Section Type | Visual Style |
+|-------------|-------------|
+| Verse | Intimate, grounded, concrete imagery |
+| Chorus | Vivid, energetic, bold colors |
+| Bridge | Dreamlike, transitional, unexpected angles |
+| Intro | Minimalist, establishing shot, dawn/first light |
+| Outro | Reflective, winding down, sunset/last light |
+| Pre-Chorus | Building tension, rising energy |
+| Hook | Iconic, memorable, simple bold composition |
+| Instrumental | Abstract, textural, no people |
+| Breakdown | Stark, stripped-back, contrast |
+
+---
+
+### 67. Stem Decomposition (SuperSep)
+
+**Problem:** The Music Video Creator needs per-stem audio analysis to drive beat-reactive visual effects, but the original system only has a single master audio channel.
+
+**Solution:** Server-side stem decomposition using SuperSep, with per-stem `AnalyserNode` routing in the Music Video Creator.
+
+**Location**: `server/server.mjs` (SuperSep endpoint), `ui/dist/music-video.html` (stem loading + routing)
+
+#### Server-Side
+- `POST /api/supervision/separate` — Submits audio for stem separation
+- Returns stems as objects: `{ trackName, audioUrl, ... }`
+- Stems: Drums, Bass, Vocals, Other
+
+#### Client-Side (Music Video Creator)
+- Calls SuperSep on audio load
+- Maps stems to default layers:
+  - Kick → Drums stem
+  - Snare → Drums stem
+  - HiHat → Drums stem
+  - Lead Vocals → Vocals stem
+  - Bass → Bass stem
+  - Backing Vocals → Vocals stem
+- Each layer gets its own `AnalyserNode` fed by its assigned stem's audio element
+- Layer visual intensity driven by per-stem frequency data
+
+---
+
+### 68. Inline Visualizer Overlay
+
+**Problem:** The index.html had no built-in visualizer — users had to open a separate tab. Inline visualizers that use `AudioContext.createMediaElementSource()` disconnect the audio element from the DOM, requiring careful monkey-patching.
+
+**Solution:** Inline visualizer overlay in index.html with 6 render modes, transparent canvas backdrop, AudioContext monkey-patch, and control bar.
+
+**Location**: `ui/dist/index.html`
+
+#### Architecture
+- **AudioContext monkey-patch**: `AudioContext.prototype.createMediaElementSource` intercepted before React loads. Wraps the real `createMediaElementSource` and returns a proxy `MediaElementAudioSourceNode` that keeps the audio element in the DOM tree.
+- **6 render modes**: Bars, Wave, Circular, Tunnel, Starfield, Liquid — same algorithms as the standalone visualizer but simplified
+- **Transparent backdrop**: Canvas has `background: rgba(0,0,0,0.78)` so content is visible behind
+- **Control bar** (z-index: 10000): Previous/next mode, mode label, close button — separate from canvas to avoid click-through issues
+
+#### Integration
+- **MVC button**: 🎬 clapper icon next to visualizer button, opens `music-video.html` with current song ID
+- **Visualizer button**: 🎛️ icon opens inline overlay (replaces new-tab approach for the inline case)
+
+#### Bug Fixes Applied
+- `globalTime` double-increment removed from `renderCircular` and `renderTunnel`
+- `vizModeLabel` now updates on right-click mode cycle
+- `vizMode` NaN guard added for corrupted localStorage
+- Dead `window.__albumLib` code (115 lines) removed
+- `disconnectAudio()` called on deactivate to fix latency
+
+---
+
 ## How to Reproduce on a Clean v1.1.4
 
 ### Backend (`server/server.mjs`)
@@ -1598,6 +1808,11 @@ User picks Ukrainian (uk) → translateParams() → resolveLanguageFallback("uk"
 20. **Vocabulary lock Patois skip**: Add `wantsPatois` parameter to `enforceVocabularyLock()` and `processLyricsWithGenre()`. Skip English→Patois replacements when `wantsPatois === false`.
 21. **vocal_language fallback**: Add `resolveLanguageFallback()` call in `translateParams()` to remap unsupported language codes before sending to ACE-Step engine.
 22. **Album track limit**: Change `MAX_TRACKS` from 9 to 20 in album.html. Update `addTrack()`, `updateAddBtn()`, `clearForm()`, and LLM auto-fill prompt for 20 tracks.
+23. **ComfyUI client** (~730 lines): Add `comfyUpload()`, `comfySubmitAndWait()`, `comfyFreeVRAM()`, `buildLTX2Workflow()`, `buildFLUX2Workflow()`, `buildSingerImagePrompt()`, `buildVideoPrompt()` functions.
+24. **ComfyUI API endpoints**: Add 8 endpoints (`/comfyui/status`, `/comfyui/generate-image`, `/comfyui/generate-video`, `/comfyui/extract-audio`, `/comfyui/assets` GET/DELETE, `/comfyui/export-mp4`, `/comfyui/export-status/:jobId`).
+25. **FFmpeg export**: Add Ken Burns zoom (6 directions), crossfade transitions, concat demuxer, audio overlay, progress tracking.
+26. **data/mvc/ directory**: Create at startup for Music Video Creator assets.
+27. **Audit fixes**: Path traversal guard on `/data/mvc` static server, auth on DELETE/GET `/comfyui/assets`, empty video buffer throw, `exportJobs` memory leak cleanup, async `comfyUpload` read.
 
 ### Frontend (`ui/dist/assets/index-DscBS4mv.js`)
 
@@ -1616,6 +1831,14 @@ User picks Ukrainian (uk) → translateParams() → resolveLanguageFallback("uk"
 5. Opens visualizer with `?id=SONGID&title=TITLE` parameters
 6. **Phase 7**: Visualizer button now opens in new tab (`window.open()`) instead of inline iframe dock, to avoid autoplay restrictions
 7. **Phase 7**: Add `vocalLanguage: hs('vocalLanguage', 'en')` to `readSettingsFromStorage()` return object
+8. **Phase 8**: Add inline visualizer overlay (6 modes, transparent backdrop, AudioContext monkey-patch)
+9. **Phase 8**: Add MVC launcher button (🎬 clapper icon) that opens `music-video.html`
+10. **Phase 8**: Remove Album Library floating icon (moved to album.html header button)
+11. **Phase 8**: Remove dead `window.__albumLib` code (115 lines)
+12. **Phase 8**: Add vizMode NaN guard for corrupted localStorage
+13. **Phase 8**: Fix vizModeLabel update on right-click mode cycle
+14. **Phase 8**: Fix globalTime double-increment in Circular & Tunnel renderers
+15. **Phase 8**: Fix vizControlBar not hidden on Esc
 
 ### Frontend (`ui/dist/album.html`)
 
@@ -1627,6 +1850,23 @@ User picks Ukrainian (uk) → translateParams() → resolveLanguageFallback("uk"
 6. Add "Traditional / World" genre group to genre dropdown (4 genres: Klezmer, Mariachi, Bhangra, Andean)
 7. **Phase 7**: Expand LANGUAGES array from 12 to 18 entries (add Turkish, Vietnamese, Thai, Swedish, Polish, Dutch)
 8. **Phase 7**: Increase track limit from 9 to 20 (`MAX_TRACKS = 20`). Update `addTrack()`, `updateAddBtn()`, `clearForm()`, and LLM auto-fill prompt.
+9. **Phase 8**: Add multi-select genre picker with 200+ genres across 15 categories
+10. **Phase 8**: Add gender/vocalist context fields and `buildGenderContext()` function
+11. **Phase 8**: Add random genre-aware theme generator button
+12. **Phase 8**: Add Album Library button in header (opens modal, replaces floating icon in index.html)
+
+### Frontend (`ui/dist/music-video.html`) — **NEW**
+
+1. Create standalone HTML file (~2290 lines) with dark theme
+2. Implement layer stack system (6 default layers, expandable to 17)
+3. Implement 12 visual effects with per-stem AnalyserNode routing
+4. Add ComfyUI image generation (FLUX.2) with section-aware prompts
+5. Add ComfyUI video generation (LTX 2.3) with progress tracking
+6. Add timeline with section blocks and transport controls
+7. Add FFmpeg export modal with resolution/FPS/audio options
+8. Add keyboard shortcuts (Space, Esc, M, S, A, Delete, 1-9)
+9. Add stem decomposition via SuperSep endpoint
+10. Add auth token support on all ComfyUI fetch calls
 
 ### Frontend (`ui/dist/visualizer.html`)
 
@@ -1666,7 +1906,7 @@ This project builds upon the work of the following creators and open-source proj
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn, MP4 video generator, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, and all Phase 1-7 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn, MP4 video generator, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, and all Phase 1-8 enhancements.
 
 ### Additional
 - **Node.js** runtime — Server-side JavaScript execution

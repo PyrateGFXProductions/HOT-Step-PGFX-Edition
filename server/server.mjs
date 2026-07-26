@@ -298056,7 +298056,7 @@ async function comfyGet(endpoint) {
   return resp.json();
 }
 async function comfyUpload(filePath, fileName) {
-  const fileBytes = fs9.readFileSync(filePath);
+  const fileBytes = await fs9.promises.readFile(filePath);
   const blob = new Blob([fileBytes], { type: "application/octet-stream" });
   const form = new FormData();
   form.append("image", blob, fileName);
@@ -298399,8 +298399,8 @@ router21.post("/comfyui/generate-image", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const { sectionType, lyrics, style, vocalistGender, title, subject, width, height, steps, cfg, seed } = req.body;
-    const imagePrompt = buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject });
+    const { sectionType, lyrics, style, vocalistGender, title, subject, width, height, steps, cfg, seed, prompt: clientPrompt } = req.body;
+    const imagePrompt = clientPrompt || buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject });
     console.log(`[MVC] Image prompt: ${imagePrompt.substring(0, 120)}...`);
     const workflow = buildFLUX2Workflow({ prompt: imagePrompt, width: width||1024, height: height||1024, steps: steps||20, cfg: cfg||3.5, seed });
     const result = await comfySubmitAndWait(workflow);
@@ -298486,7 +298486,8 @@ router21.post("/comfyui/generate-video", async (req, res) => {
     const outDir = path9.join(process.cwd(), "data", "mvc");
     if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
     const localName = `clip_${uuid9().substring(0,8)}.mp4`;
-    const localPath = path9.join(outDir, vidBuffer.length > 0 ? localName : "error.mp4");
+    if (vidBuffer.length === 0) throw new Error("ComfyUI returned empty video output");
+    const localPath = path9.join(outDir, localName);
     fs9.writeFileSync(localPath, vidBuffer);
     console.log(`[MVC] Video clip saved: ${localPath} (${(vidBuffer.length/1024/1024).toFixed(1)} MB)`);
     res.json({ videoUrl: `/data/mvc/${localName}`, prompt: finalVideoPrompt, filename: vidFile.filename, sizeMB: (vidBuffer.length/1024/1024).toFixed(1) });
@@ -298529,6 +298530,8 @@ router21.post("/comfyui/extract-audio", async (req, res) => {
 
 /* List generated MVC assets */
 router21.get("/comfyui/assets", async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
   try {
     const outDir = path9.join(process.cwd(), "data", "mvc");
     if (!fs9.existsSync(outDir)) return res.json({ assets: [] });
@@ -298545,6 +298548,8 @@ router21.get("/comfyui/assets", async (req, res) => {
 
 /* Clean up MVC assets */
 router21.delete("/comfyui/assets", async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
   try {
     const outDir = path9.join(process.cwd(), "data", "mvc");
     if (fs9.existsSync(outDir)) {
@@ -298559,7 +298564,9 @@ router21.delete("/comfyui/assets", async (req, res) => {
 
 /* Serve MVC static files */
 app.use("/data/mvc", (req, res, next) => {
-  const filePath = path9.join(process.cwd(), "data", "mvc", req.path);
+  const filePath = path9.normalize(path9.join(process.cwd(), "data", "mvc", req.path));
+  const mvcRoot = path9.normalize(path9.join(process.cwd(), "data", "mvc"));
+  if (!filePath.startsWith(mvcRoot)) { res.status(403).json({ error: "Forbidden" }); return; }
   if (fs9.existsSync(filePath) && fs9.statSync(filePath).isFile()) {
     res.sendFile(filePath);
   } else { next(); }
@@ -298570,6 +298577,15 @@ app.use("/data/mvc", (req, res, next) => {
    Composites LTX video clips + images + Ken Burns → single MP4
    ═══════════════════════════════════════════════════════════════════════ */
 const exportJobs = {}; /* jobId -> { status, progress, outputPath, error } */
+/* Cleanup old export jobs every 5 minutes */
+setInterval(() => {
+  const cutoff = Date.now() - 300000; /* 5 min */
+  for (const [id, job] of Object.entries(exportJobs)) {
+    if (job.status === "completed" || job.status === "failed") {
+      delete exportJobs[id];
+    }
+  }
+}, 300000);
 
 router21.post("/comfyui/export-mp4", async (req, res) => {
   try {
@@ -298753,6 +298769,8 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
 
 /* Poll export status */
 router21.get("/comfyui/export-status/:jobId", async (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
   const job = exportJobs[req.params.jobId];
   if (!job) return res.status(404).json({ error: "Job not found" });
   res.json(job);

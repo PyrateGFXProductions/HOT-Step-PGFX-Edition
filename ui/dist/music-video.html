@@ -354,7 +354,8 @@ const S = {
   sections: [],
   selectedLayerIndex: 0,
   selectedEffectId: null,
-  exportJobId: null
+  exportJobId: null,
+  audioUrl: null
 };
 
 let audioCtx, masterAnalyser, masterSource, audioEl, destNode;
@@ -1618,6 +1619,17 @@ function populateSectionSelects() {
   });
 }
 
+async function getAuthToken() {
+  var token = null;
+  try { token = JSON.parse(localStorage.getItem('ace-settings') || '{}').token || null; } catch(e) {}
+  if (!token) { try { token = JSON.parse(localStorage.getItem('hs-auth') || '{}').token || null; } catch(e) {} }
+  if (!token) {
+    var ks = ['hs-album-token', 'hs-token', 'auth-token', 'ace-token'];
+    for (var k = 0; k < ks.length; k++) { var v = localStorage.getItem(ks[k]); if (v) { token = v; break; } }
+  }
+  return token;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    STEM LOADING
    ═══════════════════════════════════════════════════════════════════════ */
@@ -1643,6 +1655,7 @@ async function loadStemsForSong(songId) {
     var songData = await songResp.json();
     var audioUrl = songData.audio_url || songData.mastered_audio_url || '';
     if (audioUrl && !audioUrl.startsWith('http') && !audioUrl.startsWith('/')) audioUrl = '/audio/' + audioUrl;
+    S.audioUrl = audioUrl || '/audio/' + encodeURIComponent(songId) + '.wav';
 
     /* Start stem separation */
     var sepResp = await fetch('/api/stem-studio/supersep', {
@@ -1655,7 +1668,7 @@ async function loadStemsForSong(songId) {
       })
     });
     var sepData = await sepResp.json();
-    var jobId = sepData.jobId;
+    var jobId = sepData.id || sepData.jobId;
     if (!jobId) throw new Error('No job ID returned');
 
     $('stem-status').textContent = 'Separating stems...';
@@ -1685,7 +1698,10 @@ async function loadStemsForSong(songId) {
     /* Get result and load each stem */
     var resultResp = await fetch('/api/stem-studio/' + jobId + '/result', { headers: headers });
     var resultData = await resultResp.json();
-    var stemNames = resultData.stems || resultData.tracks || ['drums', 'bass', 'other', 'vocals'];
+    var stemNames = (resultData.stems || resultData.tracks || ['drums', 'bass', 'other', 'vocals']).map(function(s) {
+      if (s && typeof s === 'object') return s.trackName || s.name || s.id || String(s);
+      return s;
+    });
 
     var stemNameMap = {
       'drums': ['Kick', 'Snare', 'HiHat', 'Toms', 'Ride', 'Crash'],
@@ -1764,9 +1780,13 @@ async function generateImage(sectionName) {
   $('img-progress-fill').style.width = '10%';
 
   try {
+    var authHeaders = { 'Content-Type': 'application/json' };
+    var token = await getAuthToken();
+    if (token) authHeaders['Authorization'] = 'Bearer ' + token;
+
     var resp = await fetch('/api/inspire/comfyui/generate-image', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify({
         prompt: prompt,
         section: section.name,
@@ -1784,7 +1804,7 @@ async function generateImage(sectionName) {
       var done = false;
       while (!done) {
         await new Promise(function(r) { setTimeout(r, 2000); });
-        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId));
+        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId), { headers: authHeaders });
         var statusData = await statusResp.json();
         $('img-progress-fill').style.width = (statusData.progress || 50) + '%';
 
@@ -1849,14 +1869,21 @@ async function generateVideoClip(sectionName) {
   $('vid-progress-fill').style.width = '10%';
 
   try {
+    var vidAuthHeaders = { 'Content-Type': 'application/json' };
+    var vidToken = await getAuthToken();
+    if (vidToken) vidAuthHeaders['Authorization'] = 'Bearer ' + vidToken;
+
     var resp = await fetch('/api/inspire/comfyui/generate-video', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: vidAuthHeaders,
       body: JSON.stringify({
         prompt: prompt,
         section: section.name,
         songId: S.songId,
         imageUrl: section.imageUrl || null,
+        audioUrl: section.audioUrl || S.audioUrl || null,
+        audioStart: section.startTime || 0,
+        audioDuration: section.endTime - section.startTime,
         width: 1920,
         height: 1080,
         duration: section.endTime - section.startTime
@@ -1870,7 +1897,7 @@ async function generateVideoClip(sectionName) {
       var done = false;
       while (!done) {
         await new Promise(function(r) { setTimeout(r, 3000); });
-        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId));
+        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId), { headers: vidAuthHeaders });
         var statusData = await statusResp.json();
         $('vid-progress-fill').style.width = (statusData.progress || 30) + '%';
 
@@ -1953,9 +1980,13 @@ async function startExport() {
       };
     });
 
+    var exportAuthHeaders = { 'Content-Type': 'application/json' };
+    var exportToken = await getAuthToken();
+    if (exportToken) exportAuthHeaders['Authorization'] = 'Bearer ' + exportToken;
+
     var resp = await fetch('/api/inspire/comfyui/export-mp4', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: exportAuthHeaders,
       body: JSON.stringify({
         songId: S.songId,
         width: parseInt(res[0]),
@@ -1984,7 +2015,7 @@ async function startExport() {
       var done = false;
       while (!done) {
         await new Promise(function(r) { setTimeout(r, 3000); });
-        var progResp = await fetch('/api/inspire/comfyui/export-status/' + encodeURIComponent(S.exportJobId));
+        var progResp = await fetch('/api/inspire/comfyui/export-status/' + encodeURIComponent(S.exportJobId), { headers: exportAuthHeaders });
         var progData = await progResp.json();
         $('export-progress-fill').style.width = (progData.progress || 10) + '%';
         $('export-status').textContent = 'Exporting... ' + Math.round(progData.progress || 0) + '%';
@@ -2270,6 +2301,7 @@ if (S.songId) {
     .then(function(data) {
       var audioUrl = data.audio_url || data.mastered_audio_url || '';
       if (audioUrl && !audioUrl.startsWith('http') && !audioUrl.startsWith('/')) audioUrl = '/audio/' + audioUrl;
+      S.audioUrl = audioUrl || '/audio/' + encodeURIComponent(S.songId) + '.wav';
       var title = S.songTitle || data.title || 'Track';
       S.songTitle = title;
       if (audioUrl) {
