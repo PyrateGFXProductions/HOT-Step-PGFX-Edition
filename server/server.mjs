@@ -5,6 +5,60 @@
 import { createRequire as __bundleCreateRequire } from "module";
 const require = __bundleCreateRequire(import.meta.url);
 
+// ── Modular service imports ────────────────────────────────────────────────────
+// These are self-contained ES modules extracted from the monolithic server.mjs.
+// Each module owns its own dependencies and data structures.
+import {
+  comfySubmitAndWait as comfySubmitFromQueue,
+  comfyFindOutput as comfyFindOutputMod,
+  comfyPost as comfyPostMod,
+  comfyGet as comfyGetMod,
+  comfyUpload as comfyUploadMod,
+  comfyDownload as comfyDownloadMod,
+  comfyQueue,
+  buildLTX2Workflow as buildLTX2WorkflowMod,
+  buildFLUX2Workflow as buildFLUX2WorkflowMod,
+  COMFYUI_URL as COMFYUI_URL_MOD
+} from "./services/comfyui-client.mjs";
+
+import {
+  parseWav as parseWavMod,
+  analyzeWav as analyzeWavMod,
+  detectBeatsInAudio as detectBeatsInAudioMod,
+  parseVideoSections as parseVideoSectionsMod,
+  calculateSectionTimings as calculateSectionTimingsMod,
+  analyzeAndSaveDiscoData as analyzeAndSaveDiscoDataMod
+} from "./services/beat-detector.mjs";
+
+import {
+  translateMusicTerms as translateMusicTermsMod,
+  extractLyricImagery as extractLyricImageryMod,
+  extractVisualEssence as extractVisualEssenceMod,
+  extractThemeKeywords as extractThemeKeywordsMod,
+  getGenreVisuals as getGenreVisualsMod,
+  extractTitleConcept as extractTitleConceptMod,
+  buildCoverArtPrompt as buildCoverArtPromptMod,
+  buildSingerImagePrompt as buildSingerImagePromptMod,
+  buildVideoPrompt as buildVideoPromptMod
+} from "./services/prompt-builder.mjs";
+
+import {
+  buildModelRegistry,
+  detectComfyUI as detectComfyUIMod,
+  getComfyUIStatus as getComfyUIStatusMod,
+  invalidateCache as invalidateModelCache,
+  findComfyUIDir as findComfyUIDirMod,
+} from "./services/comfyui-model-scanner.mjs";
+
+import {
+  discoverCapabilities,
+  inferModelParameters as inferModelParamsMod,
+  generateImage as bridgeGenerateImage,
+  generateVideo as bridgeGenerateVideo,
+  listPipelines as listPipelinesMod,
+  detectPipeline as detectPipelineMod,
+} from "./services/comfyui-bridge.mjs";
+
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -24555,7 +24609,7 @@ var init_config = __esm({
     DEFAULT_MODELS = path.join(PROJECT_ROOT, "models");
     DEFAULT_ADAPTERS = path.join(PROJECT_ROOT, "adapters");
     DEFAULT_NOISE_SAMPLES = path.join(PROJECT_ROOT, "noise_samples");
-    DEFAULT_ONNX_DIR = path.join(PROJECT_ROOT, "models", "onnx");
+    DEFAULT_ONNX_DIR = path.join(PROJECT_ROOT, "models", "supersep");
     config = {
       // ace-server configuration
       aceServer: {
@@ -42420,342 +42474,21 @@ var init_lufsNormalize = __esm({
 
 // server/src/services/coverArt/promptBuilder.ts
 function extractThemeKeywords(lyrics, maxKeywords = 5) {
-  if (!lyrics?.trim()) return [];
-  let cleaned = lyrics.replace(/\[.*?\]/g, "");
-  cleaned = cleaned.replace(/[^\w\s]/g, "").toLowerCase();
-  const words = cleaned.split(/\s+/).filter((w) => w.length > 3 && !STOP_WORDS.has(w));
-  if (words.length === 0) return [];
-  const freq = {};
-  for (const w of words) freq[w] = (freq[w] || 0) + 1;
-  return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, maxKeywords).map(([word]) => word);
+  return extractThemeKeywordsMod(lyrics, maxKeywords);
 }
 function getGenreVisuals(style) {
-  if (!style) return "";
-  const lower = style.toLowerCase();
-  for (const [genre, visuals] of Object.entries(GENRE_VISUALS)) {
-    if (lower.includes(genre)) return visuals;
-  }
-  return "";
+  return getGenreVisualsMod(style);
 }
 function extractTitleConcept(title) {
-  if (!title?.trim()) return "";
-  const t = title.trim().toLowerCase();
-  const conceptMap = {
-    "fire|flame|burn|blaze|inferno": "intense flames, glowing embers, rising heat, orange and red hues",
-    "rain|storm|thunder|lightning|tempest": "dramatic storm clouds, rain streaks, lightning illuminating a dark sky",
-    "night|midnight|dark|moon|moonlight": "nocturnal scene, moonlight casting long shadows, deep blue and black tones",
-    "sun|sunrise|sunset|dawn|golden|day": "warm golden hour light, sun-drenched landscape, long shadows, amber tones",
-    "city|urban|street|building|skyline": "modern cityscape, architectural forms, concrete and glass, neon reflections",
-    "ocean|sea|wave|water|tide|surf|deep": "vast ocean expanse, rolling waves, underwater light rays, deep blues and greens",
-    "sky|cloud|heaven|star|galaxy|cosmos": "sweeping sky view, cloud formations, celestial bodies, cosmic dust, ethereal light",
-    "heart|love|passion|desire|kiss": "romantic warm tones, intimate close-up, soft bokeh, rose and crimson palette",
-    "ghost|haunt|shadow|phantom|spirit|soul": "ethereal translucent figures, misty atmosphere, spectral light, haunting stillness",
-    "diamond|gold|crown|throne|royal|king|queen": "opulent regal scene, metallic gold and jewel tones, ornate details, luxury",
-    "wolf|tiger|lion|eagle|raven|serpent": "powerful animal in natural habitat, intense gaze, wild landscape, primal energy",
-    "time|clock|hour|moment|eternity|forever": "surreal time imagery, melting clocks, hourglass, temporal distortion",
-    "road|journey|path|trail|wander": "winding road through landscape, vanishing point, sense of movement and exploration",
-    "dream|sleep|awake|vision|imagine": "surreal dreamlike scene, impossible geometry, soft edges, surreal color palette",
-    "blood|wound|scar|pain|hurt|cry": "dramatic chiaroscuro lighting, raw emotion, intense red accents on dark background",
-    "war|fight|battle|sword|gun|army": "epic battlefield scene, dramatic smoke, silhouettes against fiery sky, conflict",
-    "peace|calm|serene|quiet|still|gentle": "tranquil pastoral scene, soft diffused light, gentle colors, harmonious composition",
-    "dance|move|groove|rhythm|beat|flow": "dynamic sense of motion, flowing fabric or particles, rhythmic visual patterns",
-    "mask|face|eye|stare|gaze|look": "mysterious face or mask, intense eye detail, dramatic shadow play, enigmatic mood",
-    "chain|link|bind|lock|shack|free": "symbolic chains or freedom imagery, contrast of confinement and liberation",
-    "ghost|phantom|specter|wraith|apparition": "ghostly translucent figures, eerie fog, supernatural lighting, otherworldly atmosphere",
-    "kingdom|empire|throne|castle|fortress": "grand medieval architecture, towering stone walls, dramatic sky, epic scale",
-    "machine|engine|robot|cyber|neon|tech": "futuristic cyberpunk scene, glowing circuits, neon-lit machinery, technological sublime",
-    "desert|sand|dune|cactus|sun|heat": "vast desert landscape, shimmering heat haze, sand dunes, harsh sunlight",
-    "forest|tree|wood|leaf|moss|fern": "dense ancient forest, dappled sunlight through canopy, rich green foliage, organic textures",
-    "mountain|peak|cliff|rock|stone|summit": "towering mountain peak, dramatic clouds, rugged terrain, sense of altitude",
-    "flower|bloom|petal|garden|rose|lily": "lush botanical close-up, delicate petals, dewdrops, vibrant floral colors",
-    "ice|frost|snow|winter|cold|freeze|glacier": "frozen crystalline landscape, ice formations, cool blue-white palette, frost patterns"
-  };
-  for (const [pattern, concept] of Object.entries(conceptMap)) {
-    if (new RegExp(pattern).test(t)) return concept;
-  }
-  return "";
+  return extractTitleConceptMod(title);
 }
 function extractLyricImagery(lyrics) {
-  if (!lyrics?.trim()) return "";
-  /* First: translate music/slang terms to their visual equivalents */
-  const translated = translateMusicTerms(lyrics);
-  const cleaned = translated.replace(/\[.*?\]/g, "").replace(/\n+/g, " ").trim();
-  const lines = cleaned.split(/[.!?]+/).filter((l) => l.trim().length > 10);
-  const visualWords = ["see", "watch", "look", "eyes", "light", "dark", "color", "red", "blue", "green", "black", "white", "gold", "silver", "shadow", "glow", "shine", "bright", "dim", "fog", "mist", "smoke", "fire", "water", "rain", "sun", "moon", "star", "sky", "earth", "stone", "metal", "glass", "steel", "iron", "blood", "bone", "dust", "ash", "ember", "spark", "flame", "wave", "tide", "storm", "wind", "frost", "snow", "ice", "cloud", "lightning", "thunder", "rose", "thorn", "vine", "leaf", "tree", "flower", "garden", "wild", "jungle", "desert", "mountain", "river", "ocean", "sea", "beach", "shore", "cliff", "cave", "forest", "field", "meadow", "valley", "canyon", "road", "path", "street", "city", "building", "wall", "door", "window", "tower", "bridge", "castle", "palace", "crown", "throne", "sword", "shield", "chain", "lock", "key", "mask", "face", "hand", "heart", "eye", "bone", "skull", "ghost", "spirit", "shadow", "phantom", "demon", "angel", "god", "devil", "heaven", "hell", "universe", "galaxy", "star", "planet", "moon", "sun", "comet", "meteor", "void", "abyss", "depth", "surface", "edge", "horizon", "sky", "ground", "floor", "ceiling", "roof", "dome", "pillar", "column", "arch", "gate", "fence", "barrier", "border", "line", "circle", "square", "triangle", "spiral", "wave", "pattern", "texture", "grain", "smooth", "rough", "soft", "hard", "sharp", "blunt", "thick", "thin", "wide", "narrow", "tall", "short", "deep", "shallow", "heavy", "light", "fast", "slow", "loud", "quiet", "warm", "cold", "hot", "cool", "wet", "dry", "clean", "dirty", "new", "old", "young", "ancient", "modern", "future", "past", "present", "now", "then", "here", "there", "everywhere", "nowhere", "somewhere", "anywhere", "always", "never", "sometimes", "forever", "eternity", "moment", "instant", "flash", "blink", "breath", "heartbeat", "pulse", "rhythm", "beat", "tempo", "melody", "harmony", "chord", "note", "sound", "silence", "noise", "whisper", "scream", "cry", "laugh", "smile", "frown", "tear", "blood", "sweat", "tears"];
-  const found = [];
-  const words = cleaned.toLowerCase().split(/\s+/);
-  for (const w of words) {
-    if (visualWords.includes(w) && !found.includes(w)) found.push(w);
-    if (found.length >= 6) break;
-  }
-  return found.join(", ");
+  return extractLyricImageryMod(lyrics);
 }
-/* Section type → emotional visual tone mapping */
-var SECTION_VISUAL_TONE = {
-  intro: "gentle opening, soft light gradually revealing a scene, anticipation in the air",
-  verse: "intimate observational scene, natural lighting, grounded and personal perspective",
-  chorus: "expansive dramatic reveal, heightened emotion, vivid saturated colors, peak intensity",
-  "pre-chorus": "building tension, shifting light, sense of anticipation growing",
-  "post-chorus": "lingering resonance, afterglow, emotional echo of the chorus fading",
-  bridge: "unexpected perspective shift, dreamlike quality, different visual palette from verses",
-  interlude: "transitional atmosphere, suspended moment, quiet visual breathing room",
-  outro: "fading resolution, closing imagery, warmth or melancholy settling in",
-  instrumental: "abstract musical visualization, flowing forms, no human figures"
-};
-/* Act position → narrative visual emphasis */
-var ACT_EMPHASIS = {
-  1: "opening scene, establishing the world, introducing visual motifs",
-  2: "rising intensity, deepening conflict, visuals becoming more complex and layered",
-  3: "climax and resolution, transformative imagery, the visual story reaching its peak"
-};
+
 function buildCoverArtPrompt(opts) {
-  if (opts.prompt?.trim()) {
-    return opts.prompt.trim();
-  }
-  var parts = [];
-  var style = opts.style || "";
-  var title = opts.title || "";
-  var lyrics = opts.lyrics || "";
-  var description = opts.description || "";
-  /* Section-aware fields (from unified video pipeline) */
-  var coverArtSubject = opts.coverArtSubject || opts.subject || "";
-  var sectionType = (opts.sectionType || "").toLowerCase().replace(/[^a-z-]/g, "");
-  var sectionIndex = typeof opts.sectionIndex === "number" ? opts.sectionIndex : -1;
-  var totalSections = typeof opts.totalSections === "number" ? opts.totalSections : 0;
-  /* Gender context for image generation */
-  var vocalistGender = opts.vocalistGender || "";
-  var aboutGender = opts.aboutGender || "";
-  /* Determine act from section position */
-  var act = 0;
-  if (sectionIndex >= 0 && totalSections > 0) {
-    var pct = sectionIndex / Math.max(1, totalSections - 1);
-    act = pct < 0.33 ? 1 : pct < 0.66 ? 2 : 3;
-  }
-  /* 1. SCENE: Build from lyrics imagery + cover art subject */
-  var lyricImagery = extractLyricImagery(lyrics);
-  var themeKeywords = extractThemeKeywords(lyrics, 5);
-  /* Build gender-aware person descriptor for image prompts */
-  var personDesc = "";
-  if (vocalistGender === "male" || aboutGender === "male") personDesc = "a man";
-  else if (vocalistGender === "female" || aboutGender === "female") personDesc = "a woman";
-  else if (vocalistGender === "duet") personDesc = "a man and a woman";
-  if (coverArtSubject && sectionType) {
-    /* Best case: we have the track's subject AND know the section type.
-       Compose a scene that grounds the subject in this section's visual moment. */
-    var tone = SECTION_VISUAL_TONE[sectionType] || SECTION_VISUAL_TONE["verse"];
-    if (act > 0 && ACT_EMPHASIS[act]) {
-      parts.push(coverArtSubject + ", " + ACT_EMPHASIS[act] + ", " + tone);
-    } else {
-      parts.push(coverArtSubject + ", " + tone);
-    }
-    /* Layer in specific imagery from this section's lyrics */
-    if (lyricImagery) {
-      parts.push("visual details: " + lyricImagery);
-    }
-  } else if (coverArtSubject) {
-    /* If we have gender context but the subject doesn't mention a person, enrich it */
-    var enrichedSubject = coverArtSubject;
-    if (personDesc && !/man|woman|boy|girl|he|she|male|female/i.test(coverArtSubject)) {
-      enrichedSubject = personDesc + " in a scene of " + coverArtSubject;
-    }
-    parts.push(enrichedSubject);
-    if (lyricImagery) parts.push("visual details: " + lyricImagery);
-  } else if (description?.trim()) {
-    parts.push(description.trim());
-  } else if (lyricImagery) {
-    var titleConcept = extractTitleConcept(title);
-    if (titleConcept) {
-      parts.push("A scene inspired by \"" + title.trim() + "\": " + titleConcept);
-    } else {
-      parts.push("Visual composition featuring: " + lyricImagery);
-    }
-  } else if (themeKeywords.length > 0) {
-    parts.push("A scene evoking themes of " + themeKeywords.join(", "));
-  } else {
-    var fallbackScenes = personDesc ? [
-      personDesc + " standing in a vast ethereal landscape under a dramatic sky",
-      personDesc + " silhouetted against flowing abstract forms with rich color gradients",
-      personDesc + " in a mysterious atmospheric scene with dramatic lighting",
-      personDesc + " surrounded by symbolic objects in dramatic composition",
-      personDesc + " amidst organic shapes merging with geometric patterns"
-    ] : [
-      "a vast ethereal landscape under a dramatic sky",
-      "abstract flowing forms with rich color gradients",
-      "a mysterious figure silhouetted against light",
-      "symbolic objects arranged in dramatic composition",
-      "organic shapes merging with geometric patterns"
-    ];
-    parts.push(fallbackScenes[Math.floor(Math.random() * fallbackScenes.length)]);
-  }
-  /* 2. MOOD: Genre-appropriate visual atmosphere */
-  var genreVisuals = getGenreVisuals(style);
-  if (genreVisuals) {
-    parts.push(genreVisuals);
-  } else if (style) {
-    var styleWords = style.split(",").map(function(w) { return w.trim().toLowerCase(); }).filter(function(w) { return w.length > 2 && !w.includes("_"); }).slice(0, 2);
-    if (styleWords.length > 0) {
-      parts.push(styleWords.join(" ") + " aesthetic");
-    }
-  }
-  /* 3. ANTI-GTA: Explicitly avoid game-like/stylized-3D/text rendering.
-     FLUX at cfg_scale=1 ignores negative prompts, so we state it positively. */
-  parts.push("no text, no words, no letters, no signs, no UI, no HUD, no watermark");
-  /* 4. NARRATIVE CONSISTENCY: All section images are frames of the same visual story.
-     Same world, same characters, same location, same lighting palette. */
-  if (sectionIndex >= 0 && totalSections > 0) {
-    var progress = sectionIndex / Math.max(1, totalSections - 1);
-    var arcDesc = progress < 0.2 ? "early chapter — introducing the world"
-      : progress < 0.4 ? "rising action — deepening into the world"
-      : progress < 0.6 ? "middle of the story — the world is fully alive"
-      : progress < 0.8 ? "climax approaching — intensity building"
-      : "final chapter — resolution, lasting impression";
-    parts.push("Visual continuity: all section images depict the same scene, same characters, same location, same lighting palette. This is one continuous visual story, not disconnected images.");
-    parts.push("Narrative progression: " + arcDesc);
-  }
-  /* 5. QUALITY SUFFIX */
-  var suffixPool = [
-    "digital painting, cinematic composition, highly detailed, beautiful lighting, 8k",
-    "concept art, artstation quality, dramatic lighting, vivid details, masterpiece",
-    "professional illustration, atmospheric depth, rich textures, stunning visual impact",
-    "ultra detailed artwork, dynamic lighting, emotional depth, gallery quality",
-    "painterly style, luminous color palette, intricate details, breathtaking composition",
-    "photorealistic digital art, volumetric lighting, sharp focus, award-winning visual",
-    "matte painting style, epic scale, atmospheric perspective, visually striking",
-    "fine art quality, balanced composition, nuanced color theory, museum-worthy piece"
-  ];
-  var suffix = suffixPool[Math.floor(Math.random() * suffixPool.length)];
-  parts.push(suffix);
-  return parts.join(". ");
+  return buildCoverArtPromptMod(opts);
 }
-var STOP_WORDS, GENRE_VISUALS;
-var init_promptBuilder = __esm({
-  "server/src/services/coverArt/promptBuilder.ts"() {
-    "use strict";
-    STOP_WORDS = /* @__PURE__ */ new Set([
-      "the",
-      "a",
-      "an",
-      "and",
-      "or",
-      "but",
-      "in",
-      "on",
-      "at",
-      "to",
-      "for",
-      "of",
-      "with",
-      "by",
-      "from",
-      "is",
-      "it",
-      "its",
-      "are",
-      "was",
-      "were",
-      "be",
-      "been",
-      "being",
-      "have",
-      "has",
-      "had",
-      "do",
-      "does",
-      "did",
-      "will",
-      "would",
-      "could",
-      "should",
-      "may",
-      "might",
-      "shall",
-      "can",
-      "not",
-      "no",
-      "so",
-      "if",
-      "up",
-      "out",
-      "just",
-      "like",
-      "my",
-      "me",
-      "we",
-      "you",
-      "your",
-      "they",
-      "them",
-      "he",
-      "she",
-      "her",
-      "his",
-      "i",
-      "im",
-      "ive",
-      "dont",
-      "that",
-      "this",
-      "all",
-      "got",
-      "get",
-      "when",
-      "what",
-      "where",
-      "how",
-      "why",
-      "oh",
-      "yeah",
-      "ya",
-      "na",
-      "la",
-      "da",
-      "uh",
-      "ah",
-      "ooh",
-      "hey",
-      "go",
-      "know",
-      "come",
-      "take",
-      "make",
-      "see",
-      "let",
-      "say",
-      "one",
-      "way",
-      "back",
-      "now",
-      "more",
-      "than",
-      "into",
-      "over",
-      "down",
-      "been"
-    ]);
-    GENRE_VISUALS = {
-      rock: "dramatic lighting, electric atmosphere, high contrast",
-      metal: "dark dramatic scene, intense fire and shadows, heavy atmosphere",
-      punk: "gritty urban scene, raw energy, bold colors, rebellion",
-      pop: "vibrant colors, clean aesthetic, bright lighting, contemporary",
-      electronic: "neon lights, futuristic environment, glowing particles, cyberpunk",
-      jazz: "warm golden tones, smoky atmosphere, elegant mood, sophisticated",
-      blues: "moody blue tones, deep shadows, soulful atmosphere",
-      folk: "natural landscapes, warm earth tones, rustic beauty, pastoral",
-      classical: "elegant composition, renaissance lighting, grand architecture",
-      hip: "urban cityscape, bold colors, street culture, dynamic perspective",
-      rap: "urban environment, dramatic angles, street aesthetic",
-      country: "wide open landscapes, golden hour, rural beauty, americana",
-      indie: "dreamy atmosphere, soft pastel colors, artistic composition",
-      r: "warm intimate lighting, smooth gradients, elegant silhouettes",
-      ambient: "ethereal landscapes, soft focus, atmospheric mist, dreamlike",
-      bossa: "tropical sunset, warm golden light, coastal paradise",
-      reggae: "tropical colors, island vibes, sunset hues, laid-back mood",
-      soul: "warm rich tones, intimate atmosphere, emotional depth",
-      funk: "bold psychedelic colors, retro vibes, dynamic energy",
-      alternative: "moody atmosphere, artistic composition, unconventional beauty"
-    };
-  }
-});
 
 // server/src/services/coverArt/coverArtService.ts
 var coverArtService_exports = {};
@@ -42891,12 +42624,11 @@ var init_coverArtService = __esm({
     init_esm();
     init_config();
     init_database();
-    init_promptBuilder();
     execFileAsync4 = promisify4(execFile4);
     COVER_ART_DIR = "cover-art";
     REQUIRED_FILES = {
       sdCli: process.platform === "win32" ? "sd.exe" : "sd",
-      diffusionModel: "flux-2-klein-4b-Q4_0.gguf",
+      diffusionModel: "flux-2-klein-9b-Q4_0.gguf",
       vae: "flux2_vae.safetensors",
       llm: "Qwen3-4B-Q4_K_M.gguf"
     };
@@ -44878,25 +44610,22 @@ var GENRE_VOCABULARY_MODULES = {
     ],
     lineRules: { preferShortLines: true, maxSyllables: 10, allowShouting: true },
     replacements: {
+      // Tech/corporate terms → dubstep equivalents (these DON'T belong in dubstep lyrics)
       "computer": "speaker", "internet": "the bass", "phone": "system",
       "office": "warehouse", "boss": "selector", "work": "grind",
-      "gentle": "filthy", "soft": "heavy", "sweet": "nasty", "calm": "aggressive",
-      "calm": "furious", "peace": "bass", "love": "wobble", "hate": "filth",
-      "beautiful": "massive", "ugly": "grimy", "quiet": "silent", "loud": "crushing",
-      "friend": "crew", "enemy": "opps", "man": "MC", "woman": "rave girl",
-      "happy": "hyped", "sad": "down", "angry": "furious", "scared": "shook",
-      "sing": "hype", "dance": "headbang", "walk": "stomp", "run": "charge",
-      "music": "bass", "song": "track", "melody": "wobble",
-      "night": "rave", "day": "set time", "year": "era",
+      // Setting/location terms (these ground the lyrics in dubstep culture)
       "city": "warehouse district", "town": "scene", "home": "studio",
-      "good": "filthy", "bad": "nasty", "great": "massive",
-      "terrible": "weak", "awful": "wack", "amazing": "heaving",
-      "strong": "heavy", "weak": "lightweight", "fast": "rapid", "slow": "half-time",
-      "big": "massive", "small": "lil", "new": "fresh", "old": "vintage",
+      "night": "rave", "day": "set time", "year": "era",
+      // Genre-specific nouns only
+      "music": "riddim", "song": "track", "melody": "line",
+      // NOTE: Emotion/state words (gentle, soft, beautiful, calm, love, peace, etc.)
+      // are intentionally NOT forced-replaced here. The LLM uses these naturally and
+      // variation across verses is desirable. Forcing "gentle"→"filthy" everywhere
+      // kills the LLM's vocabulary diversity and creates repetitive lyrics.
+      // The slop replacer (GENRE_SLOP_REPLACEMENTS) handles genuinely generic AI words.
       "fire": "drop", "water": "bass", "earth": "floor", "wind": "sweep",
       "rain": "bass rain", "snow": "frost", "storm": "bass storm",
-      "sun": "system", "moon": "night", "star": "MC",
-      "truth": "real", "lie": "cap", "secret": "lowkey"
+      "sun": "system", "moon": "night", "star": "MC"
     }
   },
   // ════════════════════════════════════════════════════════════════════════════════
@@ -45014,6 +44743,466 @@ var GENRE_VOCABULARY_MODULES = {
       "no problem": "no bother", "of course": "dun know",
       "take care": "tek care", "see you later": "likkle more"
     }
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // POP — bright, catchy, universal
+  // ════════════════════════════════════════════════════════════════════════════════
+  pop: {
+    whitelist: [
+      "sparkle", "shimmer", "glitter", "glow", "neon", "blinding", "dancing", "sunset",
+      "citylights", "heartbeat", "butterfly", "dreams", "fireworks", "electric", "pulse",
+      "glowing", "shining", "blazing", "bright", "alive", "alive", "tonight", "forever",
+      "sugar", "honey", "sweet", "sugar rush", "magic", "magical", "fairy tale",
+      "paradise", "heaven", "bliss", "euphoria", "rush", "thrill", "chase", "runaway",
+      "midnight", "summer", "ocean", "beach", "waves", "breeze", "sunshine", "golden",
+      "diamond", "crystal", "velvet", "silk", "marble", "chrome", "glossy", "shiny"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // ROCK — guitar-driven, anthemic, raw
+  // ════════════════════════════════════════════════════════════════════════════════
+  rock: {
+    whitelist: [
+      "highway", "road", "dust", "chrome", "engine", "thunder", "lightning", "storm",
+      "amplifier", "speaker", "guitar", "riff", "solo", "crank", "distortion", "feedback",
+      "rebel", "riot", "anthem", "roar", "scream", "shout", "stomp", "hammer",
+      "rock", "roll", "fire", "flame", "burn", "blaze", "inferno", "torch",
+      "concrete", "asphalt", "steel", "iron", "chain", "fist", "blood", "sweat",
+      "alive", "wild", "free", "unbroken", "unstoppable", "unshaken", "undefeated"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // COUNTRY — storytelling, heartland, vivid details
+  // ════════════════════════════════════════════════════════════════════════════════
+  country: {
+    whitelist: [
+      "dirt road", "dusty trail", "hay bale", "fence post", "porch light", "screen door",
+      "pickup truck", "tail lights", "headlights", "highway", "blue highway", "back road",
+      "corn field", "wheat field", "cotton field", "barn", "silo", "windmill",
+      "whiskey", "bourbon", "moonshine", "beer", "barstool", "sawdust floor",
+      "rodeo", "boots", "hat", "bolo tie", "rope", "lasso", "saddle",
+      "honky tonk", "jukebox", "two step", "line dance", "steel guitar",
+      "fiddle", "banjo", "mandolin", "acoustic guitar", "harmonica",
+      "heartbreak", "lonesome", "wander", "drift", "ramble", "wanderer",
+      "sundown", "sunset", "sunrise", "starlight", "firefly", "cricket"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // JAZZ — improvisation, swing, sophistication
+  // ════════════════════════════════════════════════════════════════════════════════
+  jazz: {
+    whitelist: [
+      "smoke", "smoky", "dim light", "candlelight", "neon sign", "alley",
+      "saxophone", "trumpet", "piano", "double bass", "brush drums", "ride cymbal",
+      "swing", "groove", "syncopation", "improvisation", "solo", "comping",
+      "blue note", "minor key", "chord change", "ii-V-I", "turnaround",
+      "speakeasy", "lounge", "club", "stage", "curtain", "microphone",
+      "whiskey glass", "cigarette smoke", "velvet curtain", "marquee light",
+      "midnight", "after hours", "late night", "dawn", "rainy night",
+      "melancholy", "longing", "nostalgia", "yearning", "wistful", "bittersweet"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // ELECTRONIC — synthesis, texture, atmosphere
+  // ════════════════════════════════════════════════════════════════════════════════
+  electronic: {
+    whitelist: [
+      "pulse", "oscillation", "frequency", "wavelength", "filter", "cutoff", "resonance",
+      "synthesizer", "analog", "digital", "modular", "sequencer", "arpeggiator",
+      "kick drum", "hi-hat", "snare", "bassline", "drop", "build", "riser",
+      "strobe light", "laser", "neon", "UV light", "black light", "laser grid",
+      "warehouse", "club", "dancefloor", "rave", "festival", "sound system",
+      "trance state", "euphoria", "hypnotic", "mesmerizing", "pulsating",
+      "voltage", "current", "circuit", "signal", "waveform", "spectrum"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // HOUSE — groove, 4/4 kick, soulful
+  // ════════════════════════════════════════════════════════════════════════════════
+  house: {
+    whitelist: [
+      "four on the floor", "kick drum", "hi-hat", "bassline", "groove", "shuffle",
+      "Warehouse", "Chicago", "Detroit", "Ibiza", "Berlin", "London",
+      "piano stab", "organ hit", "horn stab", "vocal chop", "filtered vocal",
+      "sunrise", "sundown", "after hours", "all night", "dancefloor",
+      "hands in the air", "body moving", "feet shuffling", "sweat dripping"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // TECHNO — industrial, repetitive, hypnotic
+  // ════════════════════════════════════════════════════════════════════════════════
+  techno: {
+    whitelist: [
+      "industrial", "mechanical", "factory", "machinery", "piston", "conveyor",
+      "machine", "robot", "circuit", "processor", "synthetic", "artificial",
+      "Berghain", "Detroit", "warehouse", "concrete", "steel", "chrome",
+      "repetitive", "hypnotic", "trance-like", "mesmerizing", "driving",
+      "loop", "pattern", "sequence", "modulation", "filter sweep"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // TRANCE — euphoric, uplifting, transcendent
+  // ════════════════════════════════════════════════════════════════════════════════
+  trance: {
+    whitelist: [
+      "euphoria", "euphoric", "transcendence", "ascension", "ethereal", "celestial",
+      "starlight", "cosmos", "universe", "galaxy", "nebula", "aurora",
+      "uplifting", "soaring", "ascending", "floating", "weightless", "flying",
+      "arpeggio", "supersaw", "pad", "strings", "piano breakdown",
+      "build", "riser", "climax", "peak", "drop", "release",
+      "dawn", "sunrise", "horizon", "infinity", "eternity", "infinity"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // AMBIENT — texture, space, atmosphere
+  // ════════════════════════════════════════════════════════════════════════════════
+  ambient: {
+    whitelist: [
+      "drone", "texture", "atmosphere", "space", "void", "expanse",
+      "reverb", "delay", "shimmer", "granular", "field recording",
+      "rain", "wind", "ocean", "forest", "birds", "water", "flowing",
+      "meditation", "stillness", "silence", "suspended", "floating", "drifting",
+      "ethereal", "otherworldly", "dreamlike", "surreal", "vast", "infinite",
+      "Brian Eno", "Arvo Pärt", "Harold Budd", "Stars of the Lid"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // SYNTHWAVE — 80s nostalgia, neon, chrome
+  // ════════════════════════════════════════════════════════════════════════════════
+  synthwave: {
+    whitelist: [
+      "neon", "chrome", "retrowave", "outrun", "cyberpunk", "grid",
+      "night drive", "sunset strip", "Miami", "Los Angeles", "Tokyo",
+      "analog synth", "arpeggiator", "sequencer", "VHS", "cassette",
+      "Polaroid", "Lamborghini", "Ferrari", "Testarossa", "DeLorean",
+      "grid lines", "wireframe", "hologram", "laser", "Tron",
+      "purple", "pink", "cyan", "magenta", "electric blue", "hot pink",
+      "chrome reflection", "neon glow", "synth arpeggio", "pad swell"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // LATIN — rhythm, percussion, dance
+  // ════════════════════════════════════════════════════════════════════════════════
+  latin: {
+    whitelist: [
+      "clave", "conga", "bongo", "timbale", "güiro", "maracas", "cowbell",
+      "piano montuno", "tres", "cuatro", "bajo sexto", "requinto",
+      "salsa", "merengue", "bachata", "cumbia", "son", "rumba",
+      "dance floor", "fuego", "caliente", "fuego", "ritmo", "suave",
+      "tropical", "island", "Caribbean", "Havana", "Santo Domingo", "San Juan"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // REGGAETON — dembow, urban Latin
+  // ════════════════════════════════════════════════════════════════════════════════
+  reggaeton: {
+    whitelist: [
+      "dembow", "perreo", "bajos", "subwoofer", "cañón", "bocina",
+      "urbano", "calle", "barrio", "loft", "discoteca", "pista",
+      "reggaetón", "dembow", "trap", "flow", "remix", "mashup",
+      "Bad Bunny", "J Balvin", "Daddy Yankee", "Ozuna", "Wisin"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // R&B — smooth, vocal, sensual
+  // ════════════════════════════════════════════════════════════════════════════════
+  "r&b": {
+    whitelist: [
+      "melisma", "run", "ad-lib", "falsetto", "harmony", "vocal run",
+      "smooth", "silky", "velvet", "satin", "silk", "honey",
+      "moonlight", "candlelight", "dim light", "after hours",
+      "bedroom", "pillow talk", "late night", "slow jam",
+      "love making", "sensuality", "intimacy", "tenderness",
+      "guitar lick", "bass line", "keyboard pad", "beat drop"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // SOUL — gospel roots, horn section, emotional
+  // ════════════════════════════════════════════════════════════════════════════════
+  soul: {
+    whitelist: [
+      "gospel", "testimony", "church", "choir", "congregation",
+      "horn section", "brass stab", "organ", "Hammond", "Clavinet",
+      "groove", "pocket", "backbeat", "downbeat", "syncopation",
+      "Motown", "Stax", "Philadelphia", "Memphis", "Detroit",
+      "civil rights", "freedom", "justice", "dignity", "pride",
+      "soul food", "church fan", "Sunday morning", "revival"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // FUNK — groove, bass, rhythm guitar
+  // ════════════════════════════════════════════════════════════════════════════════
+  funk: {
+    whitelist: [
+      "slap bass", "finger funk", "clavinet", "wah pedal", "scratch guitar",
+      "one chord groove", "the one", "pocket", "in the zone", "locked in",
+      "horn stab", "brass section", "trumpet", "saxophone", "trombone",
+      "James Brown", "Parliament", "Funkadelic", "Sly Stone", "Earth Wind Fire",
+      "dance floor", "get down", "groove", "funky", "wicked",
+      "drum break", "breakbeat", "syncopation", "ghost notes"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // GOSPEL — spiritual, testimony, choir
+  // ════════════════════════════════════════════════════════════════════════════════
+  gospel: {
+    whitelist: [
+      "testimony", "praise", "worship", "glory", "hallelujah", "amen",
+      "church", "congregation", "choir", "worship leader",
+      "organ", "Hammond B3", "piano", "drums", "bass",
+      "call and response", "run", "ad-lib", "vocal run",
+      "grace", "mercy", "salvation", "redemption", "faith",
+      "testify", "witness", "spirit", "anointing", "revival",
+      "Sunday morning", "praise break", "shout", "dance"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // CLASSICAL — orchestral, formal, grand
+  // ════════════════════════════════════════════════════════════════════════════════
+  classical: {
+    whitelist: [
+      "symphony", "orchestra", "concerto", "sonata", "opus",
+      "violin", "viola", "cello", "double bass", "harp", "flute", "oboe", "clarinet", "trumpet", "French horn", "trombone", "timpani",
+      "crescendo", "forte", "pianissimo", "allegro", "adagio", "legato", "staccato",
+      "conductor", "baton", "score", "movement", "finale",
+      "concert hall", "opera house", "salon", "chamber music"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // AFROBEAT — polyrhythm, horns, groove
+  // ════════════════════════════════════════════════════════════════════════════════
+  afrobeat: {
+    whitelist: [
+      "polyrhythm", "syncopation", "interlocking groove", "palm wine", "highlife",
+      "Fela Kuti", "Tony Allen", " Lagos", "Accra", "Kairobi",
+      "talking drum", "shekere", "conga", "djembe", "batá drum",
+      "horn section", "trumpet", "saxophone", "trombone",
+      "call and response", "praise singing", "griot", "storytelling",
+      "Pan-African", "liberation", "freedom", "justice", "unity",
+      "dance", "groove", "one-chord vamp", "extended jam"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // GRUNGE — dirty, sludgy, raw
+  // ════════════════════════════════════════════════════════════════════════════════
+  grunge: {
+    whitelist: [
+      "flannel", "ripped jeans", "combat boots", "Converse", "unkempt hair",
+      "Seattle", "Sub Pop", "Pike Place Market", "overcast", "rain",
+      "distortion", "fuzz", "feedback", "power chord", "drop-D",
+      "angst", "apathy", "alienation", "disillusionment", "angst",
+      "dirty", "sludgy", "muddy", "filthy", "raw", "unpolished",
+      "garage", "basement", "rehearsal space", "sweaty club"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // SHOEGAZE — walls of sound, ethereal
+  // ════════════════════════════════════════════════════════════════════════════════
+  shoegaze: {
+    whitelist: [
+      "reverb", "delay", "chorus", "tremolo", "fuzz", "distortion",
+      "wall of sound", "swell", "wash", "dreamy", "ethereal",
+      "vocal buried", "whispered", "obscured", "hazy", "misty",
+      "My Bloody Valentine", "Slowdive", "Ride", "Cocteau Twins",
+      "vintage amp", "pedal board", "Fender Jazzmaster", "Gibson SG",
+      "layered", "textured", "ambient noise", "feedback"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // NEW WAVE — angular, synth-driven, post-punk
+  // ════════════════════════════════════════════════════════════════════════════════
+  new_wave: {
+    whitelist: [
+      "angular", "jagged", "staccato", "choppy", "nervous energy",
+      "synth stab", "arpeggio", "sequencer", "drum machine", "LinnDrum",
+      "Devo", "Talking Heads", "Blondie", "The Cars", "Joy Division",
+      "quirky", "eccentric", "off-kilter", "idiosyncratic", "art school",
+      "new romantic", "power pop", "dance punk", "art punk",
+      "neon", "geometric", "minimal", "clean lines", "angular guitar"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // PHONK — Memphis rap, dark, lo-fi
+  // ════════════════════════════════════════════════════════════════════════════════
+  phonk: {
+    whitelist: [
+      "Memphis", "drift", "cowbell", "808", "hi-hat roll", "sliding bass",
+      "lo-fi", "tape hiss", "vinyl crackle", "dark", "gritty",
+      "drift car", "night drive", "neon lights", "JDM", "touge",
+      "Three 6 Mafia", "Tommy Wright III", "DJ Paul", "Juicy J",
+      "dark trap", "horrorcore", "Memphis rap", "phonk"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // HYPERPOP — glitchy, maximalist, deconstructed
+  // ════════════════════════════════════════════════════════════════════════════════
+  hyperpop: {
+    whitelist: [
+      "glitch", "distortion", "bitcrush", "autotune", "pitch shift",
+      "PC Music", "SOPHIE", "100 gecs", "A.G. Cook", "Danny L Harle",
+      "bubblegum", "candy", "neon pink", "chrome", "Y2K",
+      "deconstructed", "chaotic", "maximalist", "overloaded", "sensory overload",
+      "TikTok", "viral", "internet culture", "meme", "irony",
+      "crash", "break", "rupture", "fracture", "shatter"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // VAPORWAVE — retro, corporate, surreal
+  // ════════════════════════════════════════════════════════════════════════════════
+  vaporwave: {
+    whitelist: [
+      "mall", "elevator", "lobby", "atrium", "fountain", "marble floor",
+      "Japanese text", "vapor", "aesthetic", "retrowave", "mallsoft",
+      "Greek statue", "Roman bust", "Palm tree", "sunset", "neon grid",
+      "corporate", "business", "finance", "stock market", "Windows 95",
+      "VHS", "cassette", "Muzak", "elevator music", "weather channel",
+      "Windows 95 startup sound", "dial-up internet", "fax machine"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // NIGHTCORE — sped-up, euphoric, anime
+  // ════════════════════════════════════════════════════════════════════════════════
+  nightcore: {
+    whitelist: [
+      "sped up", "high pitch", "chipmunk", "anime", "kawaii",
+      "euphoric", "hyperactive", "sugar rush", "adrenaline",
+      "j-pop", "j-core", "happy hardcore", "hands up",
+      "glowstick", "rave", "lightstick", "dancefloor",
+      "heartbeat", "rush", "speed", "fast", "faster",
+      "neon", "sparkle", "glitter", "pastel", "cute"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // INDIE — eclectic, lo-fi, authentic
+  // ════════════════════════════════════════════════════════════════════════════════
+  indie: {
+    whitelist: [
+      "lo-fi", "four-track", "bedroom recording", "DIY", "cassette",
+      "vintage", "retro", "analog", "warm", "tape saturation",
+      "quirky", "idiosyncratic", "unconventional", "art school",
+      "Fender", "Gibson", "Rickenbacker", "Jaguar", "Jazzmaster",
+      "vinyl", "record store", "independent label", "self-released",
+      "house show", "basement show", "DIY venue", "zine culture"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // BLUES — raw emotion, 12-bar, slide guitar
+  // ════════════════════════════════════════════════════════════════════════════════
+  blues: {
+    whitelist: [
+      "crossroads", "delta", "Mississippi", "Chicago", "Memphis",
+      "slide guitar", "bottleneck", "resonator", "harmonica", "blues harp",
+      "twelve bar", "shuffle", "boogie", "backbeat", "turnaround",
+      "whiskey", "honky tonk", "juke joint", "roadhouse",
+      "heartbreak", "lonesome", "trouble", "hard times", "blues",
+      "Saturday night", "Sunday morning", "red clay", "cotton field"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // SKA — upstroke, horns, offbeat
+  // ════════════════════════════════════════════════════════════════════════════════
+  ska: {
+    whitelist: [
+      "upstroke", "offbeat", "skank", "walking bass", "horn section",
+      "trumpet", "saxophone", "trombone", "organ shuffle",
+      " Jamaican", "Kingston", "Trenchtown", "bluebeat", "rude boy",
+      "2 tone", "Madness", "Specials", "Selecter", "Beat",
+      "dance", "skank", "two-step", "party", "upbeat", "joyful"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // DOO-WOP — vocal harmony, romantic
+  // ════════════════════════════════════════════════════════════════════════════════
+  doo_wop: {
+    whitelist: [
+      "harmony", "vocal harmony", "doo-lang", "sha-na-na", "bop-shoo-wop",
+      "ooh", "aah", "shoo-be-doo", "doo-wah", "ditty",
+      "street corner", "barbershop", "doorman", "stoop singing",
+      "romantic", "love song", "sweetheart", "baby", "darling",
+      "moon", "starlight", "prom night", "jukebox"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // DRUM & BASS — breakbeat, amen, neuro
+  // ════════════════════════════════════════════════════════════════════════════════
+  dnb: {
+    whitelist: [
+      "Amen break", "breakbeat", "170 BPM", "double time", "half time",
+      "Reese bass", "neuro bass", "wobble bass", "sub bass",
+      "liquid", "jump up", "darkstep", "techstep", "neurofunk",
+      "MC", "ragga jungle", "steppers", "rolling",
+      "London", "Bristol", "rave", "warehouse", "sound system",
+      "rapid", "frenetic", "propulsive", "relentless"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // LO-FI — mellow, dusty, nostalgic
+  // ════════════════════════════════════════════════════════════════════════════════
+  lo_fi: {
+    whitelist: [
+      "tape hiss", "vinyl crackle", "dusty", "warm", "mellow", "cozy",
+      "rainy window", "bedroom", "late night study", "homework", "coffee shop",
+      "lo-fi hip hop", "chillhop", "jazz hop", "study beats",
+      "chill", "relax", "unwind", "daydream", "nostalgia",
+      "anime", "Studio Ghibli", "pixel art", "VHS aesthetic"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // BOSSA NOVA — smooth, swaying, Brazilian
+  // ════════════════════════════════════════════════════════════════════════════════
+  bossa_nova: {
+    whitelist: [
+      "bossa nova", "samba", "Tropicália", "Rio de Janeiro", "Ipanema",
+      "nylon string guitar", "classical guitar", "violão", "pandeiro",
+      "sway", "lilt", "syncopation", "relaxed", "smooth",
+      "Jobim", "Gilberto", "Getz", "Girl from Ipanema",
+      "beach", "ocean", "palm tree", "sun", "breeze", "warm"
+    ],
+    replacements: {}
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // SALSA — complex rhythm, call-and-response
+  // ════════════════════════════════════════════════════════════════════════════════
+  salsa: {
+    whitelist: [
+      "clave", "montuno", "tumbao", "cascara", "coro", "soneo",
+      "conga", "bongo", "timbale", "cowbell", "güiro",
+      "call and response", "improvisation", "ad-lib", "descarga",
+      "Celia Cruz", "Héctor Lavoe", "Willie Colón", "Rubén Blades",
+      "dance floor", "rumba", "son montuno", "guaguancó"
+    ],
+    replacements: {}
   }
 };
 
@@ -45298,33 +45487,29 @@ var GENRE_SLOP_REPLACEMENTS = {
   dubstep: {
     "gentle": "filthy", "soft": "heavy", "sweet": "nasty", "calm": "aggressive",
     "beautiful": "massive", "ugly": "grimy", "quiet": "silent", "loud": "crushing",
-    "neon": "bass", "ethereal": "underground", "shimmering": "wobbling",
-    "cascade": "drop", "phantom": "bass ghost", "ghostly": "eerie",
+    "neon": "bass", "ethereal": "underground", "shimmering": "pulsing",
+    "cascade": "drop", "phantom": "shadow", "ghostly": "eerie",
     "wailing": "screeching", "howling": "roaring", "flickering": "throbbing",
-    "drenched": "soaked", "void": "abyss", "embers": "embers",
+    "drenched": "soaked", "void": "abyss",
     "office": "warehouse", "meeting": "set", "boss": "selector",
-    "city": "warehouse", "town": "scene", "country": "bass nation",
-    "house": "warehouse", "building": "club", "room": "booth",
-    "car": "system", "truck": "rig", "bus": "bass bus",
+    "city": "warehouse", "town": "scene",
+    "house": "warehouse", "building": "club",
+    "car": "system", "truck": "rig",
     "happy": "hyped", "sad": "down", "angry": "furious",
-    "love": "wobble", "hate": "filth", "fear": "drop",
-    "truth": "real", "lie": "cap", "secret": "drop secret",
     "good": "filthy", "bad": "nasty", "right": "proper", "wrong": "wack"
   },
   dubstep_patois: {
     "gentle": "filthy", "soft": "heavy", "sweet": "nasty", "calm": "aggressive",
     "beautiful": "massive", "ugly": "dutty", "quiet": "silent", "loud": "crushing",
-    "neon": "bass", "ethereal": "irie", "shimmering": "wobbling",
+    "neon": "bass", "ethereal": "irie", "shimmering": "pulsing",
     "cascade": "drop", "phantom": "duppy bass", "ghostly": "dutty",
     "wailing": "screeching", "howling": "roaring", "flickering": "throbbing",
     "drenched": "soaked", "void": "abyss", "embers": "ash",
     "office": "yard", "meeting": "session", "boss": "selector",
-    "city": "town", "town": "yard", "country": "island",
-    "house": "yard", "building": "sound", "room": "booth",
-    "car": "motor", "truck": "rig", "bus": "route taxi",
+    "city": "town", "town": "yard",
+    "house": "yard", "building": "sound",
+    "car": "motor", "truck": "rig",
     "happy": "irie", "sad": "down", "angry": "mad",
-    "love": "luv", "hate": "badmind", "fear": "fraid",
-    "truth": "real", "lie": "story", "secret": "nutten",
     "good": "irie", "bad": "bred", "right": "proper", "wrong": "wrong"
   }
 };
@@ -45720,14 +45905,9 @@ const GENRE_BPM_RANGES = {
   // Generic genres
   "pop": [100, 130],
   "rock": [110, 140],
-  "r&b": [70, 100],
   "country": [100, 140],
-  "jazz": [80, 140],
   "electronic": [120, 150],
-  "classical": [40, 180],
   "latin": [80, 160],
-  "soul": [80, 120],
-  "funk": [90, 120],
   // Traditional / World
   "klezmer": [100, 180],
   "mariachi": [100, 150],
@@ -45735,7 +45915,46 @@ const GENRE_BPM_RANGES = {
   "andean": [70, 120],
   // Dubstep
   "dubstep": [130, 150],
-  "dubstep_patois": [130, 150]
+  "dubstep_patois": [130, 150],
+  // Country subgenres
+  "honky-tonk": [100, 140],
+  "outlaw country": [100, 140],
+  // R&B / Soul / Funk
+  "r&b": [70, 100],
+  "soul": [80, 120],
+  "funk": [90, 120],
+  "doo-wop": [60, 90],
+  "gospel": [70, 140],
+  // Jazz
+  "jazz": [80, 140],
+  "vocal jazz": [80, 130],
+  // Electronic subgenres
+  "house": [118, 135],
+  "techno": [125, 150],
+  "trance": [130, 150],
+  "ambient": [0, 80],
+  "synthwave": [80, 140],
+  "lo-fi": [60, 90],
+  "vaporwave": [60, 100],
+  "phonk": [100, 140],
+  "hyperpop": [140, 200],
+  "nightcore": [160, 200],
+  // Latin subgenres
+  "reggaeton": [90, 110],
+  "salsa": [150, 210],
+  "bossa nova": [80, 120],
+  // Rock subgenres
+  "indie rock": [100, 160],
+  "alternative rock": [100, 150],
+  "grunge": [80, 140],
+  "shoegaze": [90, 140],
+  "new wave": [110, 160],
+  // Classical
+  "classical": [40, 180],
+  "opera": [40, 160],
+  // Afrobeat
+  "afrobeat": [100, 130],
+  "afrobeats": [100, 130]
 };
 
 // ── clampBpmForGenre ───────────────────────────────────────────────────────────
@@ -46349,19 +46568,324 @@ var GENRE_STRUCTURE_TEMPLATES = {
   // ════════════════════════════════════════════════════════════════════════════════
   dubstep: {
     structure: "I-Build-Drop-V-Build-Drop-Bridge-Drop-Outro",
-    description: "English Dubstep: Intro (atmospheric build, filtered synths) → Build (rising tension, snare rolls, pitch sweep) → Drop (heavy wobble bass, sub-bass, half-time drums at ~140 BPM) → Verse (stripped-back, vocal-focused) → Build → Drop (bigger, more layered) → Bridge (breakdown, atmospheric) → Drop (final, maximum intensity) → Outro (deconstruction, fade or abrupt stop). THE DROP IS EVERYTHING. Half-time feel at 140 BPM (feels like 70 BPM). Wobble bass, sub-bass, reese bass, tear-out synths. Aggressive, physical, bass-heavy. All lyrics in standard English. LINE DENSITY: Dubstep verses are SPARSE — 6-10 syllables per line maximum. The bass does the talking. Less words = more impact. If a line has more than 10 syllables, cut it down. The vocal should feel like it's riding the bass, not fighting it.",
-    verseLines: "4 lines; SPARSE — 6-10 syllables per line. Confident, rhythmic, leaving space for the bass to breathe. Clean English delivery. Think: 'Bass cannon, firing tonight' — short, punchy, devastating.",
+    description: "English Dubstep: Intro (atmospheric build, filtered synths) → Build (rising tension, snare rolls, pitch sweep) → Drop (heavy bass, sub-bass, half-time drums at ~140 BPM) → Verse (stripped-back, vocal-focused) → Build → Drop (bigger, more layered) → Bridge (breakdown, atmospheric) → Drop (final, maximum intensity) → Outro (deconstruction, fade or abrupt stop). THE DROP IS EVERYTHING. Half-time feel at 140 BPM (feels like 70 BPM). Aggressive, physical, bass-heavy. All lyrics in standard English. LINE DENSITY: Dubstep verses are SPARSE — 6-10 syllables per line maximum. The bass does the talking. Less words = more impact. The vocal should feel like it's riding the bass, not fighting it.",
+    verseLines: "4 lines; SPARSE — 6-10 syllables per line. Confident, rhythmic, leaving space for the bass to breathe. Clean English delivery. Short, punchy, devastating.",
     chorusLines: "Chorus is often the DROP itself — instrumental, no vocals. If vocals appear, they're sparse hooks or vocal chops — 4-8 syllables max. The BASS is the chorus.",
     bridgeNotes: "Breakdown — atmospheric, stripped-back, often just pads and filtered vocals. Creates contrast before the final drop hits even harder. Bridge lines: 6-8 syllables, whispered or filtered.",
-    hookStyle: "The BASS is the hook. Wobble bass, growl bass, sub-bass drops. If there's a vocal hook, it's a short, punchy phrase — 'bass cannon', 'drop the bass', 'wobble'. 4-6 syllables max."
+    hookStyle: "The BASS is the hook. Short, punchy vocal phrases — 4-6 syllables max. The vocal hook should feel like a rallying cry or a punchline, NOT a melody. Create ORIGINAL hook phrases rooted in the song's subject."
   },
   dubstep_patois: {
     structure: "I-Build-Drop-V-Build-Drop-Bridge-Drop-Outro",
-    description: "Patois Dubstep: Same heavy bass architecture as English dubstep, but with Jamaican Patois vocals — the MC rides the riddim. Intro (echo-laden build, dub effects) → Build (risers, snare rolls) → Drop (heavy wobble, sub-bass, half-time drums at ~140 BPM) → Verse (Patois MC delivery, toasting/ragga style over the drop) → Build → Drop (wider, more aggressive) → Bridge (dub breakdown — echo, reverb, space) → Drop (final, maximum weight) → Outro (dub delay tail, echo fade). ALL lyrics in Jamaican Patois. LINE DENSITY: Same as English dubstep — SPARSE. 6-10 syllables per line. The Patois MC rides the bass with fewer words, more attitude. 'Mi seh di bass a drop pon yuh head' — every word counts.",
+    description: "Patois Dubstep: Same heavy bass architecture as English dubstep, but with Jamaican Patois vocals — the MC rides the riddim. Intro (echo-laden build, dub effects) → Build (risers, snare rolls) → Drop (heavy bass, sub-bass, half-time drums at ~140 BPM) → Verse (Patois MC delivery, toasting/ragga style over the drop) → Build → Drop (wider, more aggressive) → Bridge (dub breakdown — echo, reverb, space) → Drop (final, maximum weight) → Outro (dub delay tail, echo fade). ALL lyrics in Jamaican Patois. LINE DENSITY: Same as English dubstep — SPARSE. 6-10 syllables per line. The Patois MC rides the bass with fewer words, more attitude.",
     verseLines: "4 lines; SPARSE — 6-10 syllables per line. Ragga-toasting style over heavy bass, full Patois dialect. 'Mi' not 'I', 'di' not 'the', 'pon' not 'on'. Aggressive Patois delivery. Less is more.",
-    chorusLines: "Chorus is the DROP — instrumental wobble bass. If vocals, short Patois hook phrases: 'bass drop pon dem', 'wobble pon di riddim', 'shell di place'. 4-6 syllables max.",
+    chorusLines: "Chorus is the DROP — instrumental bass. If vocals, short Patois hook phrases — 4-6 syllables max. The vocal hook should be an ORIGINAL rallying cry or command rooted in the song's subject.",
     bridgeNotes: "Dub breakdown — heavy echo/delay on Patois vocal snippets, space, reverb. The dub engineer's moment — sparse, atmospheric, with reverb-drenched vocal fragments.",
-    hookStyle: "The BASS is the hook, but the Patois MC makes it DUBSTEP. Short, aggressive Patois phrases over wobble bass. 'Pull up!', 'wheel and come again!', 'bass cannon pon di head!' 4-6 syllables."
+    hookStyle: "The BASS is the hook, but the Patois MC makes it DUBSTEP. Short, aggressive Patois phrases over heavy bass. 4-6 syllables. Create ORIGINAL hook phrases — do NOT copy example phrases from this prompt."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // POP / ROCK — mainstream genres with broad appeal
+  // ════════════════════════════════════════════════════════════════════════════════
+  pop: {
+    structure: "I-V-C-V-C-B-C-C-O",
+    description: "Pop: Intro (catchy riff or vocal hook) → Verse (smooth, accessible) → Chorus (explosive, earworm) → Verse → Chorus → Bridge (contrasting section, key change) → Chorus → Final Chorus (bigger, higher energy) → Outro. Pop is BUILT FOR RADIO. Short songs (2:30-3:30), massive hooks, simple structure. The chorus MUST be instantly memorable.",
+    verseLines: "4 lines; smooth, accessible, conversational delivery. 8-12 syllables per line. Clear, relatable lyrics — the listener should see themselves in the words.",
+    chorusLines: "4-6 lines; EXPLOSIVE, catchy, highly repetitive. 6-10 syllables per line. The chorus should make you want to sing along on first listen.",
+    bridgeNotes: "Bridge provides CONTRAST — different chord progression, tempo shift, key change, or a stripped-back section. Builds to the final chorus with maximum impact.",
+    hookStyle: "EARWORM — the chorus hook should be so catchy it gets stuck in your head for days. Short, melodic, emotional. Think 'Blinding Lights', 'Shape of You', 'Flowers'."
+  },
+  rock: {
+    structure: "I-V-C-V-C-Solo-C-Outro",
+    description: "Rock: Intro (guitar riff) → Verse (driving, energetic) → Chorus (anthemic, loud) → Verse → Chorus → Guitar Solo (melodic, expressive) → Chorus → Outro. Rock is GUITAR-DRIVEN. The riff IS the identity. Songs are 3-5 minutes. Loud-quiet-loud dynamics.",
+    verseLines: "4 lines; driving, energetic, guitar-driven delivery. 8-12 syllables per line.",
+    chorusLines: "4 lines; anthemic, loud, designed for crowd singalong. The chorus is the LOUDEST part.",
+    bridgeNotes: "Guitar solo replaces bridge — melodic, expressive, pentatonic. Or a quiet/dynamic section before the final chorus explosion.",
+    hookStyle: "Anthemic, guitar-driven. The hook is the RIFF combined with a vocal melody that soars. 'Back in Black', 'Smells Like Teen Spirit', 'Are You Gonna Go My Way' energy."
+  },
+  "indie rock": {
+    structure: "I-V-C-V-C-Bridge-C-Outro",
+    description: "Indie Rock: Intro (angular riff or feedback) → Verse (quirky, dynamic) → Chorus (melodic, layered) → Verse → Chorus → Bridge (experimental, textural) → Chorus → Outro. Indie rock is QUIRKY and TEXTURED. Angular guitars, unexpected dynamics, lo-fi charm.",
+    verseLines: "4 lines; quirky, dynamic, conversational. Think Pavement, Arctic Monkeys, The Strokes.",
+    chorusLines: "4 lines; melodic, layered, more accessible than verses.",
+    bridgeNotes: "Bridge is experimental — time signature changes, textural shifts, or a complete arrangement change. The 'art' section.",
+    hookStyle: "Melodic but unconventional. Not pop-catchy — more like an interesting hook that rewards repeated listening."
+  },
+  "alternative rock": {
+    structure: "I-V-C-V-C-Bridge-Solo-C-Outro",
+    description: "Alternative Rock: Intro (feedback or riff) → Verse (dynamic, introspective) → Chorus (explosive, cathartic) → Verse → Chorus → Bridge (quiet/stripped-back) → Guitar Solo → Chorus → Outro. Alt-rock DYNAMICS are everything — quiet verses, LOUD choruses. The contrast IS the hook.",
+    verseLines: "4 lines; introspective, dynamic, building tension. Often lower energy than the chorus.",
+    chorusLines: "4 lines; explosive, cathartic, LOUD. The release after the verse's tension.",
+    bridgeNotes: "Bridge drops to QUIET — stripped-back, acoustic, or whispered. Then builds back to the final chorus explosion.",
+    hookStyle: "Cathartic, explosive. The hook is the DYNAMIC SHIFT — the moment the chorus explodes after a quiet verse. 'Creep', 'Black Hole Sun', 'Smells Like Teen Spirit' energy."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // COUNTRY — with subgenre variations
+  // ════════════════════════════════════════════════════════════════════════════════
+  country: {
+    structure: "I-V-C-V-C-Solo-C-Outro",
+    description: "Country: Intro (twangy guitar or pedal steel) → Verse (storytelling, twangy) → Chorus (catchy, emotional) → Verse → Chorus → Guitar/Pedal Steel Solo → Chorus → Outro. Country tells STORIES. Three chords and the truth. Verse-heavy. The chorus is the emotional payoff.",
+    verseLines: "4-8 lines; storytelling, conversational, twangy delivery. Vivid details — names, places, specific objects. Country lyrics paint a picture.",
+    chorusLines: "4 lines; emotional, catchy, designed for radio. The chorus summarizes the story's emotional core.",
+    bridgeNotes: "Pedal steel or fiddle solo — weeping, melodic. Or a spoken word section. The instrumental break is the country signature.",
+    hookStyle: "Storytelling payoff. The hook is the LAST LINE of the chorus — the emotional punchline that sums up the whole song. 'Ring of Fire', 'Jolene', 'Before He Cheats' energy."
+  },
+  "honky-tonk": {
+    structure: "I-V-C-V-C-Solo-C-Outro",
+    description: "Honky Tonk: Intro (piano bar riff or steel guitar) → Verse (drinking, heartbreak, cheating stories) → Chorus (catchy, rowdy) → Verse → Chorus → Fiddle/Steel Solo → Chorus → Outro. HONKY TONK is BAR MUSIC. Drinking, dancing, heartbreak. Piano-driven. Rowdy energy.",
+    verseLines: "4 lines; storytelling, bar-life details, twangy, conversational",
+    chorusLines: "4 lines; catchy, rowdy, designed for bar singalong",
+    bridgeNotes: "Fiddle or pedal steel solo — weeping, melodic, bar-room energy",
+    hookStyle: "Rowdy, catchy, bar-room energy. 'Folsom Prison Blues', 'Swamp Music', 'Chattahoochee' energy."
+  },
+  "outlaw country": {
+    structure: "I-V-C-V-C-V-C-Outro",
+    description: "Outlaw Country: Intro (rough, unpolished) → Verse (rebellious, storytelling) → Chorus (defiant, anthemic) → Verse → Chorus → Verse → Chorus → Outro. OUTLAW is COUNTRY'S PUNK. Willie, Waylon, Merle. Rough production, honest lyrics, no Nashville polish.",
+    verseLines: "4-8 lines; rebellious, storytelling, rough delivery. Anti-establishment, freedom, open road.",
+    chorusLines: "4 lines; defiant, anthemic, designed for outlaw singalong",
+    bridgeNotes: "Bridge is rare — outlaw country keeps the same rough energy. Sometimes a harmonica break.",
+    hookStyle: "Defiant, rebellious, freedom. 'Mamas Don't Let Your Babies', 'Are You Sure Hank Done It This Way', 'Good Ol' Boys' energy."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // R&B / SOUL / FUNK — groove-driven, vocal-forward
+  // ════════════════════════════════════════════════════════════════════════════════
+  "r&b": {
+    structure: "I-V-C-V-C-Bridge-C-Outro",
+    description: "R&B: Intro (smooth groove, synth pad) → Verse (melodic, smooth) → Chorus (catchy, vocal-driven) → Verse → Chorus → Bridge (vocal run, emotional peak) → Chorus → Outro. R&B is VOCAL-FORWARD. Melisma, runs, harmonies. The voice IS the instrument. Smooth, sensual, emotional.",
+    verseLines: "4 lines; smooth, melodic, emotional delivery. 8-12 syllables per line. R&B singers BEND words — stretch vowels, add runs.",
+    chorusLines: "4-6 lines; melodic, catchy, vocal-driven. Designed for the singer to show off vocal range.",
+    bridgeNotes: "Bridge is the VOCAL SHOWCASE — melisma, runs, key change, emotional peak. The singer goes OFF.",
+    hookStyle: "Melodic, sensual, vocal-driven. The hook is the MELODY more than the words. 'Blinding Lights', 'Kiss', 'No Scrubs' energy."
+  },
+  soul: {
+    structure: "I-V-C-V-C-Bridge-C-Outro",
+    description: "Soul: Intro (horn stab or organ) → Verse (emotional, gospel-influenced) → Chorus (anthemic, choir-backed) → Verse → Chorus → Bridge (emotional peak, gospel-style) → Chorus → Outro. Soul is FEELING. Gospel roots. Horns, organ, choir. Every note drips with emotion.",
+    verseLines: "4 lines; emotional, gospel-influenced, deeply felt delivery. The singer MEANS every word.",
+    chorusLines: "4-6 lines; anthemic, choir-backed, gospel-influenced. The emotional release.",
+    bridgeNotes: "Bridge is GOSPEL — choir builds, organ swells, the singer TESTIFIES. Emotional peak of the song.",
+    hookStyle: "Emotional, gospel-tinged, deeply felt. The hook makes you FEEL something. 'A Change Is Gonna Come', 'Respect', 'What's Going On' energy."
+  },
+  funk: {
+    structure: "I-V-C-V-C-Break-C-Outro",
+    description: "Funk: Intro (bass riff, iconic groove) → Verse (rhythmic, sparse vocals) → Chorus (catchy, groove-driven) → Verse → Chorus → Break (bass solo or drum break — THE GROOVE IS THE SONG) → Chorus → Outro (extended groove fade). Funk is the GROOVE. Bass, drums, rhythm guitar. One chord. The ONE (downbeat emphasis).",
+    verseLines: "4 lines; rhythmic, sparse, groove-riding. The vocals sit IN the groove, not on top of it.",
+    chorusLines: "4 lines; catchy, groove-driven, designed for dancing. Short, punchy, repetitive.",
+    bridgeNotes: "Break is THE SECTION — bass solo, drum break, or the groove stripped to its essence. The groove IS the bridge.",
+    hookStyle: "Groove-based. The hook is the BASS LINE combined with a short vocal phrase. 'Superstition', 'Get Up', 'Brick House' energy. Makes you MOVE."
+  },
+  "doo-wop": {
+    structure: "I-V-C-V-C-Bridge-C-Outro",
+    description: "Doo-Wop: Intro (vocal harmony intro — 'ooh-wah') → Verse (romantic storytelling) → Chorus (full harmony, all voices) → Verse → Chorus → Bridge (slow section, solo voice or call-and-response) → Chorus → Outro. DOO-WOP is VOCAL HARMONY. 5-part harmonies, nonsense syllables, romantic themes. Late 50s/early 60s.",
+    verseLines: "4 lines; romantic, melodic, solo voice with backing 'oohs' and 'aahs'",
+    chorusLines: "4-6 lines; FULL HARMONY — all voices together. Nonsense syllables ('sha-na-na', 'doo-lang') as rhythmic filler.",
+    bridgeNotes: "Bridge is SLOWER — solo voice with minimal backing, or a call-and-response between lead and background singers.",
+    hookStyle: "Vocal harmony. The hook is the BLEND of voices — the lead singer soaring over the doo-wop backing. 'Earth Angel', 'In the Still of the Night', 'Runaround Sue' energy."
+  },
+  gospel: {
+    structure: "I-V-C-V-C-Bridge-C-Climax-Outro",
+    description: "Gospel: Intro (organ swell or choir hum) → Verse (testimony, storytelling) → Chorus (congregational, powerful) → Verse → Chorus → Bridge (preacher section, spoken testimony, building intensity) → Chorus → Final Chorus (CLIMAX — full choir, maximum intensity, key change) → Outro. Gospel is TESTIMONY. The singer TESTIFIES — shares their faith, their struggle, their triumph. Full choir. Hammond organ. Hand claps. Spirit-filled delivery.",
+    verseLines: "4-8 lines; testimony, storytelling, deeply felt, building intensity throughout the song",
+    chorusLines: "4-6 lines; congregational, powerful, designed for the ENTIRE CHURCH to sing. Repetitive, building.",
+    bridgeNotes: "Preacher section — spoken testimony over organ, building intensity. The congregation responds. Call-and-response. 'Can I get an amen?' The bridge is where the spirit moves.",
+    hookStyle: "Testimonial, powerful, spirit-filled. The hook is the EMOTIONAL TRUTH of the testimony. 'Amazing Grace', 'Oh Happy Day', 'Total Praise' energy. Makes you feel the spirit."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // JAZZ — vocal and instrumental traditions
+  // ════════════════════════════════════════════════════════════════════════════════
+  jazz: {
+    structure: "I-V-Solo-V-Solo-V-Solo-Outro",
+    description: "Jazz: Intro (piano or horn) → Verse (melody statement) → Solo 1 (improvised, piano/sax/trumpet) → Verse (melody restated) → Solo 2 (different instrument) → Verse → Solo 3 (building intensity) → Outro (melody or fade). Jazz is IMPROVISATION. The melody is stated once, then soloists improvise over the chord changes. The solos ARE the song.",
+    verseLines: "4 lines; melodic, smooth, the 'head' — the stated melody. Swing feel, behind the beat.",
+    chorusLines: "No chorus in traditional jazz — the verse IS the melody. Chorus may exist in vocal jazz (see vocal jazz).",
+    bridgeNotes: "Solos replace bridges — improvised over the chord changes. Each soloist takes a chorus through the form.",
+    hookStyle: "The MELODY is the hook — a memorable, singable tune. Think 'Take Five', 'So What', 'My Favorite Things'."
+  },
+  "vocal jazz": {
+    structure: "I-V-C-V-Solo-C-Outro",
+    description: "Vocal Jazz: Intro (piano or brush drums) → Verse (melodic, swing) → Chorus (memorable melody, scat-friendly) → Verse → Instrumental Solo (sax, trumpet, or piano) → Chorus → Outro. Vocal jazz combines IMPROVISATION with SONG CRAFT. The singer improvises vocally (scat singing) as well as delivering lyrics.",
+    verseLines: "4 lines; smooth, swinging, behind-the-beat delivery. Intimate, like the singer is in the room with you.",
+    chorusLines: "4 lines; melodic, memorable, scat-friendly. A great vocal jazz chorus invites scat improvisation.",
+    bridgeNotes: "Instrumental solo — sax, trumpet, or piano improvises over the chord changes while the singer rests.",
+    hookStyle: "Melodic, swinging, intimate. The hook is the VOICE and the MELODY. 'Fly Me to the Moon', 'Summertime', 'My Funny Valentine' energy."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // ELECTRONIC — dance and ambient traditions
+  // ════════════════════════════════════════════════════════════════════════════════
+  electronic: {
+    structure: "I-Build-Drop-V-Build-Drop-Bridge-Drop-Outro",
+    description: "Electronic: Intro (atmospheric, building) → Build (risers, tension, filter sweeps) → Drop (full energy, beat, bass) → Verse (stripped-back, vocal) → Build → Drop (bigger, layered) → Bridge (breakdown, atmospheric) → Drop (final, maximum energy) → Outro (deconstruction, fade). Electronic music is BUILT IN LAYERS. The drop is the payoff. The build IS the tension.",
+    verseLines: "4 lines; sparse, atmospheric, vocal-focused. The beat drops away — vocals and texture.",
+    chorusLines: "No traditional chorus — the DROP is the chorus. Instrumental, beat-driven, maximum energy.",
+    bridgeNotes: "Breakdown — everything drops out. Atmospheric pads, filtered vocals, tension builds. Then the drop hits.",
+    hookStyle: "The DROP is the hook. The vocal hook is a short, repetitive phrase — 4-6 syllables. 'Levels', 'Titanium', 'Bangarang' energy."
+  },
+  house: {
+    structure: "I-V-C-V-C-Break-C-Outro",
+    description: "House: Intro (4/4 kick, hi-hats building) → Verse (vocal or synth) → Chorus (full groove, bassline) → Verse → Chorus → Break (stripped-back, just kick and hi-hat) → Chorus → Outro (gradual fade, elements removed). House is 4/4 KICK. 120-130 BPM. The groove is SACRED — never stop the kick. Builds and drops are EVERYTHING.",
+    verseLines: "4 lines; sparse, rhythmic, vocal chops or spoken phrases. The groove does the talking.",
+    chorusLines: "4 lines; catchy, repetitive, designed for dancing. Often just a phrase repeated over the groove.",
+    bridgeNotes: "Break — elements drop out. Just kick and hi-hat. Tension builds. Then the bassline drops back in.",
+    hookStyle: "Groove-based. The hook is the BASSLINE combined with a vocal phrase. 'Finally', 'One More Time', 'Show Me Love' energy."
+  },
+  techno: {
+    structure: "I-Build-Drop-Build-Drop-Break-Build-Drop-Outro",
+    description: "Techno: Intro (minimal kick, building layers) → Build (adding elements, tension) → Drop (full groove, all elements) → Build → Drop (variation, new elements) → Break (stripped, atmospheric) → Build → Drop (final, peak energy) → Outro (deconstruction). Techno is REPETITIVE and HYPNOTIC. The groove repeats and evolves subtly. No traditional verse/chorus — it's about the JOURNEY.",
+    verseLines: "Minimal vocals — techno is largely instrumental. If vocals exist: short, repetitive, processed phrases.",
+    chorusLines: "No chorus — the groove IS the song. The 'chorus' is when all elements are present at full energy.",
+    bridgeNotes: "Break — elements stripped away. Atmospheric, ambient. Then rebuilds layer by layer to the peak.",
+    hookStyle: "The GROOVE is the hook. A hypnotic, evolving pattern that pulls you in. 'Sandstorm', 'Acid Rain', 'Oxia' energy."
+  },
+  trance: {
+    structure: "I-Build-Drop-V-Build-Drop-Break-Build-FinalDrop-Outro",
+    description: "Trance: Intro (atmospheric pads, building arpeggios) → Build (risers, white noise, building tension) → Drop (euphoric melody, full energy, 138 BPM) → Verse (breakdown, vocal) → Build → Drop (bigger, layered) → Break (emotional breakdown, piano or strings) → Build (longest build, maximum tension) → Final Drop (peak euphoria) → Outro. Trance is EUPHORIA. Uplifting melodies. 138 BPM. The build-drop cycle creates EMOTIONAL JOURNEYS.",
+    verseLines: "If vocals: 4 lines; emotional, uplifting, about transcendence, love, or freedom. Sparse — the music carries the emotion.",
+    chorusLines: "No traditional chorus — the DROP with its euphoric melody is the emotional peak.",
+    bridgeNotes: "Emotional breakdown — piano, strings, the vocal alone. Maximum vulnerability before the final build and drop.",
+    hookStyle: "The EUPHORIC MELODY is the hook. A soaring, uplifting synth line that makes you feel weightless. 'Sandstorm', 'Adagio for Strings', 'Northern Soul' energy."
+  },
+  ambient: {
+    structure: "I-Layer-Layer-Layer-Fade",
+    description: "Ambient: Intro (a drone, a texture, a sound) → Layer (adding elements slowly — pads, textures, field recordings) → Layer (deepening, evolving) → Layer (peak density or sparsest moment) → Fade. Ambient has NO traditional structure. No verse/chorus. It's about TEXTURE, SPACE, and ATMOSPHERE. Time is suspended. Brian Eno: 'As ignorable as it is interesting.'",
+    verseLines: "No verses — ambient is instrumental. If vocals exist: whispered, processed, treated as texture rather than narrative.",
+    chorusLines: "No chorus — the entire piece IS the texture.",
+    bridgeNotes: "No bridge — the piece evolves continuously. No sections, just gradations.",
+    hookStyle: "The ATMOSPHERE is the hook. A sonic landscape that envelops the listener. 'An Ending (Ascent)', 'Weightless', 'Music for Airports' energy."
+  },
+  synthwave: {
+    structure: "I-V-C-V-C-Solo-C-Outro",
+    description: "Synthwave: Intro (retro synth arpeggio, 80s aesthetic) → Verse (driving, neon-soaked) → Chorus (euphoric, anthemic) → Verse → Chorus → Synth Solo (arpeggiated, technical) → Chorus → Outro (fade with synth delay). Synthwave is 80s NOSTALGIA. Neon lights, chrome, night driving. Analog synths. Reverb-heavy drums. The AESTHETIC is everything.",
+    verseLines: "4 lines; driving, neon-soaked, night-driving imagery. Cyberpunk, chrome, neon.",
+    chorusLines: "4 lines; euphoric, anthemic, 80s-inspired. Designed for night driving at 120 MPH.",
+    bridgeNotes: "Synth solo — arpeggiated, technical, analog warmth. The 80s synth showcase.",
+    hookStyle: "Euphoric, nostalgic, 80s-inspired. The hook is the SYNTH MELODY combined with the aesthetic. 'Midnight City', 'Turbo Killer', 'A Real Hero' energy."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // LATIN — genre family
+  // ════════════════════════════════════════════════════════════════════════════════
+  latin: {
+    structure: "I-V-C-V-C-Break-C-Outro",
+    description: "Latin: Intro (percussion intro — congas, bongos, timbales) → Verse (rhythmic, melodic) → Chorus (catchy, danceable) → Verse → Chorus → Break (percussion showcase, dance break) → Chorus → Outro. Latin music is RHYTHM AND DANCE. Clave pattern drives everything. Percussion is KING. The groove makes you MOVE.",
+    verseLines: "4 lines; rhythmic, melodic, Spanish (or Portuguese) delivery. Percussion fills between lines.",
+    chorusLines: "4 lines; catchy, danceable, designed for the dance floor. Repetitive, singalong.",
+    bridgeNotes: "Percussion break — congas, bongos, timbales showcase. The dancers take over. The groove is everything.",
+    hookStyle: "Rhythmic, danceable, catchy. The hook is the CLAVE PATTERN combined with a vocal phrase. 'Vivir Mi Vida', 'Despacito', 'La Bamba' energy."
+  },
+  reggaeton: {
+    structure: "I-V-C-V-C-Dembow-C-Outro",
+    description: "Reggaeton: Intro (dembow beat drop) → Verse (rapid-fire, rhythmic) → Chorus (catchy, melodic hook) → Verse → Chorus → Dembow Break (beat showcase, dancer's moment) → Chorus → Outro. Reggaeton is the DEMBOW RHYTHM. That 'boom-ch-boom-chick' pattern is EVERYTHING. Urban Latin. Perreo. Dance floor heat.",
+    verseLines: "4 lines; rapid-fire, rhythmic, urban Spanish. Fast delivery over the dembow beat.",
+    chorusLines: "4 lines; catchy, melodic, designed for perreo. Repetitive, sexy, dance floor oriented.",
+    bridgeNotes: "Dembow break — the beat stripped to its essence. The dancer's moment. Call-and-response with the crowd.",
+    hookStyle: "Catchy, sexy, dance floor. The hook rides the DEMBOW. 'Dákiti', 'Con Calma', 'Gasolina' energy."
+  },
+  salsa: {
+    structure: "I-V-C-V-C-Montuno-C-Outro",
+    description: "Salsa: Intro (percussion break — congas, timbales, clave) → Verse (romantic or storytelling) → Chorus (coro — call-and-response) → Verse → Chorus → Montuno (piano/vocal improvisation over chord changes) → Chorus → Outro. Salsa is COMPLEX RHYTHM. Clave, montuno, coro. The piano montuno is the harmonic foundation. Call-and-response between singer and chorus.",
+    verseLines: "4 lines; romantic or storytelling, Spanish delivery, rhythmic, melodic",
+    chorusLines: "4 lines; coro — the CONGREGATIONAL CHORUS. Call-and-response with the lead singer.",
+    bridgeNotes: "Montuno — piano improvisation over the chord changes. The lead singer improvises (soneo) over the montuno. Call-and-response.",
+    hookStyle: "Rhythmic, romantic, danceable. The hook is the CORO (chorus response) combined with the clave rhythm. 'Oye Como Va', 'Vivir Mi Vida', 'Quimbara' energy."
+  },
+  bossa_nova: {
+    structure: "I-V-C-V-C-Instr-Outro",
+    description: "Bossa Nova: Intro (nylon guitar pattern) → Verse (whispered, intimate) → Chorus (melodic, gentle) → Verse → Chorus → Instrumental (guitar or flute solo) → Outro (fade). Bossa Nova is INTIMATE and SOPHISTICATED. Nylon guitar. Whispered vocals. Cool jazz harmonies. The sway of the rhythm — that 'bossa nova clave' — is hypnotic.",
+    verseLines: "4 lines; whispered, intimate, Portuguese (or English). Short phrases. The guitar carries the rhythm.",
+    chorusLines: "4 lines; melodic, gentle, sophisticated. No belting — the beauty is in the restraint.",
+    bridgeNotes: "Guitar or flute solo — nylon guitar patterns, jazz-influenced, cool and understated.",
+    hookStyle: "Intimate, sophisticated, cool. The hook is the GUITAR PATTERN combined with the whispered vocal. 'The Girl from Ipanema', 'Corcovado', 'Desafinado' energy."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // CLASSICAL VOCAL — operatic and art song traditions
+  // ════════════════════════════════════════════════════════════════════════════════
+  classical: {
+    structure: "I-V-C-V-C-Bridge-C-Outro",
+    description: "Classical Vocal / Opera: Intro (orchestral opening) → Verse (aria-like, dramatic) → Chorus (ensemble, powerful) → Verse → Chorus → Bridge (recitative or dramatic pause) → Chorus → Outro (orchestral conclusion). Classical vocal music is DRAMATIC and TECHNICAL. Full vibrato, wide range, orchestral accompaniment. The voice IS the instrument.",
+    verseLines: "4 lines; aria-like, dramatic, wide dynamic range. From whispered pianissimo to full-throated fortissimo. Latin, Italian, German, or French text common.",
+    chorusLines: "4-6 lines; ensemble, powerful, operatic. Full choir or multi-voice ensemble.",
+    bridgeNotes: "Recitative — spoken/sung over minimal accompaniment. Advances the drama. Or a dramatic pause before the final aria.",
+    hookStyle: "Dramatic, technical, emotional. The hook is the VOCAL MELODY at its most soaring. 'Nessun Dorma', 'O mio babbino caro', 'Habanera' energy."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // AFROBEAT — West African groove tradition
+  // ════════════════════════════════════════════════════════════════════════════════
+  afrobeat: {
+    structure: "I-V-C-V-C-HornBreak-V-C-Outro",
+    description: "Afrobeat: Intro (long groove build — percussion, bass, guitar) → Verse (polyrhythmic, political) → Chorus (chant-like, communal) → Verse → Chorus → Horn Break (brass section showcase — the PAYOFF) → Verse → Chorus → Outro (extended groove fade). Afrobeat is FELA KUTI'S LEGACY. Polyrhythms. Horn sections. Political lyrics. LONG songs (8-15 minutes). The GROOVE builds and builds and builds.",
+    verseLines: "4-8 lines; political, storytelling, Yoruba/English. Rhythmic delivery riding the polyrhythm.",
+    chorusLines: "4 lines; chant-like, communal, designed for group response. Political message.",
+    bridgeNotes: "Horn break — brass section plays the main riff with maximum intensity. The horns ARE the bridge. Fela's horns.",
+    hookStyle: "Political, rhythmic, communal. The hook is the POLYRHYTHM combined with a chant-like vocal. 'Zombie', 'Water No Get Enemy', 'Sorrow Tears and Blood' energy."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // GRUNGE / SHOEGAZE / NEW WAVE — alternative traditions
+  // ════════════════════════════════════════════════════════════════════════════════
+  grunge: {
+    structure: "I-V-C-V-C-Bridge-C-Outro",
+    description: "Grunge: Intro (feedback, dirty guitar) → Verse (quiet, mumbled, brooding) → Chorus (EXPLOSIVE, distorted, cathartic) → Verse → Chorus → Bridge (quiet, vulnerable) → Chorus → Outro (feedback, noise). Grunge is LOUD-QUIET-LOUD. Nirvana's formula. Mumbled verses, EXPLOSIVE choruses. Flannel. Seattle. Raw emotion.",
+    verseLines: "4 lines; quiet, mumbled, brooding. Low energy. The singer sounds like they don't care — but they do.",
+    chorusLines: "4 lines; EXPLOSIVE, distorted, screamed or shouted. Maximum catharsis. The explosion after the tension.",
+    bridgeNotes: "Bridge drops QUIET — acoustic guitar, whispered vocals, vulnerability. Then the final chorus EXPLODES.",
+    hookStyle: "Cathartic, explosive, raw. The hook is the DYNAMIC SHIFT — quiet to LOUD. 'Smells Like Teen Spirit', 'Black', 'Man in the Box' energy."
+  },
+  shoegaze: {
+    structure: "I-V-C-V-C-Bridge-C-Outro",
+    description: "Shoegaze: Intro (wall of guitar, reverb, delay) → Verse (buried vocals, swirling guitars) → Chorus (bigger wall of sound, melodic buried in the mix) → Verse → Chorus → Bridge (atmospheric, space) → Chorus → Outro (extended feedback, fade). Shoegaze is WALL OF SOUND. Guitars are EVERYTHING — reverb, delay, distortion, chorus pedals. Vocals are INSTRUMENTS, not narratives. My Bloody Valentine, Slowdive, Ride.",
+    verseLines: "4 lines; vocals buried in the mix, dreamy, ethereal. The words matter less than the FEEL.",
+    chorusLines: "4 lines; melodic, buried in the wall of sound. A pop song drowned in reverb.",
+    bridgeNotes: "Atmospheric break — the wall of sound thins. Space, delay, reverb. Then builds back.",
+    hookStyle: "The GUITAR TEXTURE is the hook. A shimmering, overwhelming wall of sound that envelops the listener. 'Only Shallow', 'When the Sun Hits', 'Vapour Trail' energy."
+  },
+  new_wave: {
+    structure: "I-V-C-V-C-Bridge-C-Outro",
+    description: "New Wave: Intro (synth riff or angular guitar) → Verse (quirky, energetic) → Chorus (catchy, hooky) → Verse → Chorus → Bridge (experimental, synth showcase) → Chorus → Outro. New Wave is PUNK MEETS POP MEETS SYNTH. Quirky, energetic, hooky. The B-52's, Talking Heads, Blondie, Devo. Synth + guitar + attitude.",
+    verseLines: "4 lines; quirky, energetic, angular. Think David Byrne talking over a groove.",
+    chorusLines: "4 lines; catchy, hooky, new-wave energy. Designed for MTV rotation.",
+    bridgeNotes: "Synth showcase — the keyboards take over. Quirky, experimental, new-wave.",
+    hookStyle: "Quirky, catchy, angular. The hook is the QUIRKINESS combined with a pop melody. 'Psycho Killer', 'Heart of Glass', 'Just Can't Get Enough' energy."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // MODERN NICHE — phonk, hyperpop, vaporwave, nightcore
+  // ════════════════════════════════════════════════════════════════════════════════
+  phonk: {
+    structure: "I-V-C-V-C-Drop-C-Outro",
+    description: "Phonk: Intro (cowbell, Memphis rap sample, lo-fi) → Verse (dark, aggressive, sampled vocals) → Chorus (cowbell-driven, menacing) → Verse → Chorus → Drop (heaviest part, distorted 808s) → Chorus → Outro. PHONK is DARK and LO-FI. Memphis rap samples. Cowbells. Distorted 808s. Horror movie aesthetics. Drift car videos.",
+    verseLines: "4 lines; dark, aggressive, lo-fi delivery. Memphis rap influence. Horror/street themes.",
+    chorusLines: "4 lines; cowbell-driven, menacing, repetitive. Designed for the drift edit.",
+    bridgeNotes: "Drop — distorted 808s, maximum aggression. The cowbell pattern intensifies.",
+    hookStyle: "Dark, menacing, cowbell-driven. The hook is the COWBELL PATTERN combined with a dark vocal phrase. 'Murder In My Mind', 'Neon Blade', 'KORDHELL' energy."
+  },
+  hyperpop: {
+    structure: "I-V-C-V-C-Break-C-Outro",
+    description: "Hyperpop: Intro (distorted, maxed-out production) → Verse (pitched-up vocals, chaotic) → Chorus (EXPLOSIVE, maxed-out, absurd) → Verse → Chorus → Break (deconstructed, stripped) → Chorus → Outro. Hyperpop is MAXIMALIST POP. Cranked to 11. Pitched vocals. Distorted bass. Absurd production choices. 100 gecs, SOPHIE, Ayesha Erotica.",
+    verseLines: "4 lines; pitched-up, chaotic, maximalist delivery. The production is as important as the words.",
+    chorusLines: "4 lines; EXPLOSIVE, maxed-out, absurd. Every element at maximum intensity.",
+    bridgeNotes: "Break — deconstructed, stripped back, glitchy. The hyperpop 'quiet' is still loud.",
+    hookStyle: "Maximalist, absurd, catchy. The hook is the PRODUCTION — the pitched vocal, the distorted bass, the chaotic arrangement. 'Money Machine', 'Pc Music', 'Vroom Vroom' energy."
+  },
+  vaporwave: {
+    structure: "I-Sample-Loop-Deconstruct-Fade",
+    description: "Vaporwave: Intro (sampled 80s/90s music, slowed down) → Loop (the sample loops, slowed, reverb-drenched) → Deconstruct (the sample fragments, glitches, distorts) → Fade. Vaporwave is a SAMPLE-BASED AESTHETIC. Slowed 80s muzak, corporate music, elevator music. Reverb. Delay. Nostalgia for a future that never happened. Mallsoft. Greek busts. Windows 95.",
+    verseLines: "If vocals: sampled, chopped, repeated fragments. The vocal is a TEXTURE, not a narrative.",
+    chorusLines: "No chorus — the loop IS the song.",
+    bridgeNotes: "Deconstruction — the sample glitches, fragments, distorts. The nostalgia decays.",
+    hookStyle: "The AESTHETIC is the hook. A slowed, reverb-drenched sample that evokes a lost 80s future. 'Floral Shoppe', 'Macintosh Plus', 'Late Night Delight' energy."
+  },
+  nightcore: {
+    structure: "I-V-C-V-C-V-C-Outro",
+    description: "Nightcore: Intro (fast, pitched-up) → Verse (sped-up vocals, happy hardcore energy) → Chorus (EUPHORIC, fast, catchy) → Verse → Chorus → Verse → Chorus → Outro. Nightcore is SPED-UP and PITCHED-UP. Any genre at 1.3x speed with raised pitch. Happy, energetic, anime aesthetic. BPM typically 160-200.",
+    verseLines: "4 lines; fast, pitched-up, energetic. Any lyrical style — nightcore is a PRODUCTION STYLE, not a genre.",
+    chorusLines: "4 lines; euphoric, fast, catchy. The pitch-shifted hook hits different at 180 BPM.",
+    bridgeNotes: "Bridge is rare — nightcore keeps maximum energy throughout. Maybe a brief slow-down before the final chorus.",
+    hookStyle: "Fast, pitched-up, euphoric. The hook is the SPEED combined with the PITCH — everything is more intense. 'Everytime We Touch', 'Running in the 90s', 'Dreamscape' energy."
+  },
+  // ════════════════════════════════════════════════════════════════════════════════
+  // SKA — the original (not ska punk)
+  // ════════════════════════════════════════════════════════════════════════════════
+  ska: {
+    structure: "I-V-C-V-C-HornBreak-C-Outro",
+    description: "Ska: Intro (horns + upstroke guitar) → Verse (walking bass, upbeat rhythm) → Chorus (horns, catchy) → Verse → Chorus → Horn Break (brass section showcase) → Chorus → Outro. SKA is the UPBEAT RHYTHM — guitar hits on the offbeat (the 'skank'). Walking bass. Horn section. ORIGINAL Ska is Jamaican — the root of reggae. 2-Tone Ska is British — The Specials, Madness.",
+    verseLines: "4 lines; rhythmic, upbeat, walking bass tempo. Jamaican or British delivery.",
+    chorusLines: "4 lines; horns, catchy, designed for dancing. The skank rhythm drives it.",
+    bridgeNotes: "Horn break — trumpet, trombone, sax showcase. The brass section IS the bridge. Walking bass continues underneath.",
+    hookStyle: "Rhythmic, upbeat, fun. The hook is the UPBEAT GUITAR combined with the horn melody. 'A Message to You Rudy', 'One Step Beyond', 'Monkey Man' energy."
   }
 };
 
@@ -131403,183 +131927,16 @@ function cropLrcFile(lrcPath, inPointSec, outPointSec) {
 import fs5 from "fs";
 import path4 from "path";
 function parseWav(filePath) {
-  const buf = fs5.readFileSync(filePath);
-  const riff = buf.toString("ascii", 0, 4);
-  const wave = buf.toString("ascii", 8, 12);
-  if (riff !== "RIFF" || wave !== "WAVE") {
-    throw new Error(`Not a WAV file: ${filePath}`);
-  }
-  let fmtOffset = -1;
-  let dataOffset = -1;
-  let dataSize = 0;
-  let pos = 12;
-  while (pos < buf.length - 8) {
-    const chunkId = buf.toString("ascii", pos, pos + 4);
-    const chunkSize = buf.readUInt32LE(pos + 4);
-    if (chunkId === "fmt ") {
-      fmtOffset = pos + 8;
-    } else if (chunkId === "data") {
-      dataOffset = pos + 8;
-      dataSize = chunkSize;
-    }
-    pos += 8 + chunkSize;
-    if (chunkSize % 2 !== 0) pos++;
-  }
-  if (fmtOffset < 0) throw new Error(`No fmt chunk in: ${filePath}`);
-  if (dataOffset < 0) throw new Error(`No data chunk in: ${filePath}`);
-  const audioFormat = buf.readUInt16LE(fmtOffset);
-  const channels = buf.readUInt16LE(fmtOffset + 2);
-  const sampleRate = buf.readUInt32LE(fmtOffset + 4);
-  const bitsPerSample = buf.readUInt16LE(fmtOffset + 14);
-  const bytesPerSample = bitsPerSample / 8;
-  const totalFrames = Math.floor(dataSize / (bytesPerSample * channels));
-  const samples = new Float32Array(totalFrames);
-  for (let i = 0; i < totalFrames; i++) {
-    let monoSum = 0;
-    for (let ch = 0; ch < channels; ch++) {
-      const offset = dataOffset + (i * channels + ch) * bytesPerSample;
-      let sample;
-      if (audioFormat === 3 && bitsPerSample === 32) {
-        sample = buf.readFloatLE(offset);
-      } else if (audioFormat === 1 && bitsPerSample === 16) {
-        sample = buf.readInt16LE(offset) / 32768;
-      } else if (audioFormat === 1 && bitsPerSample === 24) {
-        const b0 = buf[offset];
-        const b1 = buf[offset + 1];
-        const b2 = buf[offset + 2];
-        const val2 = b2 << 16 | b1 << 8 | b0;
-        sample = (val2 >= 8388608 ? val2 - 16777216 : val2) / 8388608;
-      } else if (audioFormat === 1 && bitsPerSample === 32) {
-        sample = buf.readInt32LE(offset) / 2147483648;
-      } else {
-        throw new Error(`Unsupported WAV format: ${audioFormat}/${bitsPerSample}bit in ${filePath}`);
-      }
-      monoSum += sample;
-    }
-    samples[i] = monoSum / channels;
-  }
-  return { sampleRate, channels, samples };
+  return parseWavMod(filePath);
 }
-var ANALYSIS_FPS = 60;
 function analyzeWav(filePath) {
-  const wav = parseWav(filePath);
-  const windowSamples = Math.floor(wav.sampleRate / ANALYSIS_FPS);
-  const totalWindows = Math.ceil(wav.samples.length / windowSamples);
-  const energy = new Float32Array(totalWindows);
-  let maxRms = 0;
-  for (let w = 0; w < totalWindows; w++) {
-    const start = w * windowSamples;
-    const end2 = Math.min(start + windowSamples, wav.samples.length);
-    let sumSq = 0;
-    for (let i = start; i < end2; i++) {
-      sumSq += wav.samples[i] * wav.samples[i];
-    }
-    const rms = Math.sqrt(sumSq / (end2 - start));
-    energy[w] = rms;
-    if (rms > maxRms) maxRms = rms;
-  }
-  const result = new Array(totalWindows);
-  if (maxRms > 1e-8) {
-    for (let w = 0; w < totalWindows; w++) {
-      result[w] = Math.round(energy[w] / maxRms * 100) / 100;
-    }
-  } else {
-    result.fill(0);
-  }
-  const duration = wav.samples.length / wav.sampleRate;
-  return { energy: result, duration, sampleRate: wav.sampleRate };
+  return analyzeWavMod(filePath);
 }
 function analyzeAndSaveDiscoData(songId, audioDir, stemUrls) {
-  const stemCount = [stemUrls.kick, stemUrls.snare, stemUrls.hihat].filter(Boolean).length;
-  if (stemCount === 0) {
-    console.log(`[DiscoAnalyzer] Song ${songId}: no stems to analyze`);
-    return "";
-  }
-  console.log(`[DiscoAnalyzer] Song ${songId}: analyzing ${stemCount} stem(s)...`);
-  const t0 = Date.now();
-  let duration = 0;
-  function analyzeStem(url, label) {
-    if (!url) return [];
-    const filename2 = path4.basename(url);
-    const filePath2 = path4.join(audioDir, filename2);
-    if (!fs5.existsSync(filePath2)) {
-      console.warn(`[DiscoAnalyzer] ${label} stem file not found: ${filePath2}`);
-      return [];
-    }
-    try {
-      const result = analyzeWav(filePath2);
-      if (result.duration > duration) duration = result.duration;
-      console.log(`[DiscoAnalyzer]   ${label}: ${result.energy.length} windows, ${result.duration.toFixed(1)}s`);
-      return result.energy;
-    } catch (err) {
-      console.error(`[DiscoAnalyzer]   ${label}: analysis failed: ${err.message}`);
-      return [];
-    }
-  }
-  const kick = analyzeStem(stemUrls.kick, "kick");
-  const snare = analyzeStem(stemUrls.snare, "snare");
-  const hihat = analyzeStem(stemUrls.hihat, "hihat");
-  const data2 = {
-    version: 1,
-    fps: ANALYSIS_FPS,
-    duration,
-    kick,
-    snare,
-    hihat
-  };
-  const filename = `${songId}_disco.json`;
-  const filePath = path4.join(audioDir, filename);
-  fs5.writeFileSync(filePath, JSON.stringify(data2));
-  const fileSize = fs5.statSync(filePath).size;
-  const elapsed = Date.now() - t0;
-  console.log(`[DiscoAnalyzer] Song ${songId}: saved ${filename} (${(fileSize / 1024).toFixed(1)} KB) in ${elapsed}ms`);
-  return `/audio/${filename}`;
+  return analyzeAndSaveDiscoDataMod(songId, audioDir, stemUrls);
 }
 function detectBeatsInAudio(audioPath) {
-  if (!fs5.existsSync(audioPath)) {
-    throw new Error(`Audio file not found: ${audioPath}`);
-  }
-  const wav = parseWav(audioPath);
-  const { sampleRate, samples } = wav;
-  const windowSize = Math.floor(sampleRate * 0.01);
-  if (windowSize < 1) throw new Error("Sample rate too low for 10ms windows");
-  const totalWindows = Math.ceil(samples.length / windowSize);
-  const energy = new Float32Array(totalWindows);
-  for (let w = 0; w < totalWindows; w++) {
-    const start = w * windowSize;
-    const end2 = Math.min(start + windowSize, samples.length);
-    let sumSq = 0;
-    for (let i = start; i < end2; i++) {
-      sumSq += samples[i] * samples[i];
-    }
-    energy[w] = Math.sqrt(sumSq / (end2 - start));
-  }
-  const alpha = 0.05;
-  const minOnsetInterval = 0.15;
-  const duration = samples.length / sampleRate;
-  const timePerWindow = 0.01;
-  let runningAvg = energy[0] || 0;
-  const onsets = [];
-  let lastOnsetTime = -minOnsetInterval;
-  for (let w = 0; w < totalWindows; w++) {
-    runningAvg = alpha * energy[w] + (1 - alpha) * runningAvg;
-    const t = w * timePerWindow;
-    if (energy[w] > 1.3 * runningAvg && (t - lastOnsetTime) >= minOnsetInterval) {
-      onsets.push(t);
-      lastOnsetTime = t;
-    }
-  }
-  if (onsets.length < 2) {
-    return { beats: onsets, bpm: 0, duration };
-  }
-  const intervals = [];
-  for (let i = 1; i < onsets.length; i++) {
-    intervals.push(onsets[i] - onsets[i - 1]);
-  }
-  intervals.sort((a, b) => a - b);
-  const medianInterval = intervals[Math.floor(intervals.length / 2)];
-  const bpm = medianInterval > 0 ? Math.round(60 / medianInterval) : 0;
-  return { beats: onsets, bpm, duration };
+  return detectBeatsInAudioMod(audioPath);
 }
 
 // server/src/routes/songs.ts
@@ -132118,9 +132475,6 @@ router3.post("/:id/extract-kick", async (req, res) => {
       res.status(404).json({ error: "Audio file not found on disk" });
       return;
     }
-    console.log(`[KickExtract] Song ${req.params.id}: SuperSep deferred (ONNX CUDA provider incompatible with CUDA 13 — stem extraction skipped to avoid blocking pipeline)`);
-    res.json({ status: "deferred", reason: "SuperSep skipped: ONNX CUDA provider issue" });
-    return;
     console.log(`[KickExtract] Song ${req.params.id}: starting SuperSep level 2...`);
     const audioBuf = fs7.readFileSync(audioPath);
     const sepRes = await fetch(`${ACE_URL3}/supersep/separate?level=2`, {
@@ -153102,17 +153456,18 @@ var OllamaProvider = class extends LLMProvider {
         { role: "user", content: userPrompt }
       ],
       stream: !!onChunk,
-      options: { num_predict: 8196 }
-    };
-    if (noThink) {
-      payload.think = false;
-      payload.options = {
-        ...payload.options,
+      options: {
+        num_predict: 8196,
+        // Always set sampling options — temperature/presence_penalty control output variety
+        // even when thinking is enabled (applied to non-thinking output tokens)
         temperature: options?.temperature ?? 0.7,
         top_p: options?.top_p ?? 0.8,
         top_k: 20,
-        presence_penalty: 1.5
-      };
+        presence_penalty: options?.presence_penalty ?? 1.5
+      }
+    };
+    if (noThink) {
+      payload.think = false;
     }
     const doFetch = () => fetch(url, {
       method: "POST",
@@ -153213,22 +153568,23 @@ var LMStudioProvider = class extends LLMProvider {
     const modelName = model || (await this.getLocalModels())[0] || this.defaultModel;
     if (!modelName) throw new Error("No models loaded in LM Studio");
     const noThink = !!options?.noThink;
+    // Always set sampling options — these control output variety even with thinking enabled
     const payload = {
       model: modelName,
       messages: [
         { role: "system", content: noThink ? noThinkSystemPrompt(systemPrompt) : systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      stream: !!onChunk
+      stream: !!onChunk,
+      temperature: options?.temperature ?? 0.7,
+      top_p: options?.top_p ?? 0.8,
+      top_k: 20,
+      presence_penalty: options?.presence_penalty ?? 1.5,
+      max_tokens: 8192
     };
     if (noThink) {
       payload.reasoning_effort = "none";
       payload.chat_template_kwargs = { enable_thinking: false };
-      payload.temperature = options?.temperature ?? 0.7;
-      payload.top_p = options?.top_p ?? 0.8;
-      payload.top_k = 20;
-      payload.presence_penalty = 1.5;
-      payload.max_tokens = 8192;
     }
     const doFetch = () => fetch(url, {
       method: "POST",
@@ -153390,15 +153746,21 @@ var OpenAICompatProvider = class extends LLMProvider {
       default_model: models.length ? models[0] : this.defaultModel
     };
   }
-  async call(systemPrompt, userPrompt, model, onChunk) {
+  async call(systemPrompt, userPrompt, model, onChunk, options) {
     const baseUrl = config.lireek.openaiCompatBaseUrl.replace(/\/+$/, "");
     const url = `${baseUrl}/chat/completions`;
     const modelName = model || (await this.getRemoteModels())[0] || this.defaultModel;
     if (!modelName) throw new Error(`No models available on ${this.name}`);
+    // Always set sampling options — these control output variety
     const payload = {
       model: modelName,
       messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
       stream: !!onChunk,
+      temperature: options?.temperature ?? 0.7,
+      top_p: options?.top_p ?? 0.8,
+      top_k: 20,
+      presence_penalty: options?.presence_penalty ?? 1.5,
+      max_tokens: 8192,
       // Force thinking/reasoning for Qwen3-style models on oMLX/vLLM.
       // Servers that don't support this parameter will safely ignore it.
       enable_thinking: true
@@ -153467,21 +153829,22 @@ var LlamaCppProvider = class extends LLMProvider {
     const modelName = model || (await this.getLocalModels())[0] || this.defaultModel;
     if (!modelName) throw new Error("No models available on llama.cpp server");
     const noThink = !!options?.noThink;
+    // Always set sampling options — these control output variety even with thinking enabled
     const payload = {
       model: modelName,
       messages: [
         { role: "system", content: noThink ? noThinkSystemPrompt(systemPrompt) : systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      stream: !!onChunk
+      stream: !!onChunk,
+      temperature: options?.temperature ?? 0.7,
+      top_p: options?.top_p ?? 0.8,
+      top_k: 20,
+      presence_penalty: options?.presence_penalty ?? 1.5,
+      max_tokens: 8192
     };
     if (noThink) {
       payload.chat_template_kwargs = { enable_thinking: false };
-      payload.temperature = options?.temperature ?? 0.7;
-      payload.top_p = options?.top_p ?? 0.8;
-      payload.top_k = 20;
-      payload.presence_penalty = 1.5;
-      payload.max_tokens = 8192;
     }
     const resp = await fetch(url, {
       method: "POST",
@@ -296494,7 +296857,7 @@ router18.post("/supersep", (req, res) => {
     res.status(400).json({ error: "sourceAudioUrl is required" });
     return;
   }
-  const sepLevel = parseInt(String(level ?? "0"), 10);
+  const sepLevel = parseInt(String(level ?? "0"), 10) || 0;
   const job = {
     id: randomUUID4(),
     type: "supersep",
@@ -297042,7 +297405,9 @@ router21.post("/cancel/:id", (req, res) => {
 });
 var LANGUAGE_NAMES = {
   en: "English",
-  zh: "Chinese",
+  zh: "Chinese (Mandarin)",
+  zh_TW: "Chinese (Traditional)",
+  zh_HK: "Chinese (Cantonese)",
   ja: "Japanese",
   ko: "Korean",
   es: "Spanish",
@@ -297058,7 +297423,67 @@ var LANGUAGE_NAMES = {
   th: "Thai",
   sv: "Swedish",
   pl: "Polish",
-  nl: "Dutch"
+  nl: "Dutch",
+  // Fallback languages — these are unsupported by ACE-Step but have fallback mappings
+  ga: "Irish (Gaelic)",
+  cy: "Welsh",
+  gd: "Scottish Gaelic",
+  uk: "Ukrainian",
+  bg: "Bulgarian",
+  cs: "Czech",
+  sk: "Slovak",
+  sw: "Swahili",
+  am: "Amharic",
+  bn: "Bengali",
+  ta: "Tamil",
+  te: "Telugu",
+  ml: "Malayalam",
+  kn: "Kannada",
+  mr: "Marathi",
+  ur: "Urdu",
+  id: "Indonesian",
+  ms: "Malay",
+  el: "Greek",
+  ro: "Romanian",
+  hu: "Hungarian",
+  fi: "Finnish",
+  et: "Estonian",
+  ht: "Haitian Creole",
+  cr: "Cajun Creole",
+  jam: "Jamaican Patois",
+  jmc: "Jamaican Patois",
+  jmd: "Jamaican Maroon Creole",
+  eo: "Esperanto",
+  ia: "Interlingua",
+  jv: "Javanese",
+  tl: "Tagalog",
+  mi: "Maori",
+  haw: "Hawaiian",
+  he: "Hebrew",
+  no: "Norwegian",
+  da: "Danish",
+  fi: "Finnish",
+  cs: "Czech",
+  la: "Latin",
+  eu: "Basque",
+  ca: "Catalan",
+  gl: "Galician",
+  af: "Afrikaans",
+  zu: "Zulu",
+  yo: "Yoruba",
+  ig: "Igbo",
+  ha: "Hausa",
+  ne: "Nepali",
+  si: "Sinhala",
+  my: "Burmese",
+  km: "Khmer",
+  lo: "Lao",
+  ka: "Georgian",
+  hy: "Armenian",
+  kk: "Kazakh",
+  uz: "Uzbek",
+  mn: "Mongolian",
+  bo: "Tibetan"
 };
 router21.post("/llm", async (req, res) => {
   const userId = getUserId(req);
@@ -297087,6 +297512,11 @@ router21.post("/llm", async (req, res) => {
     // ── Genre & Language Resolution ────────────────────────────────────────────
     const { primary: genreKey, all: genreKeys } = resolveGenreFromStyles(genres);
     const langFallback = resolveLanguageFallback(language);
+    // Use fallback map display name when available (e.g. "Irish (Gaelic)" instead of raw code "ga")
+    if (langFallback && langFallback.name) {
+      const fallbackDisplayName = langFallback.name.split(/\s*→\s*/)[0]; // "Irish (Gaelic) → English" → "Irish (Gaelic)"
+      langName = fallbackDisplayName || langName;
+    }
     // Determine if user explicitly chose a (Patois) genre variant — used by genre hints & vocabulary lock
     const wantsPatois = genres.some(g => g.toLowerCase().includes("patois"));
     if (genreKeys.length > 0) {
@@ -297112,6 +297542,7 @@ router21.post("/llm", async (req, res) => {
       "- NARRATIVE COHERENCE: Every image must connect to the subject. If the subject is 'the last hour of daylight,' every line should relate to fading light, dying sun, encroaching darkness, or time running out. Random objects unrelated to the subject (cold tea, copper coins, newspapers) make no sense. Each verse is a scene — images within it must rhyme thematically. The subject is the CENTER — every line orbits it.",
       "- 3-ACT STORY STRUCTURE: Every song tells a story. Act 1 (Verse 1): Setup — establish the world, the subject, where we are. Act 2 (Verse 2-3): Tension — deepen the conflict, raise stakes, build pressure. Act 3 (Verse 4+): Resolution — climax, transformation, the final image that lingers. A song with 4 verses of unrelated images is a list, not a story. The listener needs to feel the song went SOMEWHERE.",
       "- Write like a REAL PERSON from this genre would write, not like an AI. A punk singer doesn't say 'analog heart'. A reggae artist doesn't say 'neon rain'.",
+      "- VOCABULARY VARIETY (CRITICAL): Do NOT repeat the same key words or phrases across verses. If you use a strong word in Verse 1, find a DIFFERENT word for the same idea in Verse 2. Real songwriters avoid repeating their best lines — each verse should feel like a fresh take. The genre vocabulary palette is a pool to DRAW FROM, not a checklist to copy. Pick different words from it for each section.",
       "",
       "Generate the complete song now:"
     ].join("\n");
@@ -297217,7 +297648,7 @@ router21.post("/llm", async (req, res) => {
     const mergedMod = mergeGenreModules(genreKeys);
     if (mergedMod) {
       const genreHints = [];
-      if (mergedMod.whitelist?.length) genreHints.push(`Use words like: ${mergedMod.whitelist.slice(0, 30).join(", ")}`);
+      if (mergedMod.whitelist?.length) genreHints.push(`Genre vocabulary palette — draw from this pool but DO NOT repeat the same words across verses. Pick DIFFERENT words from this palette for each section: ${mergedMod.whitelist.slice(0, 40).join(", ")}`);
       if (mergedMod.blacklist?.length) genreHints.push(`NEVER use these words: ${mergedMod.blacklist.slice(0, 10).join(", ")}`);
       if (mergedMod.lineRules) {
         if (mergedMod.lineRules.preferCaps) genreHints.push("ALL CAPS USE — THE PRINCIPLE (CRITICAL): ALL CAPS creates emotional contrast. A line in caps hits HARDER when the lines around it are lowercase. If EVERY line is caps, NO line stands out — the effect is destroyed. Use ALL CAPS sparingly: only on the single most intense line per verse or section (usually the last line, or the line with the strongest image). Think of it like a dynamics marking in a score — you don't play fortissimo the entire song, you save it for the climax. Example: three lowercase lines building tension, THEN one ALL CAPS line that breaks the pattern and hits the listener. That's how real metal vocalists deliver their most devastating lines.");
@@ -297322,7 +297753,14 @@ router21.post("/llm", async (req, res) => {
     console.log(`[Inspire/LLM] Generating song via ${providerName}/${effectiveModel}`);
     console.log(`[Inspire/LLM] Genre: ${genreStr}, Subject: ${subject}, Language: ${langName}`);
     console.log(`[Inspire/LLM] Prompt source: ${clientPrompt ? "client override" : dbCustom ? "DB custom" : "default"}`);
-    let raw = await provider.call(systemPrompt, enhancedUserPrompt, effectiveModel);
+    // Pass explicit generation options: higher temperature for creative variety,
+    // strong presence_penalty to discourage repeating words/phrases across verses.
+    // noThink is NOT set — we keep the model's thinking mode enabled for quality.
+    let raw = await provider.call(systemPrompt, enhancedUserPrompt, effectiveModel, null, {
+      temperature: 0.85,
+      presence_penalty: 1.8,
+      top_p: 0.92
+    });
     raw = stripThinkingBlocks(raw);
     raw = raw.replace(/<\|[a-z_]+\|>/g, "");
     let structuredResult = parseStructuredLlmResponse(raw);
@@ -297787,77 +298225,12 @@ router21.post("/video/generate-album", async (req, res) => {
    album batch video generation. Parses lyrics → calculates section timings
    → generates context images → assembles beat-synced video.
    ═══════════════════════════════════════════════════════════════════════════ */
-var SECTION_TYPE_MAP = {
-  intro: "intro", "verse 1": "verse", "verse 2": "verse", "verse 3": "verse",
-  "verse 4": "verse", verse: "verse", "pre-chorus": "pre-chorus", prechorus: "pre-chorus",
-  chorus: "chorus", "post-chorus": "post-chorus", postchorus: "post-chorus",
-  bridge: "bridge", interlude: "interlude", outro: "outro",
-  "instrumental break": "instrumental", instrumental: "instrumental"
-};
+
 function parseVideoSections(lyrics) {
-  if (!lyrics?.trim()) return [];
-  var sections = [];
-  var lines = lyrics.split("\n");
-  var current = null;
-  var currentLines = [];
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i];
-    var m = line.match(/^\[([^\]]+)\]\s*$/);
-    if (m) {
-      if (current && currentLines.length > 0) {
-        sections.push({ sectionType: current, lyrics: currentLines.join("\n").trim() });
-      }
-      var raw = m[1].trim();
-      var lower = raw.toLowerCase().replace(/[^a-z0-9 -]/g, "");
-      current = SECTION_TYPE_MAP[lower] || "verse";
-      currentLines = [];
-    } else if (line.trim()) {
-      currentLines.push(line);
-    }
-  }
-  if (current && currentLines.length > 0) {
-    sections.push({ sectionType: current, lyrics: currentLines.join("\n").trim() });
-  }
-  if (sections.length === 0 && lyrics.trim().length > 20) {
-    sections.push({ sectionType: "verse", lyrics: lyrics.trim() });
-  }
-  return sections;
+  return parseVideoSectionsMod(lyrics);
 }
-function calculateSectionTimings(sections, bpm, duration) {
-  if (!sections.length || !bpm || bpm <= 0 || !duration || duration <= 0) {
-    /* Fallback: even distribution */
-    var even = duration / Math.max(1, sections.length);
-    return sections.map(function(_, i) { return i * even; }).concat([duration]);
-  }
-  var barSeconds = 240.0 / bpm;
-  /* barsPerLine scales from 2.5 (slow) to 4.0 (fast) */
-  var barsPerLine = Math.min(4.0, Math.max(2.5, 2.5 + 1.5 * ((bpm - 80) / 100)));
-  /* Calculate relative weight per section by line count */
-  var weights = sections.map(function(s) {
-    var lines = s.lyrics.split("\n").filter(function(l) { return l.trim().length > 0; }).length;
-    return Math.max(1, lines);
-  });
-  var totalWeight = weights.reduce(function(a, b) { return a + b; }, 0);
-  /* Allocate proportional time, leaving ~10% for transitions */
-  var usableDuration = duration * 0.95;
-  var timings = [0];
-  var elapsed = 0;
-  for (var i = 0; i < sections.length; i++) {
-    var sectionDuration = (weights[i] / totalWeight) * usableDuration;
-    /* Clamp: minimum 3 seconds, maximum 70% of duration */
-    sectionDuration = Math.max(3, Math.min(duration * 0.7, sectionDuration));
-    elapsed += sectionDuration;
-    timings.push(Math.min(duration, elapsed));
-  }
-  /* Scale to fit actual duration */
-  if (elapsed > 0) {
-    var scale = duration / elapsed;
-    for (var j = 1; j < timings.length; j++) {
-      timings[j] = Math.round(timings[j] * scale * 100) / 100;
-    }
-    timings[timings.length - 1] = duration;
-  }
-  return timings;
+function calculateSectionTimings(sections, bpm, duration, beats) {
+  return calculateSectionTimingsMod(sections, bpm, duration, beats);
 }
 router21.post("/video/create", async (req, res) => {
   try {
@@ -297908,8 +298281,8 @@ router21.post("/video/create", async (req, res) => {
       return;
     }
     console.log(`[VideoCreate] Parsed ${sections.length} sections from lyrics (${songDuration.toFixed(1)}s, ${effectiveBpm} BPM)`);
-    /* ── Step 3: Calculate section timings ── */
-    var sectionTimings = calculateSectionTimings(sections, effectiveBpm, songDuration);
+    /* ── Step 3: Calculate section timings (beat-aligned when possible) ── */
+    var sectionTimings = calculateSectionTimings(sections, effectiveBpm, songDuration, beatData.beats);
     console.log(`[VideoCreate] Section timings: [${sectionTimings.map(function(t) { return t.toFixed(1); }).join(", ")}]`);
     /* ── Step 4: Generate images for each section ── */
     var imageResults = [];
@@ -297972,12 +298345,35 @@ router21.post("/video/create", async (req, res) => {
     ];
     var transitions = ["fade", "dissolve", "fadeblack", "fadewhite", "smoothleft", "smoothright", "circlecrop", "radial", "pixelize", "diagtl"];
     var filterParts = [];
+    /* ── VISUALIZATION: Select mode based on section type for variety ── */
+    /* Instead of always using showwaves, cycle through visualization modes */
+    var vizModes = [
+      "showfreqs=s=1920x200:mode=line:fscale=lin:color=green:rate=30",           /* frequency bars (verse) */
+      "showwaves=s=1920x200:mode=cline:colors=cyan@0.5:rate=30",                  /* waveform (intro/outro) */
+      "showspectrum=s=1920x200:mode=combined:color=intensity:fscale=lin:saturation=5:rate=30", /* spectrum (chorus) */
+      "showwaves=s=1920x200:mode=point:colors=magenta@0.6:rate=30",               /* dot pattern (bridge) */
+      "showfreqs=s=1920x200:mode=line:fscale=log:color=yellow:rate=30",           /* log freq (build) */
+      "showvolume=s=1920x80:rate=30:v=0.7",                                       /* volume meter (drop) */
+      "showwaves=s=1920x200:mode=p2p:colors=orange@0.5:rate=30",                  /* peaks-to-peaks (outro) */
+      "showspectrum=s=1920x200:mode=combined:color=channel:fscale=lin:rate=30"    /* channel spectrum (interlude) */
+    ];
+    /* Map section type to viz mode index */
+    var vizTypeMap = {
+      intro: 1, verse: 0, prechorus: 4, chorus: 2, "post-chorus": 4,
+      bridge: 3, interlude: 7, outro: 6, instrumental: 5, drop: 5, build: 4
+    };
+    /* Pick primary viz mode based on first non-verse section, or default */
+    var primaryVizType = sections[0]?.sectionType || "verse";
+    var primaryVizIdx = vizTypeMap[primaryVizType] ?? 0;
+    /* Alternate viz mode every ~30 seconds or at section transitions */
+    var vizFilter = vizModes[primaryVizIdx % vizModes.length];
+
     if (imageCount === 1) {
       var dur = Math.round(songDuration * 30);
       filterParts.push(
         "[1:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1,setsar=1,zoompan=z='" + zoomDirections[0].z + "':x='" + zoomDirections[0].x + "':y='" + zoomDirections[0].y + "':d=" + dur + ":s=1920x1080:fps=30[zp0]"
       );
-      filterParts.push("[0:a]showwaves=s=1920x200:mode=cline:colors=cyan@0.5:rate=30[waves]");
+      filterParts.push("[0:a]" + vizFilter + "[waves]");
       filterParts.push("[zp0][waves]overlay=0:H-200:format=auto,format=yuv420p[out]");
     } else {
       /* Build zoompan for each image with its own duration */
@@ -298000,7 +298396,7 @@ router21.post("/video/create", async (req, res) => {
         filterParts.push("[" + chainLabel + "][zp" + ci + "]xfade=transition=" + trans + ":duration=" + crossfadeDur + ":offset=" + offset + "[xf" + ci + "]");
         chainLabel = "xf" + ci;
       }
-      filterParts.push("[0:a]showwaves=s=1920x200:mode=cline:colors=cyan@0.5:rate=30[waves]");
+      filterParts.push("[0:a]" + vizFilter + "[waves]");
       filterParts.push("[" + chainLabel + "][waves]overlay=0:H-200:format=auto,format=yuv420p[out]");
     }
     var filterComplex = filterParts.join(";");
@@ -298046,569 +298442,64 @@ router21.post("/video/create", async (req, res) => {
 /* ═══════════════════════════════════════════════════════════════════════
    ComfyUI Client & Music Video Creator Pipeline
    ═══════════════════════════════════════════════════════════════════════ */
-const COMFYUI_URL = process.env.COMFYUI_URL || "http://127.0.0.1:8188";
-const COMFYUI_POLL_MS = 2000;
-const COMFYUI_TIMEOUT_MS = 600000; /* 10 min max per job */
 /* ── Reuse existing imports: fs9 (line 133307), path9 (line 133302) ── */
 const { randomUUID: uuid9 } = require("crypto");
 
-/* ── ComfyUI HTTP helpers ─────────────────────────────────────────── */
-async function comfyPost(endpoint, body) {
-  const resp = await fetch(`${COMFYUI_URL}${endpoint}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30000)
-  });
-  if (!resp.ok) throw new Error(`ComfyUI POST ${endpoint} failed: ${resp.status} ${await resp.text()}`);
-  return resp.json();
-}
-async function comfyGet(endpoint) {
-  const resp = await fetch(`${COMFYUI_URL}${endpoint}`, { signal: AbortSignal.timeout(10000) });
-  if (!resp.ok) throw new Error(`ComfyUI GET ${endpoint} failed: ${resp.status}`);
-  return resp.json();
-}
-async function comfyUpload(filePath, fileName) {
-  const fileBytes = await fs9.promises.readFile(filePath);
-  const blob = new Blob([fileBytes], { type: "application/octet-stream" });
-  const form = new FormData();
-  form.append("image", blob, fileName);
-  form.append("overwrite", "true");
-  const resp = await fetch(`${COMFYUI_URL}/upload/image`, {
-    method: "POST",
-    body: form,
-    signal: AbortSignal.timeout(60000)
-  });
-  if (!resp.ok) throw new Error(`ComfyUI upload failed: ${resp.status}`);
-  return resp.json();
-}
-async function comfyDownload(filename, subfolder, type) {
-  const params = new URLSearchParams({ filename, subfolder: subfolder || "", type: type || "output" });
-  const resp = await fetch(`${COMFYUI_URL}/view?${params}`, { signal: AbortSignal.timeout(60000) });
-  if (!resp.ok) throw new Error(`ComfyUI download failed: ${resp.status}`);
-  return Buffer.from(await resp.arrayBuffer());
-}
-async function comfyFreeVRAM() {
-  try { await comfyPost("/free", {}); } catch {}
-}
+/* ── ComfyUI HTTP helpers — delegated to services/comfyui-client.mjs ── */
+async function comfyPost(endpoint, body) { return comfyPostMod(endpoint, body); }
+async function comfyGet(endpoint) { return comfyGetMod(endpoint); }
+async function comfyUpload(filePath, fileName) { return comfyUploadMod(filePath, fileName); }
+async function comfyDownload(filename, subfolder, type) { return comfyDownloadMod(filename, subfolder, type); }
+async function comfyFreeVRAM() { try { await comfyPostMod("/free", {}); } catch {} }
 
-/* ── Submit + poll workflow ────────────────────────────────────────── */
+/* ── Submit + poll workflow — routed through FIFO queue ── */
 async function comfySubmitAndWait(workflow, onProgress) {
-  await comfyFreeVRAM();
-  const submitResp = await comfyPost("/prompt", { prompt: workflow });
-  if (submitResp.error) throw new Error(`Workflow error: ${JSON.stringify(submitResp.node_errors || submitResp.error)}`);
-  const promptId = submitResp.prompt_id;
-  if (!promptId) throw new Error("No prompt_id returned from ComfyUI");
-  console.log(`[ComfyUI] Submitted job: ${promptId}`);
-  const start = Date.now();
-  while (Date.now() - start < COMFYUI_TIMEOUT_MS) {
-    await new Promise(r => setTimeout(r, COMFYUI_POLL_MS));
-    const hist = await comfyGet(`/history/${promptId}`);
-    if (hist[promptId]) {
-      const entry = hist[promptId];
-      if (entry.status && entry.status.completed === false) continue;
-      if (entry.status && entry.status.status_str === "error") {
-        const msgs = entry.status.messages || [];
-        throw new Error(`ComfyUI execution error: ${JSON.stringify(msgs)}`);
-      }
-      if (entry.outputs) {
-        console.log(`[ComfyUI] Job ${promptId} completed in ${((Date.now()-start)/1000).toFixed(1)}s`);
-        return { promptId, outputs: entry.outputs };
-      }
-    }
-    if (onProgress) onProgress(((Date.now() - start) / COMFYUI_TIMEOUT_MS) * 100);
-  }
-  throw new Error(`ComfyUI job timed out after ${COMFYUI_TIMEOUT_MS/1000}s`);
+  return comfySubmitFromQueue(workflow, onProgress);
 }
 
-/* ── Find output file from node outputs ────────────────────────────── */
+/* ── Find output file from node outputs ── */
 function comfyFindOutput(outputs, nodeType) {
-  for (const [nodeId, nodeOut] of Object.entries(outputs)) {
-    if (nodeOut.videos && nodeOut.videos.length > 0) {
-      return { type: "video", files: nodeOut.videos };
-    }
-    if (nodeOut.images && nodeOut.images.length > 0) {
-      return { type: "image", files: nodeOut.images };
-    }
-  }
-  /* Fallback: grab first available output */
-  for (const [nodeId, nodeOut] of Object.entries(outputs)) {
-    if (nodeOut.gifs) return { type: "gif", files: nodeOut.gifs };
-    if (nodeOut.audio) return { type: "audio", files: nodeOut.audio };
-  }
-  return null;
+  return comfyFindOutputMod(outputs, nodeType);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   LTX2.3 Image-to-Video Workflow Builder
-   Based on user's working workflow: LTX_2.3_ia2v + RTX Super Scale
+   LTX2.3 Image-to-Video Workflow Builder — delegated to services/comfyui-client.mjs
    ═══════════════════════════════════════════════════════════════════════ */
-function buildLTX2Workflow({
-  imageFilename,        /* uploaded image filename (ComfyUI name) */
-  audioFilename,        /* uploaded audio filename (ComfyUI name) */
-  videoPrompt,          /* text prompt describing the action */
-  negativePrompt = "pc game, console game, video game, cartoon, childish, ugly",
-  width = 768,
-  height = 512,
-  frames = 97,          /* ~3.2 sec at 30fps */
-  audioDuration = 9,    /* seconds */
-  audioStart = 0,       /* start offset in audio seconds */
-  frameRate = 24,
-  steps1 = 9,           /* pass 1 sigma count */
-  steps2 = 4,           /* pass 2 sigma count */
-  cfg = 1.0,
-  imgStrength = 0.7,
-  imgCompression = 18,
-  upscale = true,
-  rtxUltra = true,
-  seed = null,
-  outputPrefix = "mvc_clip"
-}) {
-  if (seed === null) seed = Math.floor(Math.random() * 2**32);
-  const finalW = width * 2;  /* spatial upscaler x2 */
-  const finalH = height * 2;
-  const upsampledFrames = frames; /* frames stay same, just spatial upscale */
-  /* Build sigmas strings */
-  const sigmas1 = Array.from({length: steps1 + 1}, (_, i) => {
-    if (i === 0) return "1.0";
-    if (i === steps1) return "0.0";
-    return (1.0 - (i / steps1)).toFixed(4);
-  }).join(", ");
-  const sigmas2 = "0.85, 0.7250, 0.4219, 0.0";
-
-  const workflow = {
-    /* ── Model Loading ── */
-    "1": { class_type: "UnetLoaderGGUF", inputs: { unet_name: "ltx2.3\\LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf" } },
-    "2": { class_type: "VAELoader", inputs: { vae_name: "ltx2.3\\ltx-2.3-22b-distilled_audio_vae.safetensors" } },
-    "3": { class_type: "VAELoader", inputs: { vae_name: "ltx2.3\\ltx-2.3-22b-distilled_video_vae.safetensors" } },
-    "4": { class_type: "DualCLIPLoader", inputs: {
-      clip_name1: "gemma_3_12B_it_fp4_mixed.safetensors",
-      clip_name2: "ltx2.3\\ltx-2.3-22b-distilled_embeddings_connectors.safetensors",
-      type: "ltxv", device: "default"
-    }},
-    "5": { class_type: "LoraLoaderModelOnly", inputs: {
-      lora_name: "ltx2.3\\ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors",
-      strength_model: 0.5, strength_clip: 1.0,
-      model: ["1", 0]
-    }},
-
-    /* ── Text Encoding ── */
-    "10": { class_type: "CLIPTextEncode", inputs: { text: videoPrompt, clip: ["4", 0] } },
-    "11": { class_type: "CLIPTextEncode", inputs: { text: negativePrompt, clip: ["4", 0] } },
-
-    /* ── Image Input ── */
-    "20": { class_type: "LoadImage", inputs: { image: imageFilename } },
-    "21": { class_type: "ResizeImageMaskNode", inputs: {
-      input: ["20", 0],
-      resize_type: "scale dimensions",
-      width: finalW, height: finalH,upscale_method: "lanczos", crop: "center"
-    }},
-    "22": { class_type: "ResizeImagesByLongerEdge", inputs: { images: ["21", 0], longer_edge: Math.round(finalW * 0.8) } },
-
-    /* ── Audio Input ── */
-    "30": { class_type: "LoadAudio", inputs: { audio: audioFilename } },
-    "31": { class_type: "TrimAudioDuration", inputs: {
-      audio: ["30", 0], duration: audioDuration, start_index: audioStart
-    }},
-
-    /* ── Preprocessing ── */
-    "40": { class_type: "LTXVPreprocess", inputs: { image: ["22", 0], image_compression: imgCompression } },
-    "41": { class_type: "EmptyLTXVLatentVideo", inputs: { width, height, length: frames, batch_size: 1 } },
-    "42": { class_type: "LTXVImgToVideoInplace", inputs: {
-      vae: ["3", 0], image: ["40", 0], latent: ["41", 0], bypass: false,
-      strength: imgStrength, use_full_denoise: true
-    }},
-
-    /* ── Audio Encoding ── */
-    "50": { class_type: "LTXVAudioVAEEncode", inputs: { audio: ["31", 0], audio_vae: ["2", 0] } },
-
-    /* ── Merge A/V Latents ── */
-    "51": { class_type: "LTXVConcatAVLatent", inputs: { video_latent: ["42", 0], audio_latent: ["50", 0] } },
-    "52": { class_type: "SetLatentNoiseMask", inputs: { samples: ["51", 0], mask: ["53", 0] } },
-    "53": { class_type: "SolidMask", inputs: { value: 0, width, height } },
-
-    /* ── Conditioning ── */
-    "60": { class_type: "LTXVConditioning", inputs: { positive: ["10", 0], negative: ["11", 0], frame_rate: frameRate } },
-
-    /* ── Sampling Pass 1 ── */
-    "70": { class_type: "RandomNoise", inputs: { noise_seed: seed, control_after_generate: "randomize" } },
-    "71": { class_type: "KSamplerSelect", inputs: { sampler_name: "euler_ancestral_cfg_pp" } },
-    "72": { class_type: "ManualSigmas", inputs: { sigmas: sigmas1, scheduler: "normal" } },
-    "73": { class_type: "CFGGuider", inputs: {
-      model: ["5", 0], positive: ["60", 0], negative: ["60", 1], cfg
-    }},
-    "74": { class_type: "LTXVCropGuides", inputs: {
-      positive: ["60", 0], negative: ["60", 1], latent: ["52", 0]
-    }},
-    "75": { class_type: "SamplerCustomAdvanced", inputs: {
-      noise: ["70", 0], guider: ["73", 0], sampler: ["71", 0],
-      sigmas: ["72", 0], latent_image: ["52", 0]
-    }},
-
-    /* ── Pass 2: Refine with separate A/V ── */
-    "80": { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: ["75", 0] } },
-    "81": { class_type: "LTXVImgToVideoInplace", inputs: {
-      vae: ["3", 0], image: ["40", 0], latent: ["80", 0], bypass: false,
-      strength: imgStrength, use_full_denoise: false
-    }},
-    "82": { class_type: "LTXVConcatAVLatent", inputs: { video_latent: ["81", 0], audio_latent: ["80", 1] } },
-    "83": { class_type: "RandomNoise", inputs: { noise_seed: seed + 1, control_after_generate: "randomize" } },
-    "84": { class_type: "KSamplerSelect", inputs: { sampler_name: "euler_cfg_pp" } },
-    "85": { class_type: "ManualSigmas", inputs: { sigmas: sigmas2, scheduler: "normal" } },
-    "86": { class_type: "CFGGuider", inputs: {
-      model: ["5", 0], positive: ["60", 0], negative: ["60", 1], cfg
-    }},
-    "87": { class_type: "LTXVCropGuides", inputs: {
-      positive: ["60", 0], negative: ["60", 1], latent: ["82", 0]
-    }},
-    "88": { class_type: "SamplerCustomAdvanced", inputs: {
-      noise: ["83", 0], guider: ["86", 0], sampler: ["84", 0],
-      sigmas: ["85", 0], latent_image: ["82", 0]
-    }},
-
-    /* ── Decode A/V ── */
-    "90": { class_type: "LTXVSeparateAVLatent", inputs: { av_latent: ["88", 0] } },
-    "91": { class_type: "LTXVAudioVAEDecode", inputs: { samples: ["90", 1], audio_vae: ["2", 0] } },
-    "92": { class_type: "VAEDecodeTiled", inputs: { samples: ["90", 0], vae: ["3", 0], tile_size: 768, overlap: 4 } },
-
-    /* ── Post-processing ── */
-    "100": { class_type: "ColorMatchV2", inputs: { image_target: ["92", 0], image_ref: ["22", 0], method: "mkl", mix_ratio: 1.0 } },
-  };
-
-  let lastNode = "100";
-
-  if (upscale) {
-    /* ── Latent Upscale ── */
-    workflow["110"] = { class_type: "LatentUpscaleModelLoader", inputs: { model_name: "ltx2.3\\ltx-2.3-spatial-upscaler-x2-1.1.safetensors" } };
-    workflow["111"] = { class_type: "LTXVLatentUpsampler", inputs: {
-      samples: ["90", 0], upscale_model: ["110", 0], vae: ["3", 0]
-    }};
-    workflow["112"] = { class_type: "VAEDecodeTiled", inputs: { samples: ["111", 0], vae: ["3", 0], tile_size: 768, overlap: 4 } };
-    workflow["113"] = { class_type: "ColorMatchV2", inputs: { image_target: ["112", 0], image_ref: ["22", 0], method: "mkl", mix_ratio: 1.0 } };
-    lastNode = "113";
-  }
-
-  if (rtxUltra) {
-    /* ── RTX Super Resolution ── */
-    workflow["120"] = { class_type: "RTXVideoSuperResolution", inputs: { images: [lastNode, 0], scale_type: "scale_by_multiplier", multiplier: 2, quality: "ULTRA" } };
-    workflow["121"] = { class_type: "ImageSharpenKJ", inputs: {
-      image: ["120", 0], sharpen_method: "adaptive_usm", strength: 1.0, radius: 0.05
-    }};
-    lastNode = "121";
-  }
-
-  /* ── Create + Save Video ── */
-  workflow["200"] = { class_type: "CreateVideo", inputs: { images: [lastNode, 0], audio: ["91", 0], fps: 30 } };
-  workflow["201"] = { class_type: "SaveVideo", inputs: {
-    video: ["200", 0], filename_prefix: outputPrefix, format: "auto"
-  }};
-
-  return workflow;
-}
+function buildLTX2Workflow(opts) { return buildLTX2WorkflowMod(opts); }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   FLUX.2 Image Generation Workflow Builder
+   FLUX.2 Image Generation Workflow Builder — delegated to services/comfyui-client.mjs
    ═══════════════════════════════════════════════════════════════════════ */
-function buildFLUX2Workflow({
-  prompt,
-  negativePrompt = "text, lettering, words, typography, watermark, signature, logo, title, font, writing, caption, label, stamp, banner",
-  width = 1024,
-  height = 1024,
-  steps = 20,
-  cfg = 3.5,
-  seed = null,
-  outputPrefix = "mvc_image"
-}) {
-  if (seed === null) seed = Math.floor(Math.random() * 2**32);
-  return {
-    "1": { class_type: "UnetLoaderGGUF", inputs: { unet_name: "flux2\\Flux-2-Klein-9B-KV-Q8_0.gguf" } },
-    "2": { class_type: "VAELoader", inputs: { vae_name: "FLUX.2\\flux2-vae.safetensors" } },
-    "3": { class_type: "DualCLIPLoader", inputs: {
-      clip_name1: "awq-int4-flux.1-t5xxl.safetensors",
-      clip_name2: "clip_l.safetensors",
-      type: "flux", device: "default"
-    }},
-    "10": { class_type: "CLIPTextEncode", inputs: { text: prompt, clip: ["3", 0] } },
-    "11": { class_type: "CLIPTextEncode", inputs: { text: negativePrompt, clip: ["3", 1] } },
-    "20": { class_type: "EmptyLatentImage", inputs: { width, height, batch_size: 1 } },
-    "30": { class_type: "FluxGuidance", inputs: { conditioning: ["10", 0], guidance: cfg } },
-    "31": { class_type: "BasicGuider", inputs: { model: ["1", 0], conditioning: ["30", 0] } },
-    "32": { class_type: "BasicScheduler", inputs: { model: ["1", 0], scheduler: "beta", steps, denoise: 1.0 } },
-    "33": { class_type: "SamplerCustomAdvanced", inputs: {
-      noise: ["40", 0], guider: ["31", 0], sampler: ["41", 0],
-      sigmas: ["32", 0], latent_image: ["20", 0]
-    }},
-    "40": { class_type: "RandomNoise", inputs: { noise_seed: seed } },
-    "41": { class_type: "KSamplerSelect", inputs: { sampler_name: "euler" } },
-    "50": { class_type: "VAEDecode", inputs: { samples: ["33", 0], vae: ["2", 0] } },
-    "60": { class_type: "SaveImage", inputs: { images: ["50", 0], filename_prefix: outputPrefix } }
-  };
-}
+function buildFLUX2Workflow(opts) { return buildFLUX2WorkflowMod(opts); }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Singer Image Prompt Builder
+   Singer Image Prompt Builder — delegated to services/prompt-builder.mjs
    ═══════════════════════════════════════════════════════════════════════ */
-const SINGER_SCENES = {
-  intro:    { mood: "ethereal, soft ambient lighting, misty atmosphere", pose: "standing still, eyes closed, feeling the music" },
-  verse:    { mood: "intimate, warm spotlight, dark background", pose: "singing into microphone, gentle expression" },
-  prechorus:{ mood: "building energy, warm to cool transition lighting", pose: "leaning into the mic, intensity building" },
-  chorus:   { mood: "explosive energy, vivid colored stage lights, lens flare", pose: "singing passionately, arms expressive, dynamic pose" },
-  "post-chorus": { mood: "afterglow, soft neon, atmospheric haze", pose: "smiling, relaxed stage presence" },
-  bridge:   { mood: "contemplative, single warm light, shadows", pose: "turning to camera, emotional delivery" },
-  interlude:{ mood: "abstract, floating particles, dreamy", pose: "silhouette against colored lights" },
-  outro:    { mood: "fading, gentle backlight, silhouette", pose: "walking away, or final note held" },
-  instrumental: { mood: "atmospheric, abstract light patterns", pose: "no person, abstract visual" }
-};
-
-/* Genre-aware visual vocabulary — translates musical/slang terms into visual equivalents.
-   Key insight: Lyrics are AUDITORY, not visual. "Bass cannon" is a speaker system, not an instrument + weapon.
-   This map helps the prompt builder understand what genre terms LOOK like. */
-const GENRE_VISUAL_CONTEXT = {
-  /* Dub / Reggae / Sound System culture */
-  "dub":        "massive stacked speaker walls, sound system culture, bass vibrations shaking the room, selector at the decks, deep bass frequencies visible as air distortion, Jamaican sound system dancehall",
-  "reggae":     "roots reggae aesthetic, warm golden light, Jamaican vibes, sound system culture, natural earth tones, peaceful resistance",
-  "dancehall":  "vibrant Caribbean colors, dancehall queen energy, sound system stage, tropical night, neon lights",
-  "riddim":     "bass-heavy speaker stacks, dancefloor energy, crowd moving to deep bass, Caribbean nightlife",
-  /* Metal / Rock */
-  "metal":      "dark stage, pyrotechnics, aggressive lighting, headbanging energy, leather and chains, industrial aesthetic",
-  "doom metal": "dark fog, candlelight, gothic cathedral atmosphere, slow heavy atmosphere, monochrome with red accents",
-  "black metal": "frozen landscape, corpse paint, grim atmosphere, forest backdrop, blast beats energy",
-  /* Electronic / Dance */
-  "edm":        "massive LED walls, laser arrays, festival main stage, crowd sea, electronic dance energy",
-  "techno":     "dark warehouse, minimal red/white lighting, industrial concrete, underground club aesthetic",
-  "house":      "warm warehouse party, disco ball, soulful energy, Chicago underground vibes",
-  "dubstep":    "massive bass drops visible as shockwaves, LED panels, festival bass culture, wobble bass energy",
-  /* Hip-Hop / Rap */
-  "hiphop":     "urban landscape, graffiti walls, street culture, gold chains, boombox aesthetic, concrete jungle",
-  "trap":       "neon-lit Atlanta nights, luxury cars, ice chains, dark moody streets, bass culture",
-  "drill":      "gritty London streets, dark urban landscape, rain-slicked roads, raw energy",
-  /* Soul / R&B */
-  "r&b":        "velvet curtains, warm amber lighting, intimate stage, soulful expression, smooth aesthetic",
-  "soul":       "Motown warmth, golden era aesthetic, rich wood tones, vintage microphone, emotional delivery",
-  "funk":       "groovy colors, Parliament-Funkadelic aesthetic, bright neon, funkadelic energy, tight outfits",
-  /* Folk / Acoustic */
-  "folk":       "intimate campfire, natural landscape, acoustic warmth, wood and earth tones, storytelling atmosphere",
-  "country":    "open plains, western sunset, barn dance, cowboy aesthetic, natural light",
-  /* Pop */
-  "pop":        "clean modern aesthetic, bright colors, polished production, mainstream appeal, catchy visual hooks",
-  "kpop":       "synchronized choreography, K-pop idol aesthetic, pastel and neon mix, futuristic set design",
-  /* Jazz / Blues */
-  "jazz":       "smoky jazz club, blue hour lighting, saxophone silhouette, intimate corner stage, cocktail lounge",
-  "blues":      "Mississippi delta, juke joint, worn wood, single spotlight, raw emotion, whiskey glass",
-  /* Latin */
-  "reggaeton":  "tropical nightlife, dembow rhythm energy, Caribbean colors, urban Latin aesthetic, neon palm trees",
-  "salsa":      "salsa club, warm colors, dancing couples, brass section, Caribbean heat",
-  /* Classical / Orchestral */
-  "classical":  "grand concert hall, dramatic chiaroscuro lighting, orchestral elegance, timeless beauty",
-  /* Punk */
-  "punk":       "DIY aesthetic, graffiti, safety pins, mohawk energy, underground venue, raw and loud",
-  "post-punk":  "dark wave aesthetic, angular lighting, Joy Division atmosphere, monochrome with stark contrasts",
-};
-
-/* Music/slang terminology visual dictionary — translates musical terms into what they LOOK like.
-   This exists because image models don't know that "breakbeat" is a drum pattern, not something
-   physically breaking. Every term here maps to a visual description. */
-const MUSIC_TERM_VISUAL = {
-  /* Instruments / Gear — what they look like in action */
-  "bass cannon":          "massive speaker stack radiating visible bass vibrations, sound system culture",
-  "skank guitar":         "rhythmic upstroke guitar playing, choppy chord chops on the offbeat, reggae rhythm guitar",
-  "wobble bass":          "synthesizer with pulsating low-frequency oscillation, electronic bass texture",
-  "drop the needle":      "vinyl record player, stylus touching down on spinning record, warm crackle",
-  "four on the floor":    "steady kick drum pulse, drum machine, dancefloor rhythm, metronomic beat",
-  "breakbeat":            "syncopated drum pattern, funky drummer loop, broken rhythm groove",
-  "ghost notes":          "subtle quiet drum taps between main beats, brushed snare, whispered percussion",
-  "blue note":            "flattened jazz pitch, soulful bending tone, melancholic musical interval",
-  "walking bass":         "upright bass with steady quarter-note movement, jazz club, warm low end",
-  "comping":              "rhythmic piano chords supporting a soloist, jazz trio, interactive accompaniment",
-  "double stop":          "two strings played simultaneously on guitar, harmonized melodic line",
-  "power chord":          "distorted guitar two-note chord, rock stage, amplifier glow, raw energy",
-  "tremolo picking":      "rapid alternating guitar picking, surf rock or black metal, blurred strings",
-  "slide guitar":         "bottleneck slide on steel strings, blues country, weeping guitar tone",
-  "fingerpicking":        "delicate acoustic guitar plucking, folk intimacy, individual string articulation",
-  "bowing":               "violin or cello with drawn bow, orchestral warmth, sustained tone",
-  /* DJ / Sound system culture */
-  "bass drop":            "subwoofer cone vibrating violently, visible air distortion, crowd reaction",
-  "rewind":               "vinyl spinning backward, selector hand on turntable, sound system pull-up",
-  "wheel and come again": "turntable rewinding, crowd cheering, sound system rewind moment",
-  "sound system":         "stacked speaker walls, selector at controls, outdoor dance, Caribbean night",
-  "riddim":               "instrumental backing track, riddim file, bass-heavy groove without vocals",
-  "rinsing":              "aggressive DJ mixing, fast cutting between tracks, high-energy set",
-  "dubplate":             "exclusive vinyl press, one-of-a-kind record, sound system weapon",
-  "selector":             "DJ choosing records, hands on vinyl, crowd anticipation",
-  "MCing":                "microphone performer, hype man energy, crowd control, live vocal delivery",
-  "toasting":             "rhythmic spoken delivery over riddim, Jamaican vocal style, chanting flow",
-  "clashing":             "two sound systems competing, bass battle, crowd judging, rivalry energy",
-  /* Production / Studio terms */
-  "drop":                 "sudden bass impact, sub-bass explosion, crowd physically reacting to low end",
-  "build-up":             "rising tension, snare roll intensifying, filter sweep opening, anticipation",
-  "breakdown":            "stripped-back section, minimal elements, tension before the drop",
-  "fade out":             "volume gradually decreasing, song dissolving into silence, lingering end",
-  "fade in":              "sound emerging from silence, gradual reveal, opening atmosphere",
-  "sidechain":            "pumping compression effect, kick drum ducking other instruments, breathing rhythm",
-  "lo-fi":                "vinyl crackle, tape hiss, warm saturation, nostalgic imperfection",
-  "reverb tail":          "lingering echo fading into space, large room reflection, atmospheric decay",
-  "filter sweep":         "frequency gradually opening or closing, whooshing transition, energy shift",
-  "808":                  "deep sub-bass kick, Roland TR-808, trap foundation, chest-shaking low end",
-  "break":                "drum-only section, rhythmic spotlight, percussive energy",
-  "sample":               "chopped audio fragment, borrowed sound, recontextualized recording",
-  /* Musical concepts that have visual equivalents */
-  "crescendo":            "gradually increasing intensity, everything building to a peak, overwhelming force",
-  "staccato":             "sharp detached notes, punchy rhythmic hits, crisp articulation",
-  "legato":               "smooth connected notes, flowing melodic line, seamless transitions",
-  "syncopation":          "off-beat accents, unexpected rhythmic emphasis, grooving against the pulse",
-  "polyrhythm":           "multiple competing rhythmic patterns, layered beats, complex groove",
-  "modulation":           "key change, harmonic shift, musical transition to new tonal center",
-  "dissonance":           "clashing notes, tension, unresolved harmonic conflict, unsettling sound",
-  "resolution":           "tension releasing into harmony, consonance, musical homecoming",
-  /* Slang / Metaphor that image models misinterpret */
-  "fire track":           "music so good it metaphorically burns, passionate energy, heat of the moment",
-  "killing it":           "dominating performance, commanding stage presence, absolute mastery",
-  "sick beat":            "incredibly good rhythm, head-nodding groove, impressive drum pattern",
-  "heavy":                "intense emotional weight, dark atmosphere, powerful low-frequency energy",
-  "tight":                "precise musical execution, locked-in rhythm section, clean performance",
-  "clean":                "polished production, crisp sound, no distortion, professional quality",
-  "raw":                  "unpolished authenticity, gritty texture, emotional honesty, live energy",
-  "smooth":               "velvet texture, flowing transitions, effortless delivery, liquid grace",
-  "deep":                 "profound emotional resonance, low-frequency immersion, soulful weight",
-  "vibing":               "caught up in the music, moving naturally, immersed in sound",
-  "grooving":             "rhythmic body movement, locked into the beat, effortless dance flow",
-  "jamming":              "spontaneous musical collaboration, improvised flow, creative exploration",
-  "session":              "recording studio or jam session, musicians in creative flow, collaborative energy",
-  "vocal booth":          "singer behind microphone in treated room, pop filter, studio recording",
-  "monitor mix":          "stage speaker pointing at performer, in-ear monitors, live sound setup",
-  "front of house":       "main concert PA system, audience-facing speakers, live venue sound",
-  "backline":             "stage amplifiers and drum kit, performer equipment, live setup",
-  "patch bay":            "studio cable routing matrix, connecting audio signals, technical setup",
-  "mixing desk":          "audio console with faders and knobs, studio control room, sound engineering",
-  "limiter":              "audio mastering preventing clipping, controlled peaks, loudness maximization",
-};
 
 /* Replace music terms in lyrics with their visual equivalents for image generation */
 function translateMusicTerms(text) {
-  if (!text) return "";
-  let result = text;
-  /* Sort by length (longest first) so "bass cannon" matches before "bass" */
-  const sortedTerms = Object.keys(MUSIC_TERM_VISUAL).sort((a, b) => b.length - a.length);
-  for (const term of sortedTerms) {
-    const regex = new RegExp("\\b" + term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "gi");
-    if (regex.test(result)) {
-      result = result.replace(regex, MUSIC_TERM_VISUAL[term]);
-    }
-  }
-  return result;
+  return translateMusicTermsMod(text);
 }
 
 /* Extract the visual essence from lyrics — NOT literal words, but the IMAGERY and FEELING */
 function extractVisualEssence(lyrics) {
-  if (!lyrics) return "";
-  /* First: translate music/slang terms to their visual equivalents */
-  const translated = translateMusicTerms(lyrics);
-  const cleaned = translated.replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "").trim();
-  if (!cleaned) return "";
-
-  /* Split into lines and find the most visual/descriptive line */
-  const lines = cleaned.split(/\n/).filter(l => l.trim().length > 10);
-  if (lines.length === 0) return "";
-
-  /* Look for lines with concrete nouns and vivid imagery (not abstract concepts) */
-  const visualWords = /\b(sun|moon|stars?|sky|sea|ocean|fire|rain|storm|night|day|light|dark|shadow|color|red|blue|gold|silver|street|road|door|window|wall|floor|hand|face|eye|heart|bone|blood|stone|iron|steel|wood|glass|water|wind|dust|smoke|flame|neon|chrome|concrete|asphalt|jungle|forest|mountain|river|desert|city|town|speaker|stage|crowd|dancefloor|turntable|vinyl|microphone|amplifier|subwoofer|bass|drum|guitar|synthesizer)\b/gi;
-
-  let bestLine = "";
-  let bestScore = 0;
-  for (const line of lines) {
-    const matches = line.match(visualWords) || [];
-    if (matches.length > bestScore) {
-      bestScore = matches.length;
-      bestLine = line.trim();
-    }
-  }
-
-  /* Return the most visual line, cleaned up for image generation */
-  if (bestLine) {
-    return bestLine.replace(/[,;.!?]+$/, "").substring(0, 120);
-  }
-  /* Fallback: first non-empty line, trimmed */
-  return lines[0].trim().replace(/[,;.!?]+$/, "").substring(0, 120);
+  return extractVisualEssenceMod(lyrics);
 }
 
-/* Section narrative position — where in the story arc does this section fall? */
-const SECTION_NARRATIVE = {
-  intro:      { position: "opening", energy: "low — establishing the world, setting the scene" },
-  verse:      { position: "developing", energy: "medium — introducing characters, building context" },
-  prechorus:  { position: "building", energy: "rising — tension escalating toward the peak" },
-  chorus:     { position: "peak", energy: "high — the emotional and visual climax of this moment" },
-  "post-chorus": { position: "afterglow", energy: "falling — the echo of the peak, reflection" },
-  bridge:     { position: "turning point", energy: "shifted — a new perspective, a twist in the story" },
-  interlude:  { position: "breathing", energy: "floating — a pause between chapters" },
-  outro:      { position: "closing", energy: "fading — resolution, the final image that lingers" },
-  instrumental: { position: "abstract", energy: "pure — no words, only visual emotion" }
-};
-
 function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex, totalSections }) {
-  const scene = SINGER_SCENES[sectionType] || SINGER_SCENES.verse;
-  const narrative = SECTION_NARRATIVE[sectionType] || SECTION_NARRATIVE.verse;
-  const genderWord = vocalistGender === "male" ? "a man" : vocalistGender === "female" ? "a woman" : "a singer";
-
-  /* ── 1. VISUAL WORLD (consistent across all sections) ──────────────── */
-  /* The subject IS the visual world. Every image lives in this world. */
-  const visualWorld = subject || `${genderWord} in a music performance setting`;
-
-  /* ── 2. GENRE AESTHETIC (consistent across all sections) ──────────── */
-  const genreKey = (style || "").toLowerCase().split(/[,\s]+/)[0] || "";
-  const genreVisual = GENRE_VISUAL_CONTEXT[genreKey] || "";
-
-  /* ── 3. NARRATIVE ARC (varies by section position) ────────────────── */
-  /* Where are we in the story? Early sections = setup, middle = conflict, late = resolution */
-  const idx = typeof sectionIndex === "number" ? sectionIndex : 0;
-  const total = typeof totalSections === "number" ? totalSections : 6;
-  const progress = total > 1 ? idx / (total - 1) : 0.5; /* 0.0 = first section, 1.0 = last */
-  let narrativeArc = "";
-  if (progress < 0.2) narrativeArc = "early chapter — introducing the world, first impressions, dawn of the story";
-  else if (progress < 0.4) narrativeArc = "rising action — deepening into the world, details emerging";
-  else if (progress < 0.6) narrativeArc = "middle of the story — the world is fully alive, stakes are real";
-  else if (progress < 0.8) narrativeArc = "climax approaching — intensity building, the world at its most vivid";
-  else narrativeArc = "final chapter — resolution, the world fading or transforming, lasting impression";
-
-  /* ── 4. SECTION-SPECIFIC MOOD (varies by section type) ────────────── */
-  /* Same world, different energy and atmosphere */
-
-  /* ── 5. VISUAL ESSENCE FROM LYRICS (the FEELING, not literal words) ─ */
-  const visualEssence = extractVisualEssence(lyrics);
-
-  const parts = [
-    /* Visual world — this is the ANCHOR that keeps all images consistent */
-    `Scene: ${visualWorld}`,
-    /* Narrative position — tells the model where we are in the story */
-    `Story arc: ${narrative.position}, ${narrative.energy}`,
-    `Narrative progression: ${narrativeArc}`,
-    /* Genre aesthetic — the visual language of this genre */
-    genreVisual ? `Visual style: ${genreVisual}` : "",
-    /* Section mood — how this moment FEELS within the same world */
-    `Atmosphere: ${scene.mood}`,
-    `Moment: ${scene.pose}`,
-    /* Visual essence from lyrics — the imagery and emotion of this specific section */
-    visualEssence ? `Imagery: ${visualEssence}` : "",
-    /* Song title — thematic thread tying everything together */
-    title ? `Song theme: ${title}` : "",
-    /* Visual continuity instruction — all images are frames of the same film */
-    `Visual continuity: all section images depict the same scene, same characters, same location, same lighting palette. This is one continuous visual story, not disconnected images.`,
-    /* Technical quality */
-    "cinematic film still, dramatic lighting, photorealistic, 8k, cohesive visual narrative"
-  ].filter(Boolean);
-  return parts.join(". ");
+  return buildSingerImagePromptMod({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex, totalSections });
 }
 
 /* ── Video Prompt Builder (describes the image + action) ────────────── */
 function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender }) {
-  const scene = SINGER_SCENES[sectionType] || SINGER_SCENES.verse;
-  return `${imagePrompt}. ${scene.pose}. Subtle breathing movement, hair swaying gently, ambient stage haze drifting, slow camera push-in. Cinematic, photorealistic.`;
+  return buildVideoPromptMod({ imagePrompt, sectionType, vocalistGender });
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
    API Endpoints: /api/inspire/comfyui/*
    ═══════════════════════════════════════════════════════════════════════ */
 
-/* Check ComfyUI status + available models */
+/* Check ComfyUI status + available models + queue depth */
 router21.get("/comfyui/status", async (req, res) => {
   try {
     const queue = await comfyGet("/queue");
@@ -298616,18 +298507,119 @@ router21.get("/comfyui/status", async (req, res) => {
     const ltxNodes = await comfyGet("/object_info/LTXVImgToVideoInplace").catch(() => null);
     res.json({
       connected: true,
-      url: COMFYUI_URL,
+      url: COMFYUI_URL_MOD,
       queueRunning: queue.queue_running?.length || 0,
       queuePending: queue.queue_pending?.length || 0,
+      mvcQueue: comfyQueue.getStatus(),
       hasLTX: !!ltxNodes,
       hasGGUF: !!unets
     });
   } catch (err) {
-    res.json({ connected: false, url: COMFYUI_URL, error: err.message });
+    res.json({ connected: false, url: COMFYUI_URL_MOD, error: err.message });
   }
 });
 
-/* Generate singer image via FLUX.2 */
+/* ComfyUI job queue status — shows running/queued jobs, prevents OOM */
+router21.get("/comfyui/queue-status", (req, res) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  res.json(comfyQueue.getStatus());
+});
+
+/* ── Model Discovery Registry ──────────────────────────────────────────── */
+
+/* GET /api/models — unified model registry (ACE-Step + ComfyUI + local) */
+app2.get("/api/models", async (req, res) => {
+  try {
+    /* Collect ACE-Step models from the existing server data */
+    const aceStepModels = {};
+    try {
+      if (typeof ACE_STEP_MODELS !== "undefined") Object.assign(aceStepModels, ACE_STEP_MODELS);
+      else {
+        /* Fallback: probe known ACE-Step paths */
+        const aceDir = path9.join(process.cwd(), "ace-step-1.5", "models");
+        if (fs9.existsSync(aceDir)) {
+          aceStepModels.checkpoints = fs9.readdirSync(aceDir).filter(f => f.endsWith(".safetensors")).map(f => path9.join(aceDir, f));
+        }
+      }
+    } catch {}
+
+    const registry = await buildModelRegistry(aceStepModels);
+    res.json(registry);
+  } catch (err) {
+    console.error("[Models] Registry build failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* GET /api/models/quick — quick category counts without full scan */
+app2.get("/api/models/quick", async (req, res) => {
+  try {
+    const { connected, systemInfo } = await detectComfyUIMod();
+    const comfyDir = connected ? findComfyUIDirMod() : null;
+    const modelCounts = {};
+    if (comfyDir) {
+      const modelsDir = path9.join(comfyDir, "models");
+      const subdirs = ["unet", "diffusion_models", "vae", "clip", "audio", "loras", "controlnet", "embeddings", "workflows"];
+      for (const sd of subdirs) {
+        const dir = path9.join(modelsDir, sd);
+        try {
+          if (fs9.existsSync(dir)) {
+            modelCounts[sd] = fs9.readdirSync(dir).filter(f => /\.(safetensors|gguf|ckpt|bin|pt|pth|onnx)$/i.test(f)).length;
+          }
+        } catch {}
+      }
+    }
+    res.json({ connected, systemInfo, modelCounts, comfyDir });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* POST /api/models/rescan — force cache invalidation and re-scan */
+app2.post("/api/models/rescan", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    invalidateModelCache();
+    const registry = await buildModelRegistry({});
+    res.json({ rescanned: true, totalModels: registry.totalModels, categories: registry.categories });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ── ComfyUI Bridge — Capability Discovery + Generation ─────────────────── */
+
+/* GET /api/comfyui/capabilities — discover what ComfyUI can do */
+app2.get("/api/comfyui/capabilities", async (req, res) => {
+  try {
+    const caps = await discoverCapabilities();
+    res.json(caps);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* GET /api/comfyui/pipelines — list registered pipeline archetypes */
+app2.get("/api/comfyui/pipelines", (req, res) => {
+  const pipelines = listPipelinesMod();
+  res.json(pipelines.map(p => ({
+    id: p.id,
+    mediaType: p.mediaType,
+    modelPattern: p.modelPattern?.source || "",
+    requiredNodes: p.requiredNodes,
+  })));
+});
+
+/* GET /api/comfyui/infer-params?model=filename — auto-detect generation parameters */
+app2.get("/api/comfyui/infer-params", (req, res) => {
+  const model = req.query.model || "";
+  const params = inferModelParamsMod(model);
+  res.json({ model, ...params });
+});
+
+/* Generate singer image via FLUX.2 (now using bridge with fallback) */
 router21.post("/comfyui/generate-image", async (req, res) => {
   try {
     const userId = getUserId(req);
@@ -299078,7 +299070,6 @@ var inspire_default = router21;
 // server/src/routes/coverArt.ts
 var import_express22 = __toESM(require_express2(), 1);
 init_coverArtService();
-init_promptBuilder();
 
 // server/src/services/coverArt/coverArtDownloader.ts
 init_coverArtService();
@@ -299093,14 +299084,13 @@ var execFileAsync7 = promisify7(execFile8);
 var MODEL_MANIFEST = [
   {
     filename: REQUIRED_FILES.diffusionModel,
-    url: "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q4_0.gguf",
-    sizeBytes: 2460378560,
-    description: "FLUX.2-klein-4B diffusion model (Q4)"
+    url: "https://huggingface.co/leejet/FLUX.2-klein-9B-GGUF/resolve/main/flux-2-klein-9b-Q4_0.gguf",
+    sizeBytes: 5620000000,
+    description: "FLUX.2-klein-9B diffusion model (Q4) — upgraded from 4B for higher quality cover art"
   },
   {
     filename: REQUIRED_FILES.vae,
-    // NOTE: FLUX.2-dev is gated (requires HF login). FLUX.2-klein-4B is
-    // ungated (Apache 2.0) and ships the same VAE architecture.
+    // FLUX.2 VAE — shared between Klein 4B and 9B variants (Apache 2.0, ungated)
     url: "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/resolve/main/vae/diffusion_pytorch_model.safetensors",
     sizeBytes: 335304388,
     description: "FLUX.2 VAE decoder"
@@ -300605,6 +300595,8 @@ function shutdown() {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log("\n[Server] Shutting down...");
+  /* Drain ComfyUI job queue — let in-progress jobs finish */
+  try { comfyQueue.drain(); console.log("[Server] ComfyUI queue drained"); } catch {}
   if (aceProcess && !aceProcess.killed && aceProcess.pid) {
     console.log("[Server] Stopping ace-server...");
     try {

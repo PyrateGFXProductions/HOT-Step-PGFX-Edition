@@ -1,14 +1,14 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 25, 2026 (updated — Phase 8: Music Video Creator, ComfyUI Integration, Stem Decomposition, Audit Fixes)  
-**Modified Files**: `server/server.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`, `ui/dist/music-video.html`
+**Report Date**: July 26, 2026 (updated — Phase 10: ComfyUI Bridge, Model Discovery, Performance Fixes, Canvas Disco Particles)  
+**Modified Files**: `server/server.mjs`, `server/services/comfyui-client.mjs`, `server/services/comfyui-model-scanner.mjs` (NEW), `server/services/comfyui-bridge.mjs` (NEW), `server/services/beat-detector.mjs`, `server/services/prompt-builder.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`, `ui/dist/music-video.html`
 
 ---
 
 ## Summary
 
-This report documents all enhancements made to the HOT-Step CPP codebase. The work spans eight major phases:
+This report documents all enhancements made to the HOT-Step CPP codebase. The work spans ten major phases:
 
 **Phase 1** (July 18–20): Anti-AI slop vocabulary, genre-adaptive structure rules, Patois dialect integration, new genre profiles (acapella, duet, adult/sensual), and lyric quality evaluation improvements.
 
@@ -27,6 +27,10 @@ The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net
 **Phase 7** (July 25): Full language audit — 18 ACE-Step supported languages verified and exposed in UI, 40+ unsupported language fallback mappings, automatic vocal language remapping in `translateParams()`, code-switching guard (Patois variant detection to prevent unwanted bilingual mixing), vocabulary lock Patois skip (prevents English→Patois word replacement for non-Patois genres), visualizer fixes (auth token support, correct audio URL construction, auto-play, new-tab opening), album track limit increase (9→20), `vocalLanguage` added to `readSettingsFromStorage()`, `LANGUAGE_NAMES` cleanup (removed unsupported jam/jmc/jmd entries).
 
 **Phase 8** (July 25): Music Video Creator page with stem-reactive layered visual effects (12 modes, up to 17 layers), ComfyUI integration for AI image generation (FLUX.2 Klein 9B) and video generation (LTX 2.3 22B distilled), stem decomposition via SuperSep, FFmpeg export with Ken Burns + concat demuxer, inline visualizer overlay in index.html (6 modes, transparent backdrop, Esc exit, AudioContext monkey-patch), ComfyUI server-side client (~730 lines: native FormData upload, workflow builders, 8 API endpoints), data/mvc asset storage, section-aware image prompt builder, full audit with 30+ bug fixes (auth tokens, path traversal, field mismatches, dead code cleanup, vizMode NaN guard).
+
+**Phase 9** (July 25): Server modularization — 3 service modules extracted from monolithic server.mjs (comfyui-client.mjs, beat-detector.mjs, prompt-builder.mjs), FIFO ComfyUI job queue preventing OOM, FLUX.2 cover art model upgrade from Klein 4B to 9B (5.62 GB, within RTX 5060 Ti 16GB budget), SuperSep bug fixes (ONNX dir path, KickExtract re-enable, level=NaN guard), dead code cleanup (-1,736 lines from server.mjs), MediaRecorder guidance in visualizer.
+
+**Phase 10** (July 26): ComfyUI bridge architecture (pipeline archetype registry, model parameter inference, capability discovery, unified generation with sd-cli.exe fallback), ComfyUI model discovery service (filesystem scan across 12 model categories, `/object_info/` API query, unified model registry), model browser UI with real-time status widget, visualizer performance (Plasma sin/cos LUT, scanline cache, delta-time frame timing), canvas-based Disco particle system replacing DOM particles in React bundle, configurable model paths in workflow builders, 7 new API endpoints.
 
 ---
 
@@ -1779,6 +1783,333 @@ User picks Ukrainian (uk) → translateParams() → resolveLanguageFallback("uk"
 
 ---
 
+## Phase 9 — Modularization, Cleanup & Model Upgrades
+
+### 69. Server Modularization — Service Module Extraction
+
+**Problem**: `server.mjs` was a 301K+ line monolithic ESM bundle. All ComfyUI client logic, beat detection, and prompt builder code lived inline alongside route handlers, making maintenance and debugging difficult.
+
+**Solution**: Extracted three self-contained ES modules under `server/services/` with thin delegation wrappers in server.mjs.
+
+**Location**: `server/services/comfyui-client.mjs`, `server/services/beat-detector.mjs`, `server/services/prompt-builder.mjs`
+
+#### ComfyUI Client (`server/services/comfyui-client.mjs`, 369 lines)
+- `comfyPost/Get/Upload/Download` — HTTP helpers with retry logic
+- `comfySubmitAndWait` — Workflow submission with progress polling
+- `ComfyUIJobQueue` — FIFO job queue class with `MAX_CONCURRENT_JOBS = 1` to prevent OOM under concurrent load
+- `buildLTX2Workflow` — LTX 2.3 image-to-video workflow builder (2-pass sampling, spatial upscaler, RTX Super Resolution)
+- `buildFLUX2Workflow` — FLUX.2 image generation workflow builder
+- `checkComfyUIConnection` — Connection health check
+
+#### Beat Detector (`server/services/beat-detector.mjs`, 334 lines)
+- `parseWav` — WAV parser (16/24/32-bit PCM + 32-bit float)
+- `analyzeWav` — Per-window RMS energy analysis
+- `detectBeatsInAudio` — Onset-based beat detection
+- `parseVideoSections` — Lyrics → section parser
+- `calculateSectionTimings` — Beat-aligned section boundary calculation
+- `analyzeAndSaveDiscoData` — Disco stem analysis
+- `SECTION_TYPE_MAP` — Section type normalization
+
+#### Prompt Builder (`server/services/prompt-builder.mjs`, 535 lines)
+- All data structures: `STOP_WORDS`, `GENRE_VISUAL_CONTEXT`, `MUSIC_TERM_VISUAL`, `SECTION_NARRATIVE`, `SINGER_SCENES`, `GENRE_VISUALS`
+- `translateMusicTerms` — Musical/slang → visual term translation
+- `extractLyricImagery` / `extractVisualEssence` — Lyric → image prompt extraction
+- `buildCoverArtPrompt` — Section-aware cover art prompt builder (anti-comic, photorealistic)
+- `buildSingerImagePrompt` — Singer scene prompt builder with narrative arc
+- `buildVideoPrompt` — Video action description builder
+
+#### Impact
+- **301,389 → 299,653 lines** (-1,736 lines removed from server.mjs)
+- Dead code eliminated: stale `GENRE_VISUAL_CONTEXT`, `MUSIC_TERM_VISUAL`, `SINGER_SCENES`, `SECTION_NARRATIVE`, `SECTION_VISUAL_TONE`, `ACT_EMPHASIS`, `SECTION_TYPE_MAP`, `ANALYSIS_FPS`, `init_promptBuilder` esbuild block, duplicate `COMFYUI_URL` constant
+- `buildLTX2Workflow` and `buildFLUX2Workflow` converted from 200-line inline implementations to thin delegation wrappers
+- All 22 delegation wrappers verified: import references correct, no stale references remain
+- `node --check` passes clean
+
+---
+
+### 70. ComfyUI FIFO Job Queue
+
+**Problem**: Concurrent ComfyUI requests (album batch video + core engine image generation) could cause OOM crashes by exceeding VRAM limits.
+
+**Solution**: FIFO job queue (`ComfyUIJobQueue` class) in `server/services/comfyui-client.mjs` with `MAX_CONCURRENT_JOBS = 1`. All `comfySubmitAndWait` calls automatically route through the queue. Queue has `getStatus()` for health monitoring and `drain()` for graceful shutdown.
+
+**Location**: `server/services/comfyui-client.mjs`, `server/server.mjs` (shutdown handler)
+
+#### Features
+- Queue depth and running job info surfaced in `GET /api/inspire/comfyui/status` via `mvcQueue` field
+- Dedicated `GET /api/inspire/comfyui/queue-status` endpoint
+- `comfyQueue.drain()` called in SIGTERM/SIGINT shutdown handler
+
+---
+
+### 71. FLUX.2 Cover Art Model Upgrade (4B → 9B)
+
+**Problem**: Cover art generation used FLUX.2-klein-4B (Q4, 2.46 GB). With RTX 5060 Ti 16GB VRAM, there was significant headroom for a higher-quality model.
+
+**Solution**: Upgraded to FLUX.2-klein-9B (Q4_0, 5.62 GB). Uses same VAE architecture and text encoder (Qwen3-4B).
+
+**Location**: `server/server.mjs` — `REQUIRED_FILES.diffusionModel`, `MODEL_MANIFEST`
+
+#### Changes
+| Setting | Before | After |
+|---------|--------|-------|
+| Diffusion model | `flux-2-klein-4b-Q4_0.gguf` (2.46 GB) | `flux-2-klein-9b-Q4_0.gguf` (5.62 GB) |
+| HuggingFace URL | `leejet/FLUX.2-klein-4B-GGUF` | `leejet/FLUX.2-klein-9B-GGUF` |
+| VAE | `flux2_vae.safetensors` (shared) | Same |
+| Text encoder | `Qwen3-4B-Q4_K_M.gguf` | Same |
+
+#### VRAM Budget (RTX 5060 Ti 16GB)
+- FLUX.2 Klein 9B Q4: ~5.6 GB
+- Qwen3-4B text encoder: ~2.5 GB
+- VAE: ~0.3 GB
+- **Total: ~8.4 GB** — within budget with headroom
+
+---
+
+### 72. SuperSep Bug Fixes
+
+**Problem**: Three separate issues prevented stem separation from working correctly:
+1. ONNX model directory defaulted to `models/onnx` (non-existent) instead of `models/supersep`
+2. KickExtract path had hardcoded SuperSep skip (`return` after "deferred" message)
+3. `level=NaN` when `level` was empty string (`"" ?? "0"` doesn't trigger fallback)
+
+**Solution**: Three targeted fixes.
+
+**Location**: `server/server.mjs` — config default, KickExtract route, StemStudio route
+
+#### Fix 1: ONNX Directory Path
+```js
+// Before
+DEFAULT_ONNX_DIR = path.join(PROJECT_ROOT, "models", "onnx");
+// After
+DEFAULT_ONNX_DIR = path.join(PROJECT_ROOT, "models", "supersep");
+```
+
+#### Fix 2: KickExtract Re-enable
+Removed hardcoded `return` after "SuperSep deferred" message. Stem extraction now runs normally.
+
+#### Fix 3: Level NaN Guard
+```js
+// Before
+const sepLevel = parseInt(String(level ?? "0"), 10);
+// After
+const sepLevel = parseInt(String(level ?? "0"), 10) || 0;
+```
+
+---
+
+### 73. MediaRecorder Guidance & Visualizer UX
+
+**Problem**: Users might use the client-side MediaRecorder/Canvas capture for video export, which produces lower quality (WebM, 30fps cap, CPU-bound frame drops) compared to the server-side FFmpeg pipeline.
+
+**Solution**: Added visual guidance in visualizer.html steering users toward the server-side Unified Video Generation Pipeline.
+
+**Location**: `ui/dist/visualizer.html`
+
+#### Changes
+- REC button title updated: "Quick WebM capture (R). For HD MP4, use the server-side Video Pipeline →"
+- Added 🎬 MP4? link next to REC button that opens the Video Generation modal
+- Comment block above `startRecording()` documents the tradeoff (client-side for quick captures, server-side for final renders)
+
+---
+
+### 74. Audit Cleanup Summary
+
+**Total issues found and fixed in this phase:**
+
+| # | Issue | Severity | Fix |
+|---|-------|----------|-----|
+| 1 | `buildLTX2Workflow` full inline (160 lines) shadowing import | High | Thin wrapper delegating to service module |
+| 2 | `buildFLUX2Workflow` full inline (34 lines) shadowing import | High | Thin wrapper delegating to service module |
+| 3 | `init_promptBuilder` esbuild block (128 lines) dead code | High | Removed + 2 call sites |
+| 4 | `SINGER_SCENES` stale constant (10 lines) | Medium | Removed |
+| 5 | `GENRE_VISUAL_CONTEXT` stale constant (40 lines) | Medium | Removed |
+| 6 | `MUSIC_TERM_VISUAL` stale constant (73 lines) | Medium | Removed |
+| 7 | `SECTION_NARRATIVE` stale constant (10 lines) | Medium | Removed |
+| 8 | `SECTION_VISUAL_TONE` + `ACT_EMPHASIS` stale (15 lines) | Medium | Removed |
+| 9 | `SECTION_TYPE_MAP` duplicate (7 lines) | Medium | Removed |
+| 10 | `COMFYUI_URL` shadow, `COMFYUI_POLL_MS`/`COMFYUI_TIMEOUT_MS` stale | Medium | Removed, use imported `COMFYUI_URL_MOD` |
+| 11 | `checkComfyUIConnection` imported but never called | Low | Removed from import |
+| 12 | `ANALYSIS_FPS` stale constant | Low | Removed |
+| 13 | SuperSep ONNX dir wrong (`models/onnx` → `models/supersep`) | High | Fixed |
+| 14 | KickExtract hardcoded SuperSep skip | High | Re-enabled |
+| 15 | `level=NaN` in StemStudio SuperSep route | Medium | Added `\|\| 0` guard |
+| 16 | FLUX.2 4B → 9B cover art model | Enhancement | Upgraded |
+| 17 | ComfyUI queue drain on shutdown | Enhancement | Added |
+| 18 | Queue status in `/comfyui/status` endpoint | Enhancement | Added |
+
+---
+
+## Phase 10 — ComfyUI Bridge, Performance & Discovery
+
+### 75. ComfyUI Model Discovery Service
+
+**Problem**: No way to know what models ComfyUI has installed without manually browsing directories. The server had hardcoded model paths with no discovery mechanism.
+
+**Solution**: New `server/services/comfyui-model-scanner.mjs` (~420 lines) that auto-detects ComfyUI, scans model directories, and builds a unified model registry.
+
+**Location**: `server/services/comfyui-model-scanner.mjs`, `server/server.mjs`
+
+#### Features
+- `detectComfyUI()` — cached connection check (60s TTL) with system stats (VRAM, device, versions)
+- `findComfyUIDir()` — probes common ComfyUI installation paths
+- `buildModelRegistry()` — unified model registry combining ACE-Step + ComfyUI + local models
+- Filesystem scanner for 12 model categories: `image_unet`, `image_vae`, `image_clip`, `video`, `audio`, `lora`, `controlnet`, `embedding`, `upscale`, `style_model`, `wildcard`, `workflow`
+- `/object_info/` API query for node-level model lists
+- 5-minute cache TTL, graceful degradation when ComfyUI is offline
+- `invalidateCache()` for manual re-scan
+
+#### API Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `GET /api/models` | GET | Full unified model registry |
+| `GET /api/models/quick` | GET | Fast category counts (for status check) |
+| `POST /api/models/rescan` | POST | Force cache invalidation + re-scan |
+
+---
+
+### 76. ComfyUI Bridge — Pipeline Archetype Registry
+
+**Problem**: Workflow builders had hardcoded model paths with no auto-detection. No way to switch between model families without code changes.
+
+**Solution**: New `server/services/comfyui-bridge.mjs` (~380 lines) adapted from the PGFX Logo Designer Studio's pipeline archetype registry pattern.
+
+**Location**: `server/services/comfyui-bridge.mjs`
+
+#### Pipeline Archetype Registry
+Three registered pipelines with regex model detection:
+
+| Pipeline ID | Media | Model Pattern | Key Nodes |
+|-------------|-------|---------------|-----------|
+| `flux-image` | image | `/flux\|klien\|klein/i` | UnetLoaderGGUF, VAELoader, DualCLIPLoader, SamplerCustom, VAEDecode |
+| `ltx-video` | video | `/ltx\|wan\|cogvideox/i` | UnetLoaderGGUF, VAELoader, DualCLIPLoader, LTXVConditioning, LTXVImgToVideo |
+| `standard-checkpoint` | image | `/sdxl\|sd3\|\.ckpt$/i` | CheckpointLoaderSimple, KSampler, VAEDecode |
+
+New pipelines can be added by calling `registerPipeline()` with a regex pattern and build function.
+
+#### Model Parameter Inference
+`inferModelParameters(filename)` auto-detects steps, CFG, and model family:
+
+| Model Pattern | Steps | CFG | Family |
+|---------------|-------|-----|--------|
+| Klein 9B/4B | 4 | 1.0 | flux2-klein |
+| Schnell/Turbo/Lightning | 4 | 1.0 | distilled |
+| Z-Image Turbo | 4 | 1.0 | z-image-turbo |
+| LTX 2.3 | 9+4 | 1.0 | ltx2.3 |
+| Flux Dev/Pro | 20 | 3.5 | flux-dev |
+| SDXL/SD3 | 20 | 3.5 | sdxl |
+| Unknown | 20 | 3.5 | safe-defaults |
+
+#### API Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `GET /api/comfyui/capabilities` | GET | Full capability discovery |
+| `GET /api/comfyui/pipelines` | GET | List registered pipeline archetypes |
+| `GET /api/comfyui/infer-params` | GET | Auto-detect generation parameters from model name |
+
+---
+
+### 77. ComfyUI Bridge — Unified Generation with Fallback
+
+**Problem**: Image/video generation was tightly coupled to ComfyUI with no fallback when offline.
+
+**Solution**: Unified generation interface that routes to ComfyUI when available, falls back to local `sd-cli.exe` for cover art when offline.
+
+**Location**: `server/services/comfyui-bridge.mjs`
+
+#### Generation Flow
+```
+generateImage(opts)
+  → ComfyUI online?
+    → YES: inferModelParameters() → buildFLUX2Workflow() → comfySubmitAndWait() → download → save locally
+    → NO:  generateImageLocal() → sd-cli.exe (FLUX.2 Klein 9B) → save locally
+
+generateVideo(opts)
+  → ComfyUI online?
+    → YES: inferModelParameters() → buildLTX2Workflow() → comfySubmitAndWait() → download → save locally
+    → NO:  throw "Video generation requires ComfyUI"
+```
+
+#### Configurable Model Paths
+Both `buildLTX2Workflow()` and `buildFLUX2Workflow()` now accept optional model path parameters (`unetModel`, `vaeModel`, `clipModel`, `clip2Model`, `upscaleModel`) defaulting to `"auto"` for backwards compatibility.
+
+---
+
+### 78. Visualizer Performance — Plasma LUT Optimization
+
+**Problem**: Plasma mode computed 6 `Math.sin()` + 1 `Math.cos()` + 2 `Math.sqrt()` per pixel at 1/4 resolution, causing significant CPU load.
+
+**Solution**: Pre-computed lookup tables for trigonometric functions and distance calculations.
+
+**Location**: `ui/dist/visualizer.html`
+
+#### Optimizations
+| Change | Before | After |
+|--------|--------|-------|
+| sin/cos | `Math.sin()` per pixel (6-7 calls) | 2048-entry Float32Array LUT with lerp |
+| Distance | `Math.sqrt()` per pixel | Pre-computed distance LUT per resolution |
+| Indexing | `(y*pw+x)*4` multiply | `(y*pw+x)<<2` bit-shift |
+| Pixel write | `Math.round()` × 3 channels | `|0` integer truncation |
+| Brightness | Multiplied per-pixel per-channel | Pre-factorized outside loop |
+| globalTime | Double-incremented (main loop + Plasma) | Removed Plasma-local increment |
+
+---
+
+### 79. Visualizer Performance — Scanline Cache & Delta Time
+
+**Problem**: Scanlines drew `H/4` individual `fillRect` calls per frame. Plasma and Image+FX modes drew scanlines twice (inline + global post-processor). Frame timing used hardcoded `0.016` regardless of actual refresh rate.
+
+**Solution**: Pre-rendered scanline overlay canvas, removed redundant inline draws, proper delta-time calculation.
+
+**Location**: `ui/dist/visualizer.html`
+
+#### Changes
+- **Scanline cache**: `ensureScanlineBuf()` pre-renders scanlines to an offscreen canvas. Global post-processor uses `drawImage()` instead of per-line `fillRect()`. Canvas invalidated on resize.
+- **Redundant scanline removal**: Removed inline scanline draws from `renderPlasma()` and `renderImageFx()`. Global post-processor is the single source.
+- **Delta time**: Main loop now computes actual delta from `requestAnimationFrame` timestamps: `dtMs = t - lastFrame; globalTime += dtMs * 0.0006`. 100ms cap prevents huge jumps after tab-switch. `lastFrame` variable (previously declared but unused) now functional.
+- **Resize cleanup**: `resize()` now also invalidates `scanlineBufH` and `plasmaDistLUT` to force re-computation at new resolution.
+
+---
+
+### 80. Disco Mode — DOM Particles → Canvas Renderer
+
+**Problem**: The React app's Disco mode spawned individual `<div>` DOM elements for each particle (up to 30 concurrent), each with 6 inline style writes, CSS `will-change` forcing separate GPU compositor layers, and `setTimeout`-based cleanup causing asynchronous layout thrashing. The `useEffect` re-ran on every beat energy change (~60fps), creating React re-renders that triggered DOM manipulation.
+
+**Solution**: Replaced the entire `Ty` component (735 chars → 1421 chars) with a canvas-based renderer.
+
+**Location**: `ui/dist/assets/index-DscBS4mv.js` (line 208, `Ty` component)
+
+#### Before (DOM)
+```
+useEffect([e, t, i]) → re-runs 60×/sec
+  → document.createElement('div') × 1-3 per frame
+  → 6 inline style writes per particle
+  → container.appendChild(particle) → layout reflow
+  → setTimeout(() => particle.remove(), 1200ms) → async cleanup
+  → 30 × will-change: transform, opacity → 30 GPU layers
+```
+
+#### After (Canvas)
+```
+useEffect([e]) → runs once on disco toggle
+  → Single <canvas> element (1 GPU layer)
+  → requestAnimationFrame loop:
+    → Read energy from ref (a.current = t) — no React re-render
+    → Spawn particles as plain JS objects in array
+    → ctx.arc() + ctx.fillStyle for each particle
+    → Cull dead particles by timestamp comparison
+  → Cleanup: cancelAnimationFrame + clear array
+```
+
+#### Key Architectural Changes
+- Energy value stored in ref (`a.current = t`) and read directly in rAF loop — eliminates 60 React re-renders/sec
+- Particle lifecycle managed by timestamp (`born`/`dead`) instead of `setTimeout`
+- Zero DOM manipulation — all rendering via Canvas 2D API
+- Single GPU layer instead of 30
+- Canvas sized via `offsetWidth`/`offsetHeight` with resize listener
+
+---
+
 ## How to Reproduce on a Clean v1.1.4
 
 ### Backend (`server/server.mjs`)
@@ -1813,6 +2144,13 @@ User picks Ukrainian (uk) → translateParams() → resolveLanguageFallback("uk"
 25. **FFmpeg export**: Add Ken Burns zoom (6 directions), crossfade transitions, concat demuxer, audio overlay, progress tracking.
 26. **data/mvc/ directory**: Create at startup for Music Video Creator assets.
 27. **Audit fixes**: Path traversal guard on `/data/mvc` static server, auth on DELETE/GET `/comfyui/assets`, empty video buffer throw, `exportJobs` memory leak cleanup, async `comfyUpload` read.
+28. **Phase 10**: Create `server/services/comfyui-model-scanner.mjs` — model discovery service with filesystem scan (12 categories), `/object_info/` API query, unified model registry, connection detection, cache invalidation
+29. **Phase 10**: Create `server/services/comfyui-bridge.mjs` — pipeline archetype registry (`flux-image`, `ltx-video`, `standard-checkpoint`), `inferModelParameters()` for auto-detecting steps/CFG from filename, `discoverCapabilities()` for capability inference, `generateImage()`/`generateVideo()` with sd-cli.exe fallback
+30. **Phase 10**: Add imports for model scanner + bridge modules in server.mjs
+31. **Phase 10**: Add `GET /api/models`, `GET /api/models/quick`, `POST /api/models/rescan` model registry endpoints
+32. **Phase 10**: Add `GET /api/comfyui/capabilities`, `GET /api/comfyui/pipelines`, `GET /api/comfyui/infer-params` bridge endpoints
+33. **Phase 10**: Add configurable model paths (`unetModel`, `vaeModel`, `clipModel`, `clip2Model`, `upscaleModel`) to `buildLTX2Workflow()` and `buildFLUX2Workflow()`
+34. **Phase 10**: Add ComfyUI model scanner import + bridge import to server.mjs module imports section
 
 ### Frontend (`ui/dist/assets/index-DscBS4mv.js`)
 
@@ -1839,6 +2177,15 @@ User picks Ukrainian (uk) → translateParams() → resolveLanguageFallback("uk"
 13. **Phase 8**: Fix vizModeLabel update on right-click mode cycle
 14. **Phase 8**: Fix globalTime double-increment in Circular & Tunnel renderers
 15. **Phase 8**: Fix vizControlBar not hidden on Esc
+16. **Phase 10**: Create `server/services/comfyui-model-scanner.mjs` — model discovery with filesystem scan (12 categories), `/object_info/` query, unified registry, 5-min cache TTL
+17. **Phase 10**: Create `server/services/comfyui-bridge.mjs` — pipeline archetype registry (flux-image, ltx-video, standard-checkpoint), model parameter inference, capability discovery, unified generation with sd-cli.exe fallback
+18. **Phase 10**: Add imports for model scanner + bridge in server.mjs
+19. **Phase 10**: Add `GET /api/models`, `GET /api/models/quick`, `POST /api/models/rescan` endpoints
+20. **Phase 10**: Add `GET /api/comfyui/capabilities`, `GET /api/comfyui/pipelines`, `GET /api/comfyui/infer-params` endpoints
+21. **Phase 10**: Add configurable model paths (`unetModel`, `vaeModel`, `clipModel`, etc.) to `buildLTX2Workflow()` and `buildFLUX2Workflow()`
+22. **Phase 10**: Replace Disco DOM particle system (`Ty` component, 735→1421 chars) with canvas-based renderer in `index-DscBS4mv.js`
+23. **Phase 10**: Add Plasma sin/cos lookup tables (2048-entry), distance LUT, pre-rendered scanline overlay, proper delta-time frame timing to `visualizer.html`
+24. **Phase 10**: Add ComfyUI status widget (green/orange/red dot), model browser panel, image/video model selectors to `music-video.html`
 
 ### Frontend (`ui/dist/album.html`)
 
@@ -1906,7 +2253,7 @@ This project builds upon the work of the following creators and open-source proj
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn, MP4 video generator, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, and all Phase 1-8 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn (Plasma LUT optimization, scanline cache, delta-time frame timing), MP4 video generator, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), ComfyUI bridge with pipeline archetype registry, model parameter inference, capability discovery, and sd-cli.exe fallback, ComfyUI model browser with status widget, canvas-based Disco particle system, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, server modularization (4 service modules), FIFO ComfyUI job queue, FLUX.2 9B model upgrade, SuperSep bug fixes, and all Phase 1-10 enhancements.
 
 ### Additional
 - **Node.js** runtime — Server-side JavaScript execution

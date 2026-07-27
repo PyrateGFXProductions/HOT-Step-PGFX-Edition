@@ -150,6 +150,32 @@ input,select,textarea{font-family:inherit}
 .settings-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .settings-row label{font-size:11px;color:var(--text2);min-width:80px}
 .settings-row select,.settings-row input[type=text]{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-size:11px;outline:none}
+
+/* ── ComfyUI Status Widget ──────────────────────── */
+.comfyui-status{display:flex;align-items:center;gap:5px;padding:3px 8px;border-radius:var(--radius);border:1px solid var(--border);font-size:10px;font-weight:600;color:var(--text2);cursor:pointer;transition:all .15s}
+.comfyui-status:hover{background:var(--btn-bg);color:var(--text)}
+.comfyui-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.comfyui-dot.online{background:var(--green);box-shadow:0 0 6px rgba(63,185,80,0.5)}
+.comfyui-dot.offline{background:var(--red);box-shadow:0 0 6px rgba(248,81,73,0.3)}
+.comfyui-dot.loading{background:var(--orange);animation:pulse-dot 1.2s ease-in-out infinite}
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── Model Browser Panel ────────────────────────── */
+.model-browser{max-height:200px;overflow-y:auto}
+.model-cat{margin-bottom:6px}
+.model-cat-header{font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:2px 0}
+.model-cat-header .count{color:var(--accent);font-weight:400}
+.model-cat-list{display:flex;flex-direction:column;gap:2px;padding-left:6px}
+.model-item{font-size:10px;color:var(--text2);padding:3px 6px;border-radius:4px;cursor:pointer;transition:all .1s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;justify-content:space-between;align-items:center}
+.model-item:hover{background:var(--btn-bg);color:var(--text)}
+.model-item.selected{background:rgba(88,166,255,0.12);color:var(--accent);border-left:2px solid var(--accent)}
+.model-item .size{color:var(--text3);font-size:9px;flex-shrink:0;margin-left:6px}
+.model-refresh{font-size:9px;color:var(--text3);cursor:pointer;padding:2px 4px;border-radius:3px;border:none;background:none;transition:all .15s}
+.model-refresh:hover{color:var(--accent);background:var(--btn-bg)}
+.model-select-row{margin-top:4px}
+.model-select-row label{display:block;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px}
+.model-select-row select{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:10px;outline:none;cursor:pointer}
+.model-select-row select:focus{border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -158,6 +184,10 @@ input,select,textarea{font-family:inherit}
 <!-- Top Bar -->
 <div class="top-bar">
   <div class="song-title" id="song-title"><span class="dim">No song loaded</span></div>
+  <div class="comfyui-status" id="comfyui-status" title="ComfyUI status — click to refresh">
+    <span class="comfyui-dot loading" id="comfyui-dot"></span>
+    <span id="comfyui-label">Checking...</span>
+  </div>
   <button class="btn btn-primary" id="btn-generate-all" title="Generate all images and video clips">Generate All</button>
   <button class="btn btn-green" id="btn-export" title="Export to MP4">Export MP4</button>
   <button class="btn" id="btn-settings" title="Settings">Settings</button>
@@ -192,6 +222,30 @@ input,select,textarea{font-family:inherit}
       <div class="right-section-header" data-toggle="effects-body">Effect Library <span class="chevron">&#9660;</span></div>
       <div class="right-section-body" id="effects-body">
         <div class="effects-grid" id="effects-grid"></div>
+      </div>
+    </div>
+
+    <!-- ComfyUI Model Browser -->
+    <div class="right-section">
+      <div class="right-section-header" data-toggle="models-body">
+        <span>ComfyUI Models</span>
+        <span style="display:flex;align-items:center;gap:6px">
+          <button class="model-refresh" id="btn-model-refresh" title="Refresh models from ComfyUI">&#8635;</button>
+          <span class="chevron">&#9660;</span>
+        </span>
+      </div>
+      <div class="right-section-body" id="models-body">
+        <div id="models-content" class="model-browser">
+          <p style="font-size:10px;color:var(--text3);text-align:center;padding:12px 0">Loading models...</p>
+        </div>
+        <div class="model-select-row">
+          <label>Image Model</label>
+          <select id="model-select-image"><option value="auto">Auto (FLUX.2 9B)</option></select>
+        </div>
+        <div class="model-select-row">
+          <label>Video Model</label>
+          <select id="model-select-video"><option value="auto">Auto (LTX 2.3)</option></select>
+        </div>
       </div>
     </div>
 
@@ -2288,10 +2342,154 @@ document.addEventListener('keydown', function(e) {
 });
 
 /* ═══════════════════════════════════════════════════════════════════════
+   COMFYUI MODEL BROWSER
+   ═══════════════════════════════════════════════════════════════════════ */
+var _comfyuiModelRegistry = null;
+var _selectedImageModel = 'auto';
+var _selectedVideoModel = 'auto';
+
+function getToken() {
+  var t = null;
+  try { t = JSON.parse(localStorage.getItem('ace-settings') || '{}').token || null; } catch(e) {}
+  if (!t) try { t = JSON.parse(localStorage.getItem('hs-auth') || '{}').token || null; } catch(e) {}
+  if (!t) {
+    var ks = ['hs-album-token', 'hs-token', 'auth-token', 'ace-token'];
+    for (var k = 0; k < ks.length; k++) { var v = localStorage.getItem(ks[k]); if (v) { t = v; break; } }
+  }
+  return t;
+}
+
+function authHeaders() {
+  var h = { 'Content-Type': 'application/json' };
+  var t = getToken();
+  if (t) h['Authorization'] = 'Bearer ' + t;
+  return h;
+}
+
+async function checkComfyUIStatus() {
+  var dot = $('comfyui-dot');
+  var label = $('comfyui-label');
+  dot.className = 'comfyui-dot loading';
+  label.textContent = 'Checking...';
+  try {
+    var resp = await fetch('/api/models/quick', { headers: authHeaders() });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var data = await resp.json();
+    if (data.connected) {
+      var si = data.systemInfo || {};
+      var vramGB = si.vramTotal ? (si.vramFree / 1e9).toFixed(1) + '/' + (si.vramTotal / 1e9).toFixed(1) + ' GB' : '';
+      dot.className = 'comfyui-dot online';
+      label.textContent = si.deviceName ? si.deviceName.replace(/NVIDIA /, '') : 'Connected';
+      if (vramGB) label.textContent += ' ' + vramGB;
+      $('comfyui-status').title = 'ComfyUI ' + (si.comfyuiVersion || '') + ' | PyTorch ' + (si.torchVersion || '') + ' | CUDA ' + (si.cudaVersion || '') + '\nVRAM: ' + vramGB + '\nDir: ' + (data.comfyDir || 'unknown');
+    } else {
+      dot.className = 'comfyui-dot offline';
+      label.textContent = 'Offline';
+      $('comfyui-status').title = data.error || 'ComfyUI not reachable';
+    }
+  } catch(e) {
+    dot.className = 'comfyui-dot offline';
+    label.textContent = 'Error';
+    $('comfyui-status').title = e.message;
+  }
+}
+
+async function loadModelBrowser() {
+  var content = $('models-content');
+  try {
+    var resp = await fetch('/api/models', { headers: authHeaders() });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var registry = await resp.json();
+    _comfyuiModelRegistry = registry;
+    renderModelBrowser(registry);
+  } catch(e) {
+    content.innerHTML = '<p style="font-size:10px;color:var(--red);text-align:center;padding:12px 0">' + e.message + '</p>';
+  }
+}
+
+function renderModelBrowser(reg) {
+  var content = $('models-content');
+  if (!reg.comfyui || !reg.comfyui.connected) {
+    content.innerHTML = '<p style="font-size:10px;color:var(--text3);text-align:center;padding:12px 0">ComfyUI offline — connect to browse models</p>';
+    return;
+  }
+
+  var html = '';
+  var cats = reg.categories || {};
+  var catOrder = ['image_unet', 'image_vae', 'image_clip', 'video', 'audio', 'lora', 'controlnet', 'embedding', 'upscale', 'style_model'];
+
+  for (var ci = 0; ci < catOrder.length; ci++) {
+    var catId = catOrder[ci];
+    var catInfo = cats[catId];
+    if (!catInfo || catInfo.total === 0) continue;
+
+    html += '<div class="model-cat">';
+    html += '<div class="model-cat-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'flex\':\'none\'">';
+    html += '<span>' + catInfo.label + '</span><span class="count">' + catInfo.total + '</span>';
+    html += '</div>';
+    html += '<div class="model-cat-list">';
+
+    /* Filesystem models */
+    var fsModels = (reg.comfyui.models || {})[catId] || [];
+    for (var mi = 0; mi < fsModels.length; mi++) {
+      var m = fsModels[mi];
+      var sel = '';
+      if (catId === 'image_unet' && m.name.indexOf('klien') >= 0) sel = ' selected';
+      if (catId === 'video' && m.name.indexOf('ltx') >= 0 && m.name.indexOf('Q4') >= 0) sel = ' selected';
+      if (catId === 'audio' && m.name.indexOf('MelBandRoformer') >= 0) sel = ' selected';
+      html += '<div class="model-item' + sel + '" title="' + (m.path || '') + '">';
+      html += '<span>' + m.name + '</span>';
+      html += '<span class="size">' + m.sizeFormatted + '</span>';
+      html += '</div>';
+    }
+
+    html += '</div></div>';
+  }
+
+  content.innerHTML = html || '<p style="font-size:10px;color:var(--text3);text-align:center;padding:12px 0">No models found</p>';
+
+  /* Populate model selector dropdowns */
+  var imgSelect = $('model-select-image');
+  var vidSelect = $('model-select-video');
+  var imgModels = (reg.comfyui.models || {}).image_unet || [];
+  var vidModels = (reg.comfyui.models || {}).video || [];
+
+  imgSelect.innerHTML = '<option value="auto">Auto (FLUX.2 9B)</option>';
+  for (var i = 0; i < imgModels.length; i++) {
+    imgSelect.innerHTML += '<option value="' + imgModels[i].name + '">' + imgModels[i].name + ' (' + imgModels[i].sizeFormatted + ')</option>';
+  }
+
+  vidSelect.innerHTML = '<option value="auto">Auto (LTX 2.3)</option>';
+  for (var i = 0; i < vidModels.length; i++) {
+    vidSelect.innerHTML += '<option value="' + vidModels[i].name + '">' + vidModels[i].name + ' (' + vidModels[i].sizeFormatted + ')</option>';
+  }
+}
+
+/* ComfyUI status click → refresh */
+$('comfyui-status').addEventListener('click', function() {
+  checkComfyUIStatus();
+  loadModelBrowser();
+});
+
+/* Model refresh button */
+$('btn-model-refresh').addEventListener('click', function(e) {
+  e.stopPropagation();
+  loadModelBrowser();
+});
+
+/* Model selector changes */
+$('model-select-image').addEventListener('change', function() { _selectedImageModel = this.value; });
+$('model-select-video').addEventListener('change', function() { _selectedVideoModel = this.value; });
+
+/* ═══════════════════════════════════════════════════════════════════════
    INITIALIZATION
    ═══════════════════════════════════════════════════════════════════════ */
 addDefaultLayers();
 renderEffectThumbs();
+
+/* Check ComfyUI status and load model browser */
+checkComfyUIStatus();
+loadModelBrowser();
 
 /* Load song from URL params */
 if (S.songId) {
