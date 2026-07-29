@@ -1,8 +1,12 @@
 # HOT-Step CPP — PGFX Edition
 > Built on [HOT-Step CPP](https://github.com/scragnog/HOT-Step-CPP) v1.1.4 by scragnog. Enhanced by PyrateGFX Productions.
 
-> **Do you want to take your album art from Meh to YEAH!!!. Then unleash the full potential of HOT-Step-CPP with this enhancement. HOT-Step-CPP was rightfully built for lesser hardware — but if you've got the RAM, VRAM & GPU to dream bigger, the PGFX Edition gives you access to ComfyUI-grade FLUX.2 9B+ models, LTX 2.3 video generation, and a full AI music video studio. Your hardware deserves better. So do your songs. BEWARE - If your rig is not capable this enhancement can and will cripple your machine!!!**
+> **Do you want to take your album art from Meh to YEAH!!!. Then unleash the full potential of HOT-Step-CPP with this enhancement. HOT-Step-CPP was rightfully built for lesser hardware — but if you've got the RAM, VRAM & GPU to dream bigger, the PGFX Edition gives you access to ComfyUI-grade FLUX.2 9B+ models, LTX 2.3 video generation, and a full AI music video studio. Your hardware deserves better. So do your songs.**
+
+> **BEWARE - If your rig is not capable this enhancement can and will cripple your machine!!!**
+
 ![PyrateGFX Productions](/ui/dist/PGFX_HOT-Step_logo.png)
+---
 
 [![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/pyrategfxproductions)
 
