@@ -228,23 +228,15 @@ input,select,textarea{font-family:inherit}
     <!-- ComfyUI Model Browser -->
     <div class="right-section">
       <div class="right-section-header" data-toggle="models-body">
-        <span>ComfyUI Models</span>
+        <span>Pipeline Config</span>
         <span style="display:flex;align-items:center;gap:6px">
-          <button class="model-refresh" id="btn-model-refresh" title="Refresh models from ComfyUI">&#8635;</button>
+          <button class="model-refresh" id="btn-model-refresh" title="Refresh models">&#8635;</button>
           <span class="chevron">&#9660;</span>
         </span>
       </div>
       <div class="right-section-body" id="models-body">
-        <div id="models-content" class="model-browser">
-          <p style="font-size:10px;color:var(--text3);text-align:center;padding:12px 0">Loading models...</p>
-        </div>
-        <div class="model-select-row">
-          <label>Image Model</label>
-          <select id="model-select-image"><option value="auto">Auto (FLUX.2 9B)</option></select>
-        </div>
-        <div class="model-select-row">
-          <label>Video Model</label>
-          <select id="model-select-video"><option value="auto">Auto (LTX 2.3)</option></select>
+        <div id="pipeline-config-content">
+          <p style="font-size:10px;color:var(--text3);text-align:center;padding:12px 0">Loading pipeline models...</p>
         </div>
       </div>
     </div>
@@ -505,6 +497,15 @@ function loadAudio(url, title) {
 
   if (S.songId) {
     loadStemsForSong(S.songId);
+  }
+
+  /* Auto-play when page opens. Browsers may block this in some contexts;
+     the user can always click the play button to start manually. */
+  var playPromise = audioEl.play();
+  if (playPromise && typeof playPromise.catch === 'function') {
+    playPromise.catch(function(e) {
+      console.log('[MV] Auto-play blocked (user interaction needed):', e.message);
+    });
   }
 }
 
@@ -1851,7 +1852,11 @@ async function generateImage(sectionName) {
         sectionIndex: S.sections.indexOf(section),
         totalSections: S.sections.length,
         width: 1920,
-        height: 1080
+        height: 1080,
+        /* Pipeline model selections from Pipeline Config */
+        unetModel: _pipelineModels.flux.unet,
+        vaeModel: _pipelineModels.flux.vae,
+        clipModel: _pipelineModels.flux.clip
       })
     });
 
@@ -1947,7 +1952,14 @@ async function generateVideoClip(sectionName) {
         audioDuration: section.endTime - section.startTime,
         width: 1920,
         height: 1080,
-        duration: section.endTime - section.startTime
+        duration: section.endTime - section.startTime,
+        /* Pipeline model selections from Pipeline Config */
+        unetModel: _pipelineModels.ltx.unet,
+        vaeModel: _pipelineModels.ltx.vae,
+        clipModel: _pipelineModels.ltx.clip,
+        audioVaeModel: _pipelineModels.ltx.audioVae,
+        icLoraModel: _pipelineModels.ltx.icLora,
+        upscaleModel: _pipelineModels.ltx.upscale
       })
     });
 
@@ -2347,6 +2359,11 @@ document.addEventListener('keydown', function(e) {
 var _comfyuiModelRegistry = null;
 var _selectedImageModel = 'auto';
 var _selectedVideoModel = 'auto';
+/* Full pipeline model selections — wired to dropdowns */
+var _pipelineModels = {
+  flux: { unet: 'auto', vae: 'auto', clip: 'auto' },
+  ltx:  { unet: 'auto', vae: 'auto', clip: 'auto', audioVae: 'auto', icLora: 'auto', upscale: 'auto' }
+};
 
 function getToken() {
   var t = null;
@@ -2372,7 +2389,7 @@ async function checkComfyUIStatus() {
   dot.className = 'comfyui-dot loading';
   label.textContent = 'Checking...';
   try {
-    var resp = await fetch('/api/models/quick', { headers: authHeaders() });
+    var resp = await fetch('/api/inspire/models/quick', { headers: authHeaders() });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     var data = await resp.json();
     if (data.connected) {
@@ -2395,74 +2412,119 @@ async function checkComfyUIStatus() {
 }
 
 async function loadModelBrowser() {
-  var content = $('models-content');
+  var content = $('pipeline-config-content');
   try {
-    var resp = await fetch('/api/models', { headers: authHeaders() });
+    var resp = await fetch('/api/inspire/pipeline-models', { headers: authHeaders() });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    var registry = await resp.json();
-    _comfyuiModelRegistry = registry;
-    renderModelBrowser(registry);
+    var data = await resp.json();
+    renderPipelineConfig(data);
   } catch(e) {
     content.innerHTML = '<p style="font-size:10px;color:var(--red);text-align:center;padding:12px 0">' + e.message + '</p>';
   }
 }
 
-function renderModelBrowser(reg) {
-  var content = $('models-content');
-  if (!reg.comfyui || !reg.comfyui.connected) {
-    content.innerHTML = '<p style="font-size:10px;color:var(--text3);text-align:center;padding:12px 0">ComfyUI offline — connect to browse models</p>';
+function renderPipelineConfig(data) {
+  var content = $('pipeline-config-content');
+  if (!data.connected) {
+    content.innerHTML = '<p style="font-size:10px;color:var(--text3);text-align:center;padding:12px 0">ComfyUI offline</p>';
     return;
   }
 
-  var html = '';
-  var cats = reg.categories || {};
-  var catOrder = ['image_unet', 'image_vae', 'image_clip', 'video', 'audio', 'lora', 'controlnet', 'embedding', 'upscale', 'style_model'];
+  var m = data.models || {};
+  var d = data.defaults || {};
+  var vramGB = data.vram ? ((data.vram.free / 1e9).toFixed(1) + ' / ' + (data.vram.total / 1e9).toFixed(1) + ' GB free') : '';
 
-  for (var ci = 0; ci < catOrder.length; ci++) {
-    var catId = catOrder[ci];
-    var catInfo = cats[catId];
-    if (!catInfo || catInfo.total === 0) continue;
-
-    html += '<div class="model-cat">';
-    html += '<div class="model-cat-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'flex\':\'none\'">';
-    html += '<span>' + catInfo.label + '</span><span class="count">' + catInfo.total + '</span>';
-    html += '</div>';
-    html += '<div class="model-cat-list">';
-
-    /* Filesystem models */
-    var fsModels = (reg.comfyui.models || {})[catId] || [];
-    for (var mi = 0; mi < fsModels.length; mi++) {
-      var m = fsModels[mi];
-      var sel = '';
-      if (catId === 'image_unet' && m.name.indexOf('klien') >= 0) sel = ' selected';
-      if (catId === 'video' && m.name.indexOf('ltx') >= 0 && m.name.indexOf('Q4') >= 0) sel = ' selected';
-      if (catId === 'audio' && m.name.indexOf('MelBandRoformer') >= 0) sel = ' selected';
-      html += '<div class="model-item' + sel + '" title="' + (m.path || '') + '">';
-      html += '<span>' + m.name + '</span>';
-      html += '<span class="size">' + m.sizeFormatted + '</span>';
-      html += '</div>';
+  function optList(arr, defaultVal) {
+    var html = '';
+    for (var i = 0; i < arr.length; i++) {
+      var sel = arr[i].name === defaultVal ? ' selected' : '';
+      html += '<option value="' + arr[i].name + '"' + sel + '>' + arr[i].name + (arr[i].label ? ' (' + arr[i].label + ')' : '') + '</option>';
     }
-
-    html += '</div></div>';
+    return html;
   }
 
-  content.innerHTML = html || '<p style="font-size:10px;color:var(--text3);text-align:center;padding:12px 0">No models found</p>';
+  var html = '';
 
-  /* Populate model selector dropdowns */
-  var imgSelect = $('model-select-image');
-  var vidSelect = $('model-select-video');
-  var imgModels = (reg.comfyui.models || {}).image_unet || [];
-  var vidModels = (reg.comfyui.models || {}).video || [];
+  /* VRAM bar */
+  html += '<div style="margin-bottom:10px">';
+  html += '<div style="font-size:10px;color:var(--text3);margin-bottom:4px">VRAM: ' + vramGB + '</div>';
+  var vramPct = data.vram ? Math.round((1 - data.vram.free / data.vram.total) * 100) : 0;
+  html += '<div style="height:4px;background:var(--bg2);border-radius:2px;overflow:hidden">';
+  html += '<div style="height:100%;width:' + vramPct + '%;background:' + (vramPct > 85 ? 'var(--red)' : vramPct > 60 ? 'var(--amber)' : 'var(--green)') + ';border-radius:2px"></div>';
+  html += '</div></div>';
 
-  imgSelect.innerHTML = '<option value="auto">Auto (FLUX.2 9B)</option>';
-  for (var i = 0; i < imgModels.length; i++) {
-    imgSelect.innerHTML += '<option value="' + imgModels[i].name + '">' + imgModels[i].name + ' (' + imgModels[i].sizeFormatted + ')</option>';
-  }
+  /* FLUX.2 Image Pipeline */
+  html += '<div style="margin-bottom:12px;padding:8px;background:var(--bg2);border-radius:8px">';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--cyan);margin-bottom:6px">FLUX.2 Image Pipeline</div>';
+  html += '<div class="model-select-row"><label>UNet</label><select id="pipeline-flux-unet" style="flex:1">';
+  html += optList(m.fluxUnets || [], d.flux2?.unet);
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>VAE</label><select id="pipeline-flux-vae" style="flex:1">';
+  html += optList(m.fluxVae || [], d.flux2?.vae);
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>Text Enc</label><select id="pipeline-flux-clip" style="flex:1">';
+  html += optList(m.fluxClip || [], d.flux2?.clip);
+  html += '</select></div>';
+  html += '</div>';
 
-  vidSelect.innerHTML = '<option value="auto">Auto (LTX 2.3)</option>';
-  for (var i = 0; i < vidModels.length; i++) {
-    vidSelect.innerHTML += '<option value="' + vidModels[i].name + '">' + vidModels[i].name + ' (' + vidModels[i].sizeFormatted + ')</option>';
-  }
+  /* LTX2.3 Video Pipeline */
+  html += '<div style="margin-bottom:12px;padding:8px;background:var(--bg2);border-radius:8px">';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--pink);margin-bottom:6px">LTX2.3 Video Pipeline</div>';
+  html += '<div class="model-select-row"><label>UNet</label><select id="pipeline-ltx-unet" style="flex:1">';
+  html += optList(m.ltxUnets || [], d.ltx2?.unet);
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>Video VAE</label><select id="pipeline-ltx-vae" style="flex:1">';
+  html += optList(m.ltxVae || [], d.ltx2?.vae);
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>Text Enc</label><select id="pipeline-ltx-clip" style="flex:1">';
+  html += optList(m.ltxClip || [], d.ltx2?.clip);
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>Audio VAE</label><select id="pipeline-ltx-audio-vae" style="flex:1">';
+  html += '<option value="auto">Auto (distilled)</option>';
+  html += optList((m.ltxVae || []).filter(function(v) { return /audio/i.test(v.name); }), '');
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>IC-LoRA</label><select id="pipeline-ltx-ic-lora" style="flex:1">';
+  html += '<option value="auto">None (text-to-video)</option>';
+  html += optList(m.ltxLoras || [], '');
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>Upscaler</label><select id="pipeline-ltx-upscale" style="flex:1">';
+  html += '<option value="auto">Auto (spatial upscaler)</option>';
+  html += optList(m.upscale || [], '');
+  html += '</select></div>';
+  html += '</div>';
+
+  content.innerHTML = html;
+
+  /* Wire selector changes — update _pipelineModels state */
+  $('pipeline-flux-unet').addEventListener('change', function() {
+    _selectedImageModel = this.value;
+    _pipelineModels.flux.unet = this.value;
+  });
+  $('pipeline-flux-vae').addEventListener('change', function() {
+    _pipelineModels.flux.vae = this.value;
+  });
+  $('pipeline-flux-clip').addEventListener('change', function() {
+    _pipelineModels.flux.clip = this.value;
+  });
+  $('pipeline-ltx-unet').addEventListener('change', function() {
+    _selectedVideoModel = this.value;
+    _pipelineModels.ltx.unet = this.value;
+  });
+  $('pipeline-ltx-vae').addEventListener('change', function() {
+    _pipelineModels.ltx.vae = this.value;
+  });
+  $('pipeline-ltx-clip').addEventListener('change', function() {
+    _pipelineModels.ltx.clip = this.value;
+  });
+  if ($('pipeline-ltx-audio-vae')) $('pipeline-ltx-audio-vae').addEventListener('change', function() {
+    _pipelineModels.ltx.audioVae = this.value;
+  });
+  if ($('pipeline-ltx-ic-lora')) $('pipeline-ltx-ic-lora').addEventListener('change', function() {
+    _pipelineModels.ltx.icLora = this.value;
+  });
+  $('pipeline-ltx-upscale').addEventListener('change', function() {
+    _pipelineModels.ltx.upscale = this.value;
+  });
 }
 
 /* ComfyUI status click → refresh */
@@ -2476,10 +2538,6 @@ $('btn-model-refresh').addEventListener('click', function(e) {
   e.stopPropagation();
   loadModelBrowser();
 });
-
-/* Model selector changes */
-$('model-select-image').addEventListener('change', function() { _selectedImageModel = this.value; });
-$('model-select-video').addEventListener('change', function() { _selectedVideoModel = this.value; });
 
 /* ═══════════════════════════════════════════════════════════════════════
    INITIALIZATION

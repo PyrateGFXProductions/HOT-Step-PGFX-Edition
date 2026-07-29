@@ -1,6 +1,6 @@
 # HOT-Step CPP — PGFX Edition
 
-> **A music production tool that understands songcraft, not just audio generation.**
+> **Unleash the full potential of your machine on the HOT-Step-CPP app. It was built for lesser hardware — but if you've got the GPU to dream bigger, the PGFX Edition gives you access to ComfyUI-grade FLUX.2 9B+ models, LTX 2.3 video generation, and a full AI music video studio. Your hardware deserves better. So do your songs. BEWARE - If your rig is not capable this enhancement can and will cripple your machine!!!**
 > Built on [HOT-Step CPP](https://github.com/scragnog/HOT-Step-CPP) v1.1.4 by scragnog. Enhanced by PyrateGFX Productions.
 
 [![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/pyrategfxproductions)
@@ -14,7 +14,7 @@
 This is a comprehensive enhancement fork of HOT-Step CPP — the local AI music generation tool built on ACE-Step. The PGFX Edition transforms it from a capable inference wrapper into a full **music production system** with genre-aware song structure, narrative intelligence, and creative workflow tools.
 
 **Base**: HOT-Step CPP v1.1.4 (Windows x64, CUDA 13.1)
-**Enhancements**: 80+ sections of improvements across 10 phases
+**Enhancements**: 99 sections of improvements across 14 phases
 
 ---
 
@@ -120,7 +120,7 @@ The React app's Disco mode previously spawned individual `<div>` DOM elements fo
 - **Gender-Aware Person Descriptors**: Cover art and video images use gender context to produce accurate person visuals.
 - **Static Video Serving**: Generated MP4s served from `/temp/video/` route.
 
-*Note: This feature requires the cover art models (FLUX.2-klein-4B) to be installed and ffmpeg.exe in the server directory. Video generation adds ~3 minutes per track (image generation + ffmpeg render). Full 9-track album video pipeline takes approximately 25-30 minutes.*
+*Note: Cover art can use either the **local sd-cli engine** (download via **Settings → Cover Art → Download Models + Engine**) or the **ComfyUI bridge** (uses your existing ComfyUI models). Click the 🖼️ floating button (bottom-right) to open the Cover Art Engine panel, toggle "Use ComfyUI Bridge", and select your preferred UNet/VAE/CLIP models from what's already installed in ComfyUI. No duplicate model downloads needed.*
 
 ### Music Video Creator
 A full-featured music video production page with stem-reactive layered effects, AI image/video generation via ComfyUI, and MP4 export.
@@ -130,7 +130,7 @@ A full-featured music video production page with stem-reactive layered effects, 
 - **Stem decomposition** — Server-side SuperSep splits audio into stems (Drums, Bass, Vocals, Other) before visualization. Stems are assigned to layers for beat-reactive effects.
 - **ComfyUI image generation** — Section-aware prompts with gender context. Generates a unique image per lyric section (Verse, Chorus, Bridge, etc.) using FLUX.2 Klein 9B. Supports single image or batch generation for all sections.
 - **ComfyUI video generation** — LTX 2.3 22B distilled image-to-video via ComfyUI. Two-pass sampling, audio+video latent concatenation, spatial upscaler, RTX Video Super Resolution, ColorMatch + Sharpen.
-- **ComfyUI Model Browser** — Real-time model discovery with status widget (green/orange/red dot showing ComfyUI connection + VRAM). Browse models by category (UNet, VAE, CLIP, Video, Audio, LoRA, ControlNet, Embeddings). Select which image/video model to use per generation.
+- **ComfyUI Model Browser** — Real-time model discovery with status widget (green/orange/red dot showing ComfyUI connection + VRAM). Per-pipeline model arrays: FLUX.2 (UNet, VAE, Text Encoder) and LTX 2.3 (UNet, Video VAE, Text Encoder, Audio VAE, IC-LoRA, Upscaler). Models auto-scanned from correct ComfyUI directories with smart labels.
 - **ComfyUI Bridge** — When ComfyUI is online, all image/video generation routes through it automatically. When offline, cover art falls back to local `sd-cli.exe` (FLUX.2 Klein 9B). Pipeline auto-detection from model filename. Model parameter inference (steps, CFG) from model name.
 - **Timeline** — Section blocks with transport controls (play/pause, stop, seek). Visual effects are synced to the timeline position.
 - **Export** — Server-side FFmpeg compositing: resolution/FPS/audio options, Ken Burns zoom on images, crossfade transitions, audio waveform overlay.
@@ -142,8 +142,8 @@ A full-featured music video production page with stem-reactive layered effects, 
 1. Install ComfyUI (e.g., via [Easy Install](https://github.com/ComfyUI-Easy-Install))
 2. Install custom nodes: ComfyUI-GGUF, ComfyUI-LTXVideo
 3. Download models and place in ComfyUI model directories:
-   - **LTX 2.3**: `LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf` (unet/ltx2.3/), `ltx-2.3-22b-distilled_video_vae.safetensors` + `audio_vae` (vae/), `gemma_3_12B_it_fp4_mixed.safetensors` (text_encoders/), `ltx-2.3-22b-distilled_embeddings_connectors.safetensors` (unet/ltx2.3/), `ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors` (loras/ltx2.3/), `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` (loras/ltx2.3/)
-   - **FLUX.2**: `Flux-2-Klein-9B-KV-Q8_0.gguf` (unet/flux2/), `flux2-vae.safetensors` (vae/FLUX.2/), `awq-int4-flux.1-t5xxl.safetensors` + `clip_l.safetensors` (text_encoders/)
+   - **LTX 2.3**: `LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf` (unet/ltx2.3/), `ltx-2.3-22b-distilled_video_vae.safetensors` + `audio_vae` (vae/ltx2.3/), `gemma_3_12B_it_fp4_mixed.safetensors` (text_encoders/), `ltx-2.3-22b-distilled_embeddings_connectors.safetensors` (text_encoders/ltx2.3/), `ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors` (loras/ltx2.3/), `ltx-2.3-spatial-upscaler-x2-1.1.safetensors` (latent_upscale_models/ltx2.3/)
+   - **FLUX.2**: `Flux-2-Klein-9B-KV-Q8_0.gguf` (unet/flux2/) or `flux-2-klein-9b-fp8.safetensors` (diffusion_models/FLUX.2/), `flux2-vae.safetensors` (vae/FLUX.2/), `qwen_3_8b_fp8mixed.safetensors` (clip/)
 4. ComfyUI must be running on port 8188 when using MVC features
 
 ### ComfyUI Bridge (Auto-Detection & Fallback)
@@ -152,6 +152,8 @@ When ComfyUI is available, all AI generation (cover art, singer images, video fr
 - **Capability Discovery**: Probes ComfyUI's `/object_info/` and model directories to determine what it can do (image generation, video generation, upscaling). Returns structured availability with reasons.
 - **Pipeline Archetype Registry**: Pluggable workflow builders with regex model detection. Three registered pipelines: `flux-image`, `ltx-video`, `standard-checkpoint`. New pipelines can be added by calling `registerPipeline()`.
 - **Model Parameter Inference**: Auto-detects steps, CFG, and model family from filename (e.g., Klein 9B → 4 steps/cfg 1.0, LTX 2.3 → 9+4 steps, unknown → safe defaults).
+- **Cover Art Model Picker**: Click the 🖼️ floating button (bottom-right) to open the engine panel. The panel shows ComfyUI connection status, VRAM info, and lets you select which specific UNet/diffusion model, VAE, and text encoder/CLIP to use for cover art generation. Models are auto-scanned from your ComfyUI installation's `diffusion_models/`, `unet/`, `vae/`, `clip/`, and `text_encoder/` directories. Selections are saved to localStorage.
+- **Cover Art Settings in Settings**: `coverArtUseComfyUI`, `coverArtModel`, `coverArtVae`, `coverArtClip` are now part of the generation settings pipeline, passed through to the server and threaded into `bridgeGenerateImage()` for ComfyUI-based generation.
 - **API Endpoints**: `GET /api/comfyui/capabilities`, `GET /api/comfyui/pipelines`, `GET /api/comfyui/infer-params?model=filename`
 - **Model Discovery**: `GET /api/models` returns unified registry of ACE-Step + ComfyUI + local models across 12 categories.
 
@@ -219,20 +221,21 @@ All 18 languages natively supported by ACE-Step are available across the Album C
 
 | File | Status | Size | Description |
 |------|--------|------|-------------|
-| `server/server.mjs` | Modified | ~301K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, unified video pipeline (`/api/inspire/video/create`), section-aware cover art with gender context, album ZIP download, album grouping API, 18-language support with 40+ fallback mappings, automatic vocal language remapping, code-switching guard (Patois variant detection), vocabulary lock Patois skip, ComfyUI client (LTX2.3 video + FLUX.2 image generation), stem decomposition (SuperSep), FFmpeg export with Ken Burns + concat, 12+ ComfyUI API endpoints including bridge capabilities/pipelines/infer-params, model registry endpoints |
-| `server/services/comfyui-client.mjs` | Modified | ~395 lines | ComfyUI HTTP helpers, FIFO job queue, configurable model paths in LTX2.3 + FLUX.2 workflow builders |
+| `server/server.mjs` | Modified | ~301K lines | Backend with 46+ genre templates, vocabulary modules, quality analyzer, outro enforcement, DJ/Dual DJ, bilingual Patois, unified video pipeline (`/api/inspire/video/create`), section-aware cover art with gender context, album ZIP download, album grouping API, 18-language support with 40+ fallback mappings, automatic vocal language remapping, code-switching guard (Patois variant detection), vocabulary lock Patois skip, ComfyUI client (LTX2.3 video + FLUX.2 image generation), stem decomposition (SuperSep), FFmpeg export with Ken Burns + concat, 12+ ComfyUI API endpoints including bridge capabilities/pipelines/infer-params, model registry endpoints, pipeline-models endpoint with per-pipeline model arrays and correct ComfyUI directory scanning, **Gemini 403 error suppression** (early return when API key empty), **local default model** reverted to 4B (flux-2-klein-4b-Q4_0.gguf), **stall timeout bumped** 120s→240s for long ComfyUI jobs, **CoverArt log visibility** (Skipped→WARNING) |
+| `server/services/comfyui-client.mjs` | Modified | ~680 lines | ComfyUI HTTP helpers, FIFO job queue, LTX2.3 workflow builder (IC-LoRA node support, configurable audioVaeModel/clipModel), FLUX.2 workflow builder (auto-detect GGUF/safetensors), configurable model paths |
 | `server/services/comfyui-model-scanner.mjs` | **New** | ~420 lines | ComfyUI model discovery — connection detection, filesystem model scan (12 categories), `/object_info/` API query, unified model registry combining ACE-Step + ComfyUI + local models |
 | `server/services/comfyui-bridge.mjs` | **New** | ~380 lines | ComfyUI bridge — pipeline archetype registry (flux-image, ltx-video, standard-checkpoint), model parameter inference from filename, capability discovery, unified generation interface with sd-cli.exe fallback |
 | `server/services/beat-detector.mjs` | Existing | 334 lines | Beat detection, section timing, disco data analysis |
 | `server/services/prompt-builder.mjs` | Existing | 535 lines | Cover art, singer image, video prompt builders |
 | `ui/dist/album.html` | Modified | ~50 KB | Album Generator — 20-track workflow with multi-select genre picker (200+ genres, 17 categories), random genre-aware theme generator, gender/vocalist context fields, auto-fill, artist name, album title, persistent metadata, ZIP download with folder organization, 18-language selector, Album Library button in header |
-| `ui/dist/music-video.html` | Modified | ~68 KB | Music Video Creator — stem-reactive layered effects (12 modes), layer stack (up to 17 layers), ComfyUI image/video generation, ComfyUI status widget + model browser, model selectors, timeline with section blocks, FFmpeg export, keyboard shortcuts, multi-layer compositing |
+| `ui/dist/music-video.html` | Modified | ~68 KB | Music Video Creator — stem-reactive layered effects (12 modes), layer stack (up to 17 layers), ComfyUI image/video generation, ComfyUI status widget + pipeline config panel (6 LTX dropdowns: UNet, Video VAE, Text Enc, Audio VAE, IC-LoRA, Upscaler), timeline with section blocks, FFmpeg export, keyboard shortcuts, multi-layer compositing |
 | `ui/dist/visualizer.html` | Modified | ~52 KB | Audio-reactive visualizer with 11 modes (incl. Milkdrop/Butterchurn), preset browser, settings panel, playlist, video generation via unified endpoint, Plasma LUT optimization, pre-rendered scanline overlay, proper delta-time frame timing, auth-aware playlist loading |
 | `ui/dist/index.html` | Modified | ~11 KB | Inline visualizer overlay (6 modes, transparent backdrop, Esc exit, disconnect for latency), MVC launcher button (clapper icon), Album Library removed from floating buttons (moved to album.html header), dead `window.__albumLib` code removed, vizMode NaN guard, vizModeLabel update on right-click cycle |
-| `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle — DJ/Turntablism genre group, canvas-based Disco particle system (replaced DOM particles) |
+| `server/data/model-registry.json` | Modified | ~3 KB | LTX2.3 video pipeline model entries (6 files + 2 packs with `role: "comfyui"`) registered for ComfyUI Model Manager tab — UNets, VAEs, CLIP, text encoders, download to `models/ComfyUI/` subdirectories |
+| `ui/dist/assets/index-DscBS4mv.js` | Modified | 1.4 MB | React bundle — DJ/Turntablism genre group, canvas-based Disco particle system (replaced DOM particles), **ComfyUI Model Manager tab** (4 patches: Z_ array, $_ descriptions, useMemo filter, return handler) |
 
 ### Full Enhancement Report
-See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 68 enhancement sections across 8 phases, reproduction guide, and file locations.
+See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for the complete technical documentation of all 99 enhancement sections across 14 phases, reproduction guide, and file locations.
 
 ---
 
@@ -266,7 +269,7 @@ See **[HOT-Step-Enhancements-Report.md](HOT-Step-Enhancements-Report.md)** for t
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, multi-select genre picker, random genre-aware theme generator, gender/vocalist context system, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration (Plasma LUT optimization, scanline cache, delta-time frame timing), unified MP4 video pipeline, album music video pipeline with lyric-driven image generation and beat-synced rendering, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), ComfyUI bridge with pipeline archetype registry, model parameter inference, capability discovery, and sd-cli.exe fallback, ComfyUI model browser with real-time status widget, canvas-based Disco particle system (replaced DOM particles), album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, server modularization (4 service modules), FIFO ComfyUI job queue, FLUX.2 9B model upgrade, SuperSep bug fixes, and all Phase 1-10 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill, multi-select genre picker, random genre-aware theme generator, gender/vocalist context system, artist name, album title, persistent metadata, and ZIP download with folder organization, audio-reactive visualizer with Milkdrop/Butterchurn integration (Plasma LUT optimization, scanline cache, delta-time frame timing), unified MP4 video pipeline, album music video pipeline with lyric-driven image generation and beat-synced rendering, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), ComfyUI bridge with pipeline archetype registry, model parameter inference, capability discovery, and sd-cli.exe fallback, ComfyUI model browser with real-time status widget, pipeline model discovery rewrite (correct directory scanning, stripRoot for loader-compatible paths), LTX 2.3 multi-model UI (6 dropdowns including Audio VAE and IC-LoRA), IC-LoRA workflow support (LTXICLoRALoaderModelOnly), canvas-based Disco particle system (replaced DOM particles), album library with right-click context menus for bulk WAV/MP3/Opus/FLAC downloads, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, server modularization (4 service modules), FIFO ComfyUI job queue, FLUX.2 9B model upgrade, SuperSep auto-trigger cooldown guard (prevents infinite re-trigger loop on every page load), **ComfyUI Model Manager tab** (role-based tab in React bundle), **LTX2.3 model registry** (6 files + 2 packs with `role: "comfyui"`), **Gemini 403 error suppression**, **local default 4B model restoration**, **stall timeout bump 120s→240s**, **CoverArt skipped log visibility** (DEBUG→WARNING), and all Phase 1-14 enhancements.
 
 ---
 

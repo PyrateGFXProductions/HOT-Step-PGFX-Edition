@@ -232,9 +232,10 @@ const GENRE_TAXONOMY = [
   { name: 'Reggae / Caribbean', icon: '🌴', genres: ['Reggae','Reggae (Patois)','Dancehall','Dancehall (Patois)','Ska','Dub','Dub (Patois)','Roots Reggae','Reggaeton','Soca','Calypso'] },
   { name: 'DJ / Turntablism', icon: '🎧', genres: ['DJ','Dual DJ','Turntablism','Scratch Battle'] },
   { name: 'Latin', icon: '💃', genres: ['Latin','Salsa','Bossa Nova','Bachata','Cumbia','Merengue','Tango','Latin Pop','Mariachi','Norteño'] },
-  { name: 'Traditional / World', icon: '🌍', genres: ['Klezmer','Mariachi','Bhangra','Andean'] },
+  { name: 'Traditional / World', icon: '🌍', genres: ['Klezmer','Mariachi','Bhangra','Andean','Celtic','Nordic Folk','Balkan'] },
   { name: 'Soundtrack / Cinematic', icon: '🎬', genres: ['Film Score','Epic','Cinematic','Video Game Music','Orchestral Soundtrack','Trailer Music','Dark Ambient','Fantasy','Sci-Fi'] },
   { name: 'Experimental / Other', icon: '🔮', genres: ['Experimental','Avant-Garde','Noise','Industrial','New Age','Meditation','Lo-Fi','Post-Industrial','Art Rock','Drone','Musique Concrète'] },
+  { name: 'Adult / Sensual', icon: '💋', genres: ['Slow Jam','Bedroom R&B','Sensual Lounge','Porn Groove','70s Porn Groove','Erotic Funk','Sleazy Funk','Porn','Porn (SFW Instrumentation)'] },
 ];
 const ALL_GENRES = GENRE_TAXONOMY.flatMap(c => c.genres);
 
@@ -368,10 +369,17 @@ function buildGenderContext() {
   return '';
 }
 function closeGenreDropdown(e) {
+  // GUARD: Only act when the dropdown is actually open. Without this guard,
+  // every mousedown on the page triggers a full render() which destroys and
+  // rebuilds the entire DOM — killing every click/focus/input event on the page.
+  if (!GENRE_DROPDOWN_OPEN) return;
   const picker = document.getElementById('genre-picker');
   if (picker && !picker.contains(e.target)) {
     GENRE_DROPDOWN_OPEN = false;
-    render();
+    // Defer render to next macrotask so the click event on the target element
+    // fires BEFORE the DOM is rebuilt. Without this, mousedown → render() destroys
+    // the clicked element before click fires, silently swallowing all button clicks.
+    setTimeout(() => render(), 0);
   }
 }
 
@@ -731,7 +739,7 @@ function renderTrack(t, i) {
   </div>`;
 }
 
-function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/`/g,'&#96;'); }
 
 function toggleTrack(i) {
   const wasExpanded = document.getElementById('track-'+i)?.classList.contains('expanded');

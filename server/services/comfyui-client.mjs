@@ -218,88 +218,263 @@ function comfyFindOutput(outputs, nodeType) {
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    LTX 2.3 Image-to-Video Workflow Builder
-   Based on user's working workflow: LTX_2.3_ia2v + RTX Super Scale
+   ────────────────────────────────────────
+   Rewritten to match actual ComfyUI LTX 2.3 workflow structure.
+   
+   Uses the low-level LTX node graph for maximum flexibility:
+   - UnetLoaderGGUF → GGUF quantized model
+   - CLIPLoader (type=ltxv) → LTXV text encoder
+   - CLIPTextEncode → prompt conditioning
+   - LTXVConditioning → frame-rate-aware conditioning pair
+   - ModelSamplingLTXV → sampling shift
+   - LTXVScheduler → sigmas
+   - RandomNoise → seed noise
+   - KSamplerSelect → sampler
+   - BasicGuider → guider (CFG-based)
+   - SamplerCustomAdvanced → sample
+   - LTXVAddGuide → reference image conditioning
+   - VAEDecode → decode video frames
+   - SaveVideo → output MP4
+   
+   Reference: LTX_2.3_ia2v + RTX Super Scale workflow
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 function buildLTX2Workflow({
   imageFilename,
   audioFilename,
   videoPrompt,
-  negativePrompt = "pc game, console game, video game, cartoon, childish, ugly",
+  negativePrompt = "pc game, console game, video game, cartoon, childish, ugly, low quality",
   width = 768,
   height = 512,
   frames = 97,
-  audioDuration = 9,
-  audioStart = 0,
-  frameRate = 24,
-  steps1 = 9,
-  steps2 = 4,
-  cfg = 1.0,
-  imgStrength = 0.7,
-  imgCompression = 18,
-  upscale = true,
-  rtxUltra = true,
+  frameRate = 25,
+  steps = 20,
+  cfg = 3.0,
+  imgStrength = 1.0,
   seed = null,
-  outputPrefix = "mvc_clip",
+  outputPrefix = "ltx2_clip",
   /* Configurable model paths — 'auto' uses defaults */
   unetModel = "auto",
   vaeModel = "auto",
   clipModel = "auto",
-  clip2Model = "auto",
-  upscaleModel = "auto",
+  audioVaeModel = "auto",
+  icLoraModel = "auto",
 }) {
   if (seed === null) seed = Math.floor(Math.random() * 2**32);
-  const finalW = width * 2;
-  const finalH = height * 2;
-  const upsampledFrames = frames;
 
-  /* Build sigmas strings */
-  const sigmas1 = Array.from({length: steps1 + 1}, (_, i) => {
-    if (i === 0) return "1.0";
-    if (i === steps1) return "0.0";
-    return (1.0 - (i / steps1)).toFixed(4);
-  }).join(", ");
-  const sigmas2 = "0.85, 0.7250, 0.4219, 0.0";
-
+  /* ── Model Loading ── */
   const workflow = {
-    /* ── Model Loading (configurable paths, defaults to current models) ── */
-    "1": { class_type: "UnetLoaderGGUF", inputs: { unet_name: unetModel !== "auto" ? unetModel : "ltx2.3\\LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf" } },
-    "2": { class_type: "VAELoader", inputs: { vae_name: vaeModel !== "auto" ? vaeModel : "ltx2.3\\ltx2_3_vae.safetensors" } },
-    "3": { class_type: "CLIPLoader", inputs: { clip_name: clipModel !== "auto" ? clipModel : "text_encoder\\gemma3-4b-it-Q4_K_M.gguf", type: "stable_diffusion" } },
-    "4": { class_type: "DualCLIPLoader", inputs: { clip_name1: clipModel !== "auto" ? clipModel : "text_encoder\\gemma3-4b-it-Q4_K_M.gguf", clip_name2: clip2Model !== "auto" ? clip2Model : "text_encoder\\embeddings.safetensors", type1: "stable_diffusion", type2: "stable_diffusion" } },
-    "5": { class_type: "EmptyLTXVLatentVideo", inputs: { width, height, batch_size: 1, video_frames: upsampledFrames } },
+    /* 1: Load UNet (GGUF quantized) */
+    "1": {
+      class_type: "UnetLoaderGGUF",
+      inputs: {
+        unet_name: unetModel !== "auto" ? unetModel : "ltx2.3/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf"
+      }
+    },
+    /* 2: Load VAE (video) */
+    "2": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: vaeModel !== "auto" ? vaeModel : "ltx2.3/ltx-2.3-22b-distilled_video_vae.safetensors"
+      }
+    },
+    /* 3: Load Text Encoder (LTXV type) */
+    "3": {
+      class_type: "CLIPLoader",
+      inputs: {
+        clip_name: clipModel !== "auto" ? clipModel : "ltx2.3/ltx-2.3-22b-distilled_embeddings_connectors.safetensors",
+        type: "ltxv"
+      }
+    },
+    /* 4: Encode positive prompt */
+    "4": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        text: videoPrompt,
+        clip: ["3", 0]
+      }
+    },
+    /* 5: Encode negative prompt */
+    "5": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        text: negativePrompt,
+        clip: ["3", 0]
+      }
+    },
+    /* 6: LTXV conditioning (frame-rate aware) */
+    "6": {
+      class_type: "LTXVConditioning",
+      inputs: {
+        positive: ["4", 0],
+        negative: ["5", 0],
+        frame_rate: frameRate
+      }
+    },
 
-    /* ── Pass 1: Coarse sampling ── */
-    "10": { class_type: "LTXVImgToVideo", inputs: { width, height, batch_size: 1, video_frames: upsampledFrames, start_step: 0, stop_step: steps1, cfg_scale: cfg, sampler: "euler", scheduler: "linear", seed, denoise: imgStrength, per_block_control: 0.0 } },
-    "11": { class_type: "LTXVConditioning", inputs: { frame_rate: Math.round(frameRate * 256), max_seq_len: 256, positive: videoPrompt, negative: negativePrompt } },
-    "12": { class_type: "LTXVModelSampling", inputs: { model: ["1", 0], shift: 3.0 } },
-    "13": { class_type: "SamplerCustom", inputs: { model: ["12", 0], add_noise: true, noise_seed: seed, cfg: cfg, positive: ["11", 0], negative: ["11", 1], sampler: "euler", sigmas: ["14", 0], latent_image: ["5", 0] } },
-    "14": { class_type: "SplitSigmas", inputs: { sigmas: ["15", 0], step: steps1 } },
-    "15": { class_type: "SigmasFromList", inputs: { sigmas_list: sigmas1 } },
+    /* ── Model Sampling ── */
+    /* 7: ModelSamplingLTXV — apply sampling shift */
+    "7": {
+      class_type: "ModelSamplingLTXV",
+      inputs: {
+        model: ["1", 0],
+        max_shift: 2.05,
+        base_shift: 0.95
+      }
+    },
 
-    /* ── Pass 2: Refinement ── */
-    "20": { class_type: "LTXVConditioning", inputs: { frame_rate: Math.round(frameRate * 256), max_seq_len: 256, positive: videoPrompt, negative: negativePrompt } },
-    "21": { class_type: "LTXVModelSampling", inputs: { model: ["1", 0], shift: 3.0 } },
-    "22": { class_type: "SamplerCustom", inputs: { model: ["21", 0], add_noise: true, noise_seed: seed + 1, cfg: cfg, positive: ["20", 0], negative: ["20", 1], sampler: "euler", sigmas: ["23", 0], latent_image: ["13", 0] } },
-    "23": { class_type: "SigmasFromList", inputs: { sigmas_list: sigmas2 } },
+    /* ── Scheduler + Sampler ── */
+    /* 8: LTXVScheduler */
+    "8": {
+      class_type: "LTXVScheduler",
+      inputs: {
+        steps: steps,
+        max_shift: 2.05,
+        base_shift: 0.95,
+        stretch: true,
+        terminal: 0.1
+      }
+    },
+    /* 9: KSamplerSelect */
+    "9": {
+      class_type: "KSamplerSelect",
+      inputs: {
+        sampler_name: "euler"
+      }
+    },
+    /* 10: RandomNoise */
+    "10": {
+      class_type: "RandomNoise",
+      inputs: {
+        noise_seed: seed
+      }
+    },
 
-    /* ── Decode latent ── */
-    "30": { class_type: "VAEDecode", inputs: { samples: ["22", 0], vae: ["2", 0] } },
+    /* ── Reference Image Conditioning ── */
+    /* 11: Load reference image */
+    "11": {
+      class_type: "LoadImage",
+      inputs: {
+        image: imageFilename
+      }
+    },
+    /* 12: Create latent from image (LTXVImgToVideo creates latent + conditioning) */
+    "12": {
+      class_type: "LTXVImgToVideo",
+      inputs: {
+        positive: ["6", 0],
+        negative: ["6", 1],
+        vae: ["2", 0],
+        image: ["11", 0],
+        width: width,
+        height: height,
+        length: frames,
+        batch_size: 1,
+        strength: imgStrength
+      }
+    },
 
-    /* ── Audio input ── */
-    "31": { class_type: "LoadAudio", inputs: { audio: audioFilename, start_time: audioStart } },
-    "32": { class_type: "VHS_AudioToVideo", inputs: { audio: ["31", 0], video: ["30", 0] } },
+    /* ── Guided Sampler ── */
+    /* 13: CFGGuider (model + positive + negative + cfg) */
+    "13": {
+      class_type: "CFGGuider",
+      inputs: {
+        model: ["7", 0],
+        positive: ["12", 0],
+        negative: ["12", 1],
+        cfg: cfg
+      }
+    },
+    /* 14: Sample */
+    "14": {
+      class_type: "SamplerCustomAdvanced",
+      inputs: {
+        noise: ["10", 0],
+        guider: ["13", 0],
+        sampler: ["9", 0],
+        sigmas: ["8", 0],
+        latent_image: ["12", 2]
+      }
+    },
 
-    /* ── Output ── */
-    "40": { class_type: "VHS_VideoCombine", inputs: { filename_prefix: outputPrefix, format: "video/h264-mp4", fps: frameRate, save_output: true, images: ["32", 0] } }
+    /* ── Decode + Save ── */
+    /* 15: VAEDecode */
+    "15": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["14", 0],
+        vae: ["2", 0]
+      }
+    },
+    /* 16: VHS_VideoCombine — encode to MP4 with optional audio muxing */
+    "16": {
+      class_type: "VHS_VideoCombine",
+      inputs: {
+        images: ["15", 0],
+        frame_rate: frameRate,
+        loop_count: 0,
+        filename_prefix: outputPrefix,
+        format: "video/h264-mp4",
+        pingpong: false,
+        save_output: true
+      }
+    }
   };
 
-  /* ── Optional: Spatial Upscaler ── */
-  if (upscale) {
-    workflow["50"] = { class_type: "UpscaleModelLoader", inputs: { model_name: upscaleModel !== "auto" ? upscaleModel : "Spatial\\4x-UltraSharp.pth" } };
-    workflow["51"] = { class_type: "ImageUpscaleWithModel", inputs: { upscale_model: ["50", 0], image: ["32", 0] } };
-    workflow["52"] = { class_type: "ImageScale", inputs: { image: ["51", 0], upscale_method: "lanczos", width: finalW, height: finalH, crop: "disabled" } };
-    workflow["53"] = { class_type: "VHS_VideoCombine", inputs: { filename_prefix: outputPrefix + "_upscaled", format: "video/h264-mp4", fps: frameRate, save_output: true, images: ["52", 0] } };
+  /* ── Optional: IC-LoRA (applies to UNet before sampling) ── */
+  if (icLoraModel && icLoraModel !== "auto") {
+    /* 50: Load IC-LoRA via LTXICLoRALoaderModelOnly */
+    workflow["50"] = {
+      class_type: "LTXICLoRALoaderModelOnly",
+      inputs: {
+        lora_name: icLoraModel,
+        strength: 1.0,
+        model: ["1", 0]
+      }
+    };
+    /* Rewire ModelSamplingLTXV to use IC-LoRA-modified model */
+    workflow["7"].inputs.model = ["50", 0];
+  }
+
+    /* ── Optional: Audio-driven conditioning ── */
+  if (audioFilename) {
+    /* 20: Load audio */
+    workflow["20"] = {
+      class_type: "LoadAudio",
+      inputs: {
+        audio: audioFilename
+      }
+    };
+    /* 21: Load audio VAE (use VAELoader — LTXVAudioVAELoader only scans checkpoints dir) */
+    workflow["21"] = {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: audioVaeModel !== "auto" ? audioVaeModel : "ltx2.3/ltx-2.3-22b-distilled_audio_vae.safetensors"
+      }
+    };
+    /* 22: Encode audio */
+    workflow["22"] = {
+      class_type: "LTXVAudioVAEEncode",
+      inputs: {
+        audio: ["20", 0],
+        audio_vae: ["21", 0]
+      }
+    };
+    /* 23: Set audio reference tokens on conditioning
+       LTXVSetAudioRefTokens returns: [positive, negative, latent] */
+    workflow["23"] = {
+      class_type: "LTXVSetAudioRefTokens",
+      inputs: {
+        positive: ["6", 0],
+        negative: ["6", 1],
+        audio_latent: ["22", 0]
+      }
+    };
+    /* Update guider to use audio-aware positive/negative conditioning */
+    workflow["13"].inputs.positive = ["23", 0];
+    workflow["13"].inputs.negative = ["23", 1];
+    /* Also mux audio into the video output */
+    workflow["16"].inputs.audio = ["20", 0];
   }
 
   return workflow;
@@ -307,6 +482,26 @@ function buildLTX2Workflow({
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    FLUX.2 Klein Image Generation Workflow Builder
+   ──────────────────────────────────────────────
+   Rewritten to match actual ComfyUI FLUX2_Workflow.json node structure.
+   Supports both GGUF and safetensors UNet models — auto-detected by extension.
+   
+   Uses native FLUX.2 nodes:
+   - UnetLoaderGGUF (.gguf) OR UNETLoader (.safetensors) → FLUX.2 Klein 9B
+   - CLIPLoader (type=flux2) → Qwen 3 8B text encoder
+   - VAELoader → FLUX.2 VAE
+   - EmptyFlux2LatentImage → latent canvas
+   - RandomNoise → seed
+   - Flux2Scheduler → sigmas (width/height aware)
+   - KSamplerSelect → sampler
+   - CFGGuider → guidance (model + positive + negative + cfg)
+   - SamplerCustomAdvanced → sample
+   - ConditioningZeroOut → negative (zeroed positive)
+   - VAEDecode → decode pixels
+   - SaveImage → output
+   
+   Reference: FLUX2_Workflow.json (nodes 403-419)
+   FLUX.2 uses cfg_scale=1.0 (FLUX-native guidance), negative prompts ignored.
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 function buildFLUX2Workflow({
@@ -322,22 +517,139 @@ function buildFLUX2Workflow({
   unetModel = "auto",
   vaeModel = "auto",
   clipModel = "auto",
-  clip2Model = "auto",
 }) {
   if (seed === null) seed = Math.floor(Math.random() * 2**32);
 
-  return {
-    "1": { class_type: "UnetLoaderGGUF", inputs: { unet_name: unetModel !== "auto" ? unetModel : "flux2\\FLUX.2-Klein-9B-Q8_0.gguf" } },
-    "2": { class_type: "VAELoader", inputs: { vae_name: vaeModel !== "auto" ? vaeModel : "flux2\\flux2_vae.safetensors" } },
-    "3": { class_type: "DualCLIPLoader", inputs: { clip_name1: clipModel !== "auto" ? clipModel : "text_encoder\\t5xxl_fp8_e4m3fn.safetensors", clip_name2: clip2Model !== "auto" ? clip2Model : "text_encoder\\clip_l.safetensors", type1: "stable_diffusion", type2: "stable_diffusion" } },
-    "4": { class_type: "CLIPTextEncode", inputs: { text: prompt, clip: ["3", 0] } },
-    "5": { class_type: "EmptyLatentImage", inputs: { width, height, batch_size: 1 } },
-    "6": { class_type: "ModelSamplingFlux", inputs: { model: ["1", 0], shift: 3.0 } },
-    "7": { class_type: "SamplerCustom", inputs: { model: ["6", 0], add_noise: true, noise_seed: seed, cfg, positive: ["4", 0], negative: ["4", 0], sampler: "euler", sigmas: ["8", 0], latent_image: ["5", 0] } },
-    "8": { class_type: "SigmasFromList", inputs: { sigmas_list: "1.0, 0.75, 0.5, 0.25, 0.0" } },
-    "9": { class_type: "VAEDecode", inputs: { samples: ["7", 0], vae: ["2", 0] } },
-    "10": { class_type: "SaveImage", inputs: { images: ["9", 0], filename_prefix: outputPrefix } }
+  /* ── Resolve model names ── */
+  const resolvedUnet = unetModel !== "auto" ? unetModel : "FLUX.2/flux-2-klein-9b-fp8.safetensors";
+  const resolvedVae = vaeModel !== "auto" ? vaeModel : "FLUX.2/flux2-vae.safetensors";
+  const resolvedClip = clipModel !== "auto" ? clipModel : "qwen_3_8b_fp8mixed.safetensors";
+
+  /* ── Auto-detect GGUF vs safetensors ── */
+  const isGGUF = resolvedUnet.toLowerCase().endsWith(".gguf");
+
+  /* ── UNet node — format-dependent ── */
+  const unetNode = isGGUF
+    ? { class_type: "UnetLoaderGGUF", inputs: { unet_name: resolvedUnet } }
+    : { class_type: "UNETLoader",     inputs: { unet_name: resolvedUnet, weight_dtype: "fp8_e4m3fn" } };
+
+  const workflow = {
+    /* ── Model Loading ── */
+    /* 1: UNet loader (auto-detected: GGUF or safetensors) */
+    "1": unetNode,
+    /* 2: VAELoader */
+    "2": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: resolvedVae
+      }
+    },
+    /* 3: CLIPLoader (Qwen 3 8B for FLUX.2) */
+    "3": {
+      class_type: "CLIPLoader",
+      inputs: {
+        clip_name: resolvedClip,
+        type: "flux2",
+        device: "default"
+      }
+    },
+
+    /* ── Text Encoding ── */
+    /* 4: CLIPTextEncode — positive prompt */
+    "4": {
+      class_type: "CLIPTextEncode",
+      inputs: {
+        text: prompt,
+        clip: ["3", 0]
+      }
+    },
+    /* 5: ConditioningZeroOut — negative (zeroed positive) */
+    "5": {
+      class_type: "ConditioningZeroOut",
+      inputs: {
+        conditioning: ["4", 0]
+      }
+    },
+
+    /* ── Latent Canvas ── */
+    /* 6: EmptyFlux2LatentImage */
+    "6": {
+      class_type: "EmptyFlux2LatentImage",
+      inputs: {
+        width: width,
+        height: height,
+        batch_size: 1
+      }
+    },
+
+    /* ── Noise + Scheduler + Sampler ── */
+    /* 7: RandomNoise */
+    "7": {
+      class_type: "RandomNoise",
+      inputs: {
+        noise_seed: seed
+      }
+    },
+    /* 8: Flux2Scheduler — width/height-aware sigmas */
+    "8": {
+      class_type: "Flux2Scheduler",
+      inputs: {
+        steps: steps,
+        width: width,
+        height: height
+      }
+    },
+    /* 9: KSamplerSelect */
+    "9": {
+      class_type: "KSamplerSelect",
+      inputs: {
+        sampler_name: "euler"
+      }
+    },
+
+    /* ── Guided Sampling ── */
+    /* 10: CFGGuider */
+    "10": {
+      class_type: "CFGGuider",
+      inputs: {
+        model: ["1", 0],
+        positive: ["4", 0],
+        negative: ["5", 0],
+        cfg: cfg
+      }
+    },
+    /* 11: SamplerCustomAdvanced */
+    "11": {
+      class_type: "SamplerCustomAdvanced",
+      inputs: {
+        noise: ["7", 0],
+        guider: ["10", 0],
+        sampler: ["9", 0],
+        sigmas: ["8", 0],
+        latent_image: ["6", 0]
+      }
+    },
+
+    /* ── Decode + Save ── */
+    /* 12: VAEDecode */
+    "12": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["11", 0],
+        vae: ["2", 0]
+      }
+    },
+    /* 13: SaveImage */
+    "13": {
+      class_type: "SaveImage",
+      inputs: {
+        images: ["12", 0],
+        filename_prefix: outputPrefix
+      }
+    }
   };
+
+  return workflow;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════

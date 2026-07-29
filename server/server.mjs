@@ -27,7 +27,8 @@ import {
   detectBeatsInAudio as detectBeatsInAudioMod,
   parseVideoSections as parseVideoSectionsMod,
   calculateSectionTimings as calculateSectionTimingsMod,
-  analyzeAndSaveDiscoData as analyzeAndSaveDiscoDataMod
+  analyzeAndSaveDiscoData as analyzeAndSaveDiscoDataMod,
+  analyzeAndSaveDiscoDataAsync as analyzeAndSaveDiscoDataAsyncMod
 } from "./services/beat-detector.mjs";
 
 import {
@@ -42528,12 +42529,42 @@ function getCoverArtReadiness() {
 }
 async function generateCoverImage(opts) {
   const startTime = Date.now();
+  const useComfyUI = opts.useComfyUI === true;
+  const prompt = buildCoverArtPrompt(opts);
+  console.log(`[CoverArt] Prompt: "${prompt}"`);
+  const negativePrompt = "text, lettering, words, typography, watermark, signature, logo, title, font, writing, caption, label, stamp, banner";
+
+  /* ── ComfyUI Bridge Mode ── */
+  if (useComfyUI) {
+    const { detectComfyUI: detectComfyUI2 } = await import("./services/comfyui-model-scanner.mjs");
+    const { connected } = await detectComfyUI2(true);
+    if (!connected) {
+      throw new Error("ComfyUI is not reachable — cannot generate cover art via ComfyUI bridge. Start ComfyUI or switch to Local mode in Cover Art settings.");
+    }
+    const seed = randomInt(0, 2 ** 32);
+    console.log(`[CoverArt] ComfyUI bridge mode: ${GEN_WIDTH}\xD7${GEN_HEIGHT}, ${GEN_STEPS} steps, seed=${seed}, model=${opts.comfyModel || "auto"}`);
+    const result = await bridgeGenerateImage({
+      prompt,
+      negativePrompt,
+      width: GEN_WIDTH,
+      height: GEN_HEIGHT,
+      model: opts.comfyModel || undefined,
+      seed,
+      outputPrefix: "cover",
+      outputDir: config.data.audioDir,
+    });
+    const outputFilename = path12.basename(result.localPath);
+    const coverUrl = `/audio/${outputFilename}`;
+    const durationMs = Date.now() - startTime;
+    console.log(`[CoverArt] Image generated via ComfyUI: ${outputFilename} (${(durationMs / 1e3).toFixed(1)}s, source=${result.source})`);
+    return { coverUrl, prompt, durationMs, source: result.source, model: result.model };
+  }
+
+  /* ── Local sd-cli Mode ── */
   const status = getCoverArtReadiness();
   if (!status.installed) {
     throw new Error(`Cover art not ready \u2014 missing: ${status.missingFiles.join(", ")}`);
   }
-  const prompt = buildCoverArtPrompt(opts);
-  console.log(`[CoverArt] Prompt: "${prompt}"`);
   const sdCli = getFilePath(REQUIRED_FILES.sdCli);
   const diffusionModel = getFilePath(REQUIRED_FILES.diffusionModel);
   const vae = getFilePath(REQUIRED_FILES.vae);
@@ -42551,7 +42582,7 @@ async function generateCoverImage(opts) {
     "-p",
     prompt,
     "-n",
-    "text, lettering, words, typography, watermark, signature, logo, title, font, writing, caption, label, stamp, banner",
+    negativePrompt,
     "--seed",
     String(seed),
     "--cfg-scale",
@@ -42628,7 +42659,7 @@ var init_coverArtService = __esm({
     COVER_ART_DIR = "cover-art";
     REQUIRED_FILES = {
       sdCli: process.platform === "win32" ? "sd.exe" : "sd",
-      diffusionModel: "flux-2-klein-9b-Q4_0.gguf",
+      diffusionModel: "flux-2-klein-4b-Q4_0.gguf",
       vae: "flux2_vae.safetensors",
       llm: "Qwen3-4B-Q4_K_M.gguf"
     };
@@ -131935,6 +131966,9 @@ function analyzeWav(filePath) {
 function analyzeAndSaveDiscoData(songId, audioDir, stemUrls) {
   return analyzeAndSaveDiscoDataMod(songId, audioDir, stemUrls);
 }
+async function analyzeAndSaveDiscoDataAsync(songId, audioDir, stemUrls) {
+  return analyzeAndSaveDiscoDataAsyncMod(songId, audioDir, stemUrls);
+}
 function detectBeatsInAudio(audioPath) {
   return detectBeatsInAudioMod(audioPath);
 }
@@ -132432,6 +132466,97 @@ router3.post("/:id/retranscribe", async (req, res) => {
   }
 });
 var extractionsInFlight = /* @__PURE__ */ new Set();
+var recentlyAttemptedExtractions = /* @__PURE__ */ new Map(); /* songId → timestamp of last attempt */
+var EXTRACTION_COOLDOWN_MS = 10 * 60 * 1000; /* 10 minutes — don't retry extraction for same song within this window */
+/* Periodic cleanup: remove stale cooldown entries every 30 minutes */
+setInterval(() => {
+  const now = Date.now();
+  for (const [songId, ts] of recentlyAttemptedExtractions) {
+    if (now - ts > EXTRACTION_COOLDOWN_MS * 2) recentlyAttemptedExtractions.delete(songId);
+  }
+}, 30 * 60 * 1000).unref();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SuperSep on-demand worker
+   Spawns a SEPARATE ace-server process with --onnx-dir for stem separation.
+   The process is killed after the job completes, releasing VRAM so that
+   ace-step generation models (DiT, VAE, LM) can use the full GPU.
+   ═══════════════════════════════════════════════════════════════════════════ */
+let supersepWorker = null;
+let supersepWorkerUrl = null;
+const SUPERSEP_WORKER_PORT = 8086;
+
+async function ensureSupersepWorker() {
+  // If worker is already running and responding, reuse it
+  if (supersepWorker && supersepWorkerUrl) {
+    try {
+      const health = await fetch(`${supersepWorkerUrl}/health`, { signal: AbortSignal.timeout(2000) });
+      if (health.ok) return supersepWorkerUrl;
+    } catch { /* dead — respawn below */ }
+    killSupersepWorker();
+  }
+  const exe = config.aceServer.exe;
+  if (!exe || !fs34.existsSync(exe)) {
+    throw new Error("ace-server.exe not found — cannot spawn SuperSep worker");
+  }
+  const args = [
+    "--models", config.aceServer.models,
+    "--host", "127.0.0.1",
+    "--port", String(SUPERSEP_WORKER_PORT),
+  ];
+  if (config.aceServer.onnxDir && fs34.existsSync(config.aceServer.onnxDir)) {
+    const hasOnnx = fs34.readdirSync(config.aceServer.onnxDir).some((f) => f.endsWith(".onnx"));
+    if (hasOnnx) {
+      args.push("--onnx-dir", config.aceServer.onnxDir);
+    }
+  }
+  console.log(`[SuperSep-Worker] Spawning dedicated ace-server on port ${SUPERSEP_WORKER_PORT}...`);
+  const child = spawn3(exe, args, { stdio: ["ignore", "pipe", "pipe"] });
+  supersepWorker = child;
+  supersepWorkerUrl = `http://127.0.0.1:${SUPERSEP_WORKER_PORT}`;
+  child.stdout?.on("data", (d) => {
+    const lines = d.toString().split("\n").filter(Boolean);
+    for (const line of lines) console.log(`[SuperSep-Worker] ${line}`);
+  });
+  child.stderr?.on("data", (d) => {
+    const lines = d.toString().split("\n").filter(Boolean);
+    for (const line of lines) console.log(`[SuperSep-Worker] ${line}`);
+  });
+  child.on("exit", (code) => {
+    console.log(`[SuperSep-Worker] Exited (code ${code})`);
+    supersepWorker = null;
+    supersepWorkerUrl = null;
+  });
+  // Wait for worker to become ready (poll /health)
+  const maxWait = 60000;
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWait) {
+    if (!supersepWorker) throw new Error("SuperSep worker died during startup");
+    try {
+      const health = await fetch(`${supersepWorkerUrl}/health`, { signal: AbortSignal.timeout(1000) });
+      if (health.ok) {
+        console.log(`[SuperSep-Worker] Ready on port ${SUPERSEP_WORKER_PORT}`);
+        return supersepWorkerUrl;
+      }
+    } catch { /* not ready yet */ }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error("SuperSep worker failed to start within 60s");
+}
+
+function killSupersepWorker() {
+  if (supersepWorker) {
+    try { supersepWorker.kill("SIGTERM"); } catch {}
+    supersepWorker = null;
+    supersepWorkerUrl = null;
+    console.log(`[SuperSep-Worker] Killed — VRAM freed`);
+  }
+}
+
+// Kill SuperSep worker on server shutdown
+process.on("SIGTERM", () => killSupersepWorker());
+process.on("SIGINT", () => killSupersepWorker());
+
 router3.post("/:id/extract-kick", async (req, res) => {
   try {
     const song = getDb().prepare("SELECT * FROM songs WHERE id = ?").get(req.params.id);
@@ -132448,36 +132573,47 @@ router3.post("/:id/extract-kick", async (req, res) => {
       return;
     }
     if (song.kick_stem_url && song.snare_stem_url && song.hihat_stem_url) {
-      let discoDataUrl = "";
-      try {
-        discoDataUrl = analyzeAndSaveDiscoData(req.params.id, config.data.audioDir, {
-          kick: song.kick_stem_url,
-          snare: song.snare_stem_url,
-          hihat: song.hihat_stem_url
-        });
+      // Fire-and-forget: respond immediately, analyze in background
+      // Return "started" so client enters polling loop and discovers the result
+      res.json({ status: "started", aceJobId: null, stems: ["kick", "snare", "hihat"], backfill: true });
+      analyzeAndSaveDiscoDataAsync(req.params.id, config.data.audioDir, {
+        kick: song.kick_stem_url,
+        snare: song.snare_stem_url,
+        hihat: song.hihat_stem_url
+      }).then((discoDataUrl) => {
         if (discoDataUrl) {
           getDb().prepare("UPDATE songs SET disco_data_url = ? WHERE id = ?").run(discoDataUrl, req.params.id);
+          console.log(`[KickExtract] Song ${req.params.id}: backfill disco data saved → ${discoDataUrl}`);
         }
-      } catch (err) {
-        console.warn(`[KickExtract] Disco analysis backfill failed: ${err.message}`);
-      }
-      res.json({ status: "exists", discoDataUrl });
+      }).catch((err) => {
+        console.warn(`[KickExtract] Song ${req.params.id}: async backfill failed: ${err.message}`);
+      });
       return;
     }
     if (extractionsInFlight.has(req.params.id)) {
       res.json({ status: "in-progress" });
       return;
     }
-    const ACE_URL3 = config.aceServer?.url || "http://127.0.0.1:8085";
+    /* Cooldown guard — don't retry extraction for the same song within 10 minutes
+       This prevents the infinite loop where failed extractions re-trigger on every page load */
+    const lastAttempt = recentlyAttemptedExtractions.get(req.params.id);
+    if (lastAttempt && (Date.now() - lastAttempt) < EXTRACTION_COOLDOWN_MS) {
+      console.log(`[KickExtract] Song ${req.params.id}: recently attempted (${Math.round((Date.now() - lastAttempt) / 1000)}s ago), skipping`);
+      res.json({ status: "exists", discoDataUrl: "" });
+      return;
+    }
+    // Spawn on-demand SuperSep worker (separate process, uses VRAM only during job)
+    const SUPERSEP_URL = await ensureSupersepWorker();
     const audioFilename = path6.basename(song.audio_url);
     const audioPath = path6.join(config.data.audioDir, audioFilename);
     if (!fs7.existsSync(audioPath)) {
       res.status(404).json({ error: "Audio file not found on disk" });
       return;
     }
-    console.log(`[KickExtract] Song ${req.params.id}: starting SuperSep level 2...`);
-    const audioBuf = fs7.readFileSync(audioPath);
-    const sepRes = await fetch(`${ACE_URL3}/supersep/separate?level=2`, {
+    console.log(`[KickExtract] Song ${req.params.id}: starting SuperSep level 2 via on-demand worker...`);
+    recentlyAttemptedExtractions.set(req.params.id, Date.now());
+    const audioBuf = await fs7.promises.readFile(audioPath);
+    const sepRes = await fetch(`${SUPERSEP_URL}/supersep/separate?level=2`, {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },
       body: audioBuf
@@ -132490,18 +132626,21 @@ router3.post("/:id/extract-kick", async (req, res) => {
     console.log(`[KickExtract] Song ${req.params.id}: ace-server job ${aceJobId}`);
     extractionsInFlight.add(req.params.id);
     res.json({ status: "started", aceJobId, stems: ["kick", "snare", "hihat"] });
-    extractDrumStemsBackground(req.params.id, aceJobId, ACE_URL3).catch((err) => {
+    extractDrumStemsBackground(req.params.id, aceJobId, SUPERSEP_URL).catch((err) => {
       console.error(`[KickExtract] Background extraction failed for ${req.params.id}:`, err.message);
       getDb().prepare("UPDATE songs SET kick_stem_url = ?, snare_stem_url = ?, hihat_stem_url = ? WHERE id = ?").run("", "", "", req.params.id);
     }).finally(() => {
       extractionsInFlight.delete(req.params.id);
+      // Kill on-demand worker after job completes to free VRAM
+      console.log(`[KickExtract] Killing SuperSep worker to free VRAM...`);
+      killSupersepWorker();
     });
   } catch (err) {
     console.error("[KickExtract] Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
-router3.post("/:id/analyze-disco", (req, res) => {
+router3.post("/:id/analyze-disco", async (req, res) => {
   try {
     const song = getDb().prepare("SELECT * FROM songs WHERE id = ?").get(req.params.id);
     if (!song) {
@@ -132522,7 +132661,7 @@ router3.post("/:id/analyze-disco", (req, res) => {
       res.status(400).json({ error: "No stem files to analyze" });
       return;
     }
-    const discoDataUrl = analyzeAndSaveDiscoData(req.params.id, config.data.audioDir, stemUrls);
+    const discoDataUrl = await analyzeAndSaveDiscoDataAsync(req.params.id, config.data.audioDir, stemUrls);
     if (discoDataUrl) {
       getDb().prepare("UPDATE songs SET disco_data_url = ? WHERE id = ?").run(discoDataUrl, req.params.id);
     }
@@ -132559,7 +132698,7 @@ async function extractDrumStemsBackground(songId, aceJobId, aceUrl) {
     }
     const buf = Buffer.from(await stemRes.arrayBuffer());
     const filename = `${songId}_${suffix}.wav`;
-    fs7.writeFileSync(path6.join(config.data.audioDir, filename), buf);
+    await fs7.promises.writeFile(path6.join(config.data.audioDir, filename), buf);
     console.log(`[DrumStems] Song ${songId}: ${label} stem saved (${(buf.length / 1024).toFixed(0)} KB)`);
     return `/audio/${filename}`;
   }
@@ -132583,7 +132722,7 @@ async function extractDrumStemsBackground(songId, aceJobId, aceUrl) {
   );
   getDb().prepare("UPDATE songs SET kick_stem_url = ?, snare_stem_url = ?, hihat_stem_url = ? WHERE id = ?").run(kickUrl, snareUrl, hihatUrl, songId);
   try {
-    const discoDataUrl = analyzeAndSaveDiscoData(songId, config.data.audioDir, {
+    const discoDataUrl = await analyzeAndSaveDiscoDataAsync(songId, config.data.audioDir, {
       kick: kickUrl,
       snare: snareUrl,
       hihat: hihatUrl
@@ -132596,7 +132735,7 @@ async function extractDrumStemsBackground(songId, aceJobId, aceUrl) {
         const stemPath = path6.join(config.data.audioDir, path6.basename(stemUrl));
         try {
           if (fs7.existsSync(stemPath)) {
-            fs7.unlinkSync(stemPath);
+            await fs7.promises.unlink(stemPath);
             console.log(`[DrumStems] Song ${songId}: deleted ${path6.basename(stemUrl)}`);
           }
         } catch {
@@ -132607,6 +132746,7 @@ async function extractDrumStemsBackground(songId, aceJobId, aceUrl) {
   } catch (err) {
     console.error(`[DrumStems] Song ${songId}: disco analysis failed (non-fatal):`, err.message);
   }
+  recentlyAttemptedExtractions.delete(songId);
   console.log(`[DrumStems] Song ${songId}: all drum stems processed`);
 }
 router3.get("/albums", (req, res) => {
@@ -135490,7 +135630,7 @@ async function pollUntilDone(aceJobId, job, signal, timeoutMinutes) {
   const POLL_INTERVAL = 500;
   const clampedTimeout = Math.max(5, Math.min(120, timeoutMinutes || 45));
   const MAX_WALL_MS = clampedTimeout * 60 * 1e3;
-  const STALE_TIMEOUT_MS = 12e4;
+  const STALE_TIMEOUT_MS = 24e4;
   const startedAt = Date.now();
   let lastProgressAt = Date.now();
   let lastStage = job.stage;
@@ -135861,19 +136001,35 @@ async function runGeneration(job) {
     const latentUrls = [];
     let coverArtResults = [];
     if (job.params.parallelCoverArt && job.params.coverArtEnabled) {
+      const useCoverArtComfyUI = job.params.coverArtUseComfyUI === true;
       const coverArtTask = async () => {
         const coverArtStart = performance3.now();
         try {
-          const { generateCoverImage: generateCoverImage2, getCoverArtReadiness: getCoverArtReadiness2 } = await Promise.resolve().then(() => (init_coverArtService(), coverArtService_exports));
-          const readiness = getCoverArtReadiness2();
-          if (!readiness.installed) {
-            logGeneration(job.id, "DEBUG", `[CoverArt] Skipped \u2014 not installed (missing: ${readiness.missingFiles.join(", ")})`);
-            return;
+          /* If ComfyUI mode, check ComfyUI connection instead of local readiness */
+          if (useCoverArtComfyUI) {
+            const { detectComfyUI: detectComfyUI4 } = await import("./services/comfyui-model-scanner.mjs");
+            const { connected } = await detectComfyUI4(true);
+            if (!connected) {
+              logGeneration(job.id, "WARNING", `[CoverArt] Skipped \u2014 ComfyUI is not reachable. Start ComfyUI or switch to Local mode in Cover Art settings.`);
+              return;
+            }
+          } else {
+            const { getCoverArtReadiness: getCoverArtReadiness2 } = await Promise.resolve().then(() => (init_coverArtService(), coverArtService_exports));
+            const readiness = getCoverArtReadiness2();
+            if (!readiness.installed) {
+              logGeneration(job.id, "WARNING", `[CoverArt] Skipped \u2014 not installed. Open Cover Art settings and click "Download Models + Engine". Missing: ${readiness.missingFiles.join(", ")}`);
+              return;
+            }
           }
+          const { generateCoverImage: generateCoverImage2 } = await Promise.resolve().then(() => (init_coverArtService(), coverArtService_exports));
           for (let i = 0; i < totalTracks; i++) {
             const trackResult = lmResults[i] || lmResults[0];
             try {
               const result = await generateCoverImage2({
+                useComfyUI: useCoverArtComfyUI,
+                comfyModel: job.params.coverArtModel || undefined,
+                comfyVae: job.params.coverArtVae || undefined,
+                comfyClip: job.params.coverArtClip || undefined,
                 title: job.params.title || trackResult.caption?.substring(0, 60) || "Untitled",
                 style: job.params.caption || job.params.style || "",
                 lyrics: trackResult.lyrics || "",
@@ -135881,7 +136037,7 @@ async function runGeneration(job) {
                 description: job.params.songDescription || job.params.description || ""
               });
               coverArtResults.push({ coverUrl: result.coverUrl });
-              logGeneration(job.id, "INFO", `[CoverArt] Image generated (${(result.durationMs / 1e3).toFixed(1)}s)`);
+              logGeneration(job.id, "INFO", `[CoverArt] Image generated ${result.source ? "(" + result.source + ")" : ""} (${(result.durationMs / 1e3).toFixed(1)}s)`);
             } catch (coverTrackErr) {
               logGeneration(job.id, "WARNING", `[CoverArt] Image generation failed (non-fatal): ${coverTrackErr.message}`);
             }
@@ -136339,11 +136495,27 @@ async function runGeneration(job) {
         }
       }
     } else if (!job.params.parallelCoverArt && job.params.coverArtEnabled) {
+      const useCoverArtComfyUI = job.params.coverArtUseComfyUI === true;
       const coverArtStart = performance3.now();
+      let coverArtReady = false;
       try {
-        const { generateCoverArt: generateCoverArt2, getCoverArtReadiness: getCoverArtReadiness2 } = await Promise.resolve().then(() => (init_coverArtService(), coverArtService_exports));
-        const readiness = getCoverArtReadiness2();
-        if (readiness.installed) {
+        if (useCoverArtComfyUI) {
+          const { detectComfyUI: detectComfyUI4 } = await import("./services/comfyui-model-scanner.mjs");
+          const { connected } = await detectComfyUI4(true);
+          coverArtReady = connected;
+          if (!connected) logGeneration(job.id, "WARNING", `[CoverArt] Skipped \u2014 ComfyUI is not reachable. Start ComfyUI or switch to Local mode.`);
+        } else {
+          const { getCoverArtReadiness: getCoverArtReadiness2 } = await Promise.resolve().then(() => (init_coverArtService(), coverArtService_exports));
+          const readiness = getCoverArtReadiness2();
+          coverArtReady = readiness.installed;
+          if (!readiness.installed) logGeneration(job.id, "WARNING", `[CoverArt] Skipped \u2014 not installed. Open Cover Art settings and click "Download Models + Engine". Missing: ${readiness.missingFiles.join(", ")}`);
+        }
+      } catch (coverErr) {
+        logGeneration(job.id, "WARNING", `[CoverArt] Readiness check failed: ${coverErr.message}`);
+      }
+      if (coverArtReady) {
+        try {
+          const { generateCoverArt: generateCoverArt2 } = await Promise.resolve().then(() => (init_coverArtService(), coverArtService_exports));
           job.stage = "Generating cover art...";
           job.progress = 95;
           for (let i = 0; i < songIds.length; i++) {
@@ -136351,6 +136523,10 @@ async function runGeneration(job) {
             try {
               await generateCoverArt2({
                 songId: songIds[i],
+                useComfyUI: useCoverArtComfyUI,
+                comfyModel: job.params.coverArtModel || undefined,
+                comfyVae: job.params.coverArtVae || undefined,
+                comfyClip: job.params.coverArtClip || undefined,
                 title,
                 style,
                 lyrics: trackResult.lyrics || "",
@@ -136362,11 +136538,9 @@ async function runGeneration(job) {
               logGeneration(job.id, "WARNING", `[CoverArt] Failed for song ${songIds[i]} (non-fatal): ${coverTrackErr.message}`);
             }
           }
-        } else {
-          logGeneration(job.id, "DEBUG", `[CoverArt] Skipped \u2014 not installed (missing: ${readiness.missingFiles.join(", ")})`);
+        } catch (coverErr) {
+          logGeneration(job.id, "WARNING", `[CoverArt] Failed (non-fatal): ${coverErr.message}`);
         }
-      } catch (coverErr) {
-        logGeneration(job.id, "WARNING", `[CoverArt] Failed (non-fatal): ${coverErr.message}`);
       }
       const coverArtMs = Math.round(performance3.now() - coverArtStart);
       if (coverArtMs > 50) timing.push({ name: "Cover Art", ms: coverArtMs });
@@ -153172,6 +153346,7 @@ async function readSSE(response, onChunk, extractText, extractDisplayOnly) {
   const decoder = new TextDecoder("utf-8");
   let fullText = "";
   let buffer = "";
+  const emit = onChunk || (() => {}); /* no-op when caller doesn't need chunks */
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -153192,14 +153367,14 @@ async function readSSE(response, onChunk, extractText, extractDisplayOnly) {
               const lastText = extractText(parsed);
               if (lastText) {
                 fullText += lastText;
-                onChunk(lastText);
+                emit(lastText);
               }
               continue;
             }
             if (extractDisplayOnly) {
               const displayText = extractDisplayOnly(parsed);
               if (displayText) {
-                onChunk(displayText);
+                emit(displayText);
                 if (skipThinkingSignal) {
                   const thinkCheck = fullText + displayText;
                   if (thinkCheck.includes("<think>") && !thinkCheck.includes("</think>")) {
@@ -153213,7 +153388,7 @@ async function readSSE(response, onChunk, extractText, extractDisplayOnly) {
             const text3 = extractText(parsed);
             if (text3) {
               fullText += text3;
-              onChunk(text3);
+              emit(text3);
               if (skipThinkingSignal && fullText.includes("<think>") && !fullText.includes("</think>")) {
                 reader.cancel();
                 return fullText;
@@ -153252,6 +153427,7 @@ var GeminiProvider = class _GeminiProvider extends LLMProvider {
   async getRemoteModels() {
     const now = Date.now();
     if (this._cachedModels && now < this._cacheExpiry) return this._cachedModels;
+    if (!config.lireek.geminiApiKey) return this.availableModels;
     try {
       const allModels = [];
       let pageToken;
@@ -153455,7 +153631,7 @@ var OllamaProvider = class extends LLMProvider {
         { role: "system", content: noThink ? noThinkSystemPrompt(systemPrompt) : systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      stream: !!onChunk,
+      stream: true,
       options: {
         num_predict: 8196,
         // Always set sampling options — temperature/presence_penalty control output variety
@@ -153473,7 +153649,7 @@ var OllamaProvider = class extends LLMProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(3e5)
+      signal: AbortSignal.timeout(9e5)
     });
     let resp = await doFetch();
     if (!resp.ok && noThink && resp.status === 400 && "think" in payload) {
@@ -153481,8 +153657,10 @@ var OllamaProvider = class extends LLMProvider {
       resp = await doFetch();
     }
     if (!resp.ok) throw new Error(`Ollama error: ${resp.status} ${await resp.text()}`);
-    if (onChunk) {
-      if (!resp.body) return "";
+    /* Always use streaming reader — even when onChunk is null.
+       This keeps the connection alive during long cold-starts and token generation,
+       preventing AbortSignal.timeout from firing while Ollama is still processing. */
+    if (resp.body) {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "";
@@ -153497,13 +153675,13 @@ var OllamaProvider = class extends LLMProvider {
               const parsed = JSON.parse(line);
               const reasoning = parsed.message?.reasoning_content;
               if (reasoning) {
-                onChunk(reasoning);
+                if (onChunk) onChunk(reasoning);
                 continue;
               }
               const content = parsed.message?.content;
               if (content) {
                 fullText += content;
-                onChunk(content);
+                if (onChunk) onChunk(content);
                 if (skipThinkingSignal && fullText.includes("<think>") && !fullText.includes("</think>")) {
                   reader.cancel();
                   return fullText;
@@ -153518,6 +153696,7 @@ var OllamaProvider = class extends LLMProvider {
       }
       return fullText;
     } else {
+      /* Fallback: no body (shouldn't happen with stream:true, but handle gracefully) */
       const data2 = await resp.json();
       return data2.message?.content || "";
     }
@@ -153575,7 +153754,7 @@ var LMStudioProvider = class extends LLMProvider {
         { role: "system", content: noThink ? noThinkSystemPrompt(systemPrompt) : systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      stream: !!onChunk,
+      stream: true,
       temperature: options?.temperature ?? 0.7,
       top_p: options?.top_p ?? 0.8,
       top_k: 20,
@@ -153590,7 +153769,7 @@ var LMStudioProvider = class extends LLMProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(3e5)
+      signal: AbortSignal.timeout(9e5)
     });
     let resp = await doFetch();
     if (!resp.ok && noThink && resp.status === 400) {
@@ -153599,12 +153778,9 @@ var LMStudioProvider = class extends LLMProvider {
       resp = await doFetch();
     }
     if (!resp.ok) throw new Error(`LM Studio error: ${resp.status} ${await resp.text()}`);
-    if (onChunk) {
-      return await readSSE(resp, onChunk, (data2) => data2.choices?.[0]?.delta?.content || null, (data2) => data2.choices?.[0]?.delta?.reasoning_content || null);
-    } else {
-      const data2 = await resp.json();
-      return data2.choices?.[0]?.message?.content || "";
-    }
+    /* Always use SSE reader — stream:true is always set to keep the connection alive
+       during long generations and prevent AbortSignal.timeout from firing */
+    return await readSSE(resp, onChunk, (data2) => data2.choices?.[0]?.delta?.content || null, (data2) => data2.choices?.[0]?.delta?.reasoning_content || null);
   }
 };
 
@@ -153694,7 +153870,7 @@ var UnslothProvider = class extends LLMProvider {
         "Authorization": `Bearer ${token}`
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(3e5)
+      signal: AbortSignal.timeout(9e5)
     });
     if (!resp.ok) throw new Error(`Unsloth error: ${resp.status} ${await resp.text()}`);
     return await readSSE(resp, onChunk || (() => {
@@ -153755,7 +153931,7 @@ var OpenAICompatProvider = class extends LLMProvider {
     const payload = {
       model: modelName,
       messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-      stream: !!onChunk,
+      stream: true,
       temperature: options?.temperature ?? 0.7,
       top_p: options?.top_p ?? 0.8,
       top_k: 20,
@@ -153773,15 +153949,10 @@ var OpenAICompatProvider = class extends LLMProvider {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(3e5)
+      signal: AbortSignal.timeout(9e5)
     });
     if (!resp.ok) throw new Error(`${this.name} error: ${resp.status} ${await resp.text()}`);
-    if (onChunk) {
-      return await readSSE(resp, onChunk, (data2) => data2.choices?.[0]?.delta?.content || null, (data2) => data2.choices?.[0]?.delta?.reasoning_content || null);
-    } else {
-      const data2 = await resp.json();
-      return data2.choices?.[0]?.message?.content || "";
-    }
+    return await readSSE(resp, onChunk, (data2) => data2.choices?.[0]?.delta?.content || null, (data2) => data2.choices?.[0]?.delta?.reasoning_content || null);
   }
 };
 
@@ -153836,7 +154007,7 @@ var LlamaCppProvider = class extends LLMProvider {
         { role: "system", content: noThink ? noThinkSystemPrompt(systemPrompt) : systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      stream: !!onChunk,
+      stream: true,
       temperature: options?.temperature ?? 0.7,
       top_p: options?.top_p ?? 0.8,
       top_k: 20,
@@ -153850,15 +154021,10 @@ var LlamaCppProvider = class extends LLMProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(3e5)
+      signal: AbortSignal.timeout(9e5)
     });
     if (!resp.ok) throw new Error(`llama.cpp error: ${resp.status} ${await resp.text()}`);
-    if (onChunk) {
-      return await readSSE(resp, onChunk, (data2) => data2.choices?.[0]?.delta?.content || null, (data2) => data2.choices?.[0]?.delta?.reasoning_content || null);
-    } else {
-      const data2 = await resp.json();
-      return data2.choices?.[0]?.message?.content || "";
-    }
+    return await readSSE(resp, onChunk, (data2) => data2.choices?.[0]?.delta?.content || null, (data2) => data2.choices?.[0]?.delta?.reasoning_content || null);
   }
 };
 
@@ -296080,7 +296246,7 @@ import http from "http";
 import { randomUUID as randomUUID3 } from "crypto";
 import { fileURLToPath as fileURLToPath2 } from "url";
 var registryPath = PORTABLE_MODE ? path22.join(PROJECT_ROOT, "server", "data", "model-registry.json") : path22.join(path22.dirname(fileURLToPath2(import.meta.url)), "..", "data", "model-registry.json");
-var registry = JSON.parse(fs29.readFileSync(registryPath, "utf-8"));
+var registry = (() => { try { return JSON.parse(fs29.readFileSync(registryPath, "utf-8")); } catch { return { models: {}, generated: null }; } })();
 function detectEngineVariant() {
   try {
     const variantFile = path22.join(path22.dirname(config.aceServer.exe), ".variant");
@@ -296599,7 +296765,11 @@ function resolveAudioPath2(audioUrl) {
   if (path23.isAbsolute(audioUrl)) {
     return audioUrl;
   }
-  return path23.join(config.data.dir, "references", path23.basename(audioUrl));
+  /* Bare filename — try audio dir first, then references */
+  const base = path23.basename(audioUrl);
+  const audioPath = path23.join(config.data.audioDir, base);
+  if (fs30.existsSync(audioPath)) return audioPath;
+  return path23.join(config.data.dir, "references", base);
 }
 async function pollAceJob(aceJobId, job) {
   const MAX_POLLS = 7200;
@@ -298528,62 +298698,173 @@ router21.get("/comfyui/queue-status", (req, res) => {
 
 /* ── Model Discovery Registry ──────────────────────────────────────────── */
 
-/* GET /api/models — unified model registry (ACE-Step + ComfyUI + local) */
-app2.get("/api/models", async (req, res) => {
-  try {
-    /* Collect ACE-Step models from the existing server data */
-    const aceStepModels = {};
-    try {
-      if (typeof ACE_STEP_MODELS !== "undefined") Object.assign(aceStepModels, ACE_STEP_MODELS);
-      else {
-        /* Fallback: probe known ACE-Step paths */
-        const aceDir = path9.join(process.cwd(), "ace-step-1.5", "models");
-        if (fs9.existsSync(aceDir)) {
-          aceStepModels.checkpoints = fs9.readdirSync(aceDir).filter(f => f.endsWith(".safetensors")).map(f => path9.join(aceDir, f));
-        }
-      }
-    } catch {}
-
-    const registry = await buildModelRegistry(aceStepModels);
-    res.json(registry);
-  } catch (err) {
-    console.error("[Models] Registry build failed:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/* GET /api/models/quick — quick category counts without full scan */
-app2.get("/api/models/quick", async (req, res) => {
+/* GET /pipeline-models — only models that matter for FLUX.2 and LTX2.3 pipelines */
+router21.get("/pipeline-models", async (req, res) => {
   try {
     const { connected, systemInfo } = await detectComfyUIMod();
     const comfyDir = connected ? findComfyUIDirMod() : null;
-    const modelCounts = {};
-    if (comfyDir) {
-      const modelsDir = path9.join(comfyDir, "models");
-      const subdirs = ["unet", "diffusion_models", "vae", "clip", "audio", "loras", "controlnet", "embeddings", "workflows"];
-      for (const sd of subdirs) {
-        const dir = path9.join(modelsDir, sd);
-        try {
-          if (fs9.existsSync(dir)) {
-            modelCounts[sd] = fs9.readdirSync(dir).filter(f => /\.(safetensors|gguf|ckpt|bin|pt|pth|onnx)$/i.test(f)).length;
-          }
-        } catch {}
-      }
+    if (!comfyDir) return res.json({ connected: false, pipelines: {} });
+
+    const modelsDir = path9.join(comfyDir, "models");
+
+    /* Scan subdirectories for model files */
+    function scanSubdir(subdir, extensions) {
+      const dir = path9.join(modelsDir, subdir);
+      try {
+        if (!fs9.existsSync(dir)) return [];
+        return fs9.readdirSync(dir).filter(f => extensions.some(e => f.toLowerCase().endsWith(e)))
+          .map(f => {
+            try { return { name: f, size: fs9.statSync(path9.join(dir, f)).size }; }
+            catch { return { name: f, size: 0 }; }
+          });
+      } catch { return []; }
     }
-    res.json({ connected, systemInfo, modelCounts, comfyDir });
+
+    /* Recursively scan directories (for nested model paths like FLUX.2\, ltx2.3\)
+       When stripRoot=true, the initial subdir is stripped from returned names
+       so they match what ComfyUI loader nodes expect (relative to their search dir). */
+    function scanRecursive(subdir, extensions, maxDepth = 2, stripRoot = false) {
+      const results = [];
+      const dir = path9.join(modelsDir, subdir);
+      try {
+        if (!fs9.existsSync(dir)) return results;
+        const entries = fs9.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const relPath = subdir ? `${subdir}/${entry.name}` : entry.name;
+          /* When stripRoot, return only the portion after the initial subdir */
+          const displayName = stripRoot ? relPath.replace(/^[^/]+\//, '') : relPath;
+          if (entry.isDirectory() && maxDepth > 0) {
+            results.push(...scanRecursive(relPath, extensions, maxDepth - 1, stripRoot));
+          } else if (entry.isFile() && extensions.some(e => entry.name.toLowerCase().endsWith(e))) {
+            try {
+              results.push({ name: displayName, size: fs9.statSync(path9.join(modelsDir, relPath)).size });
+            } catch {
+              results.push({ name: displayName, size: 0 });
+            }
+          }
+        }
+      } catch {}
+      return results;
+    }
+
+    function fmtSize(bytes) {
+      if (!bytes) return "";
+      if (bytes > 1e9) return (bytes / 1e9).toFixed(1) + " GB";
+      if (bytes > 1e6) return (bytes / 1e6).toFixed(0) + " MB";
+      return (bytes / 1e3).toFixed(0) + " KB";
+    }
+
+    /* ── FLUX.2 pipeline: UNet models ── */
+    /* GGUF unets live in models/unet/; safetensors live in models/diffusion_models/ */
+    const fluxUnetsGGUF = scanRecursive("unet", [".gguf"], 2, true)
+      .filter(m => /flux|klein/i.test(m.name))
+      .map(m => ({ ...m, label: fmtSize(m.size) + " GGUF" }));
+    const fluxUnetsST = scanRecursive("diffusion_models", [".safetensors"], 2, true)
+      .filter(m => /flux|klein/i.test(m.name))
+      .map(m => ({ ...m, label: fmtSize(m.size) + " FP8" }));
+    const fluxUnets = [...fluxUnetsST, ...fluxUnetsGGUF];
+
+    /* ── LTX 2.3 pipeline: UNet models (GGUF) ── */
+    const ltxUnets = scanRecursive("unet", [".gguf"], 2, true)
+      .filter(m => /ltx|ltxv|ltx-2/i.test(m.name))
+      .map(m => ({ ...m, label: fmtSize(m.size) + " GGUF" }));
+
+    /* ── Text Encoder models (CLIPLoader) ── */
+    const clipModels = scanRecursive("clip", [".safetensors", ".gguf", ".bin"], 2, true);
+    clipModels.push(...scanRecursive("text_encoders", [".safetensors", ".gguf", ".bin"], 2, true));
+    /* FLUX.2 text encoders */
+    const fluxClip = clipModels.filter(m =>
+      /qwen_3_8|t5xxl|clip_l/i.test(m.name)
+    ).map(m => ({ ...m, label: fmtSize(m.size) }));
+    /* LTX 2.3 text encoders (Gemma + embeddings connectors) */
+    const ltxClip = clipModels.filter(m =>
+      /gemma_3_12|ltx.*embed|ltx.*connectors/i.test(m.name)
+    ).map(m => ({
+      ...m,
+      label: fmtSize(m.size) + (/gemma/i.test(m.name) ? " Gemma" : /connectors/i.test(m.name) ? " connectors" : "")
+    }));
+
+    /* ── VAE models (VAELoader) ── */
+    const vaeModels = scanRecursive("vae", [".safetensors", ".ckpt"], 2, true);
+    /* FLUX.2 VAEs */
+    const fluxVae = vaeModels.filter(m => /flux2|flux.*ae/i.test(m.name))
+      .map(m => ({ ...m, label: fmtSize(m.size) }));
+    /* LTX 2.3 VAEs (video + audio) */
+    const ltxVae = vaeModels.filter(m => /ltx.*video|ltx.*audio/i.test(m.name))
+      .map(m => ({
+        ...m,
+        label: fmtSize(m.size) + (/video/i.test(m.name) ? " video" : /audio/i.test(m.name) ? " audio" : "")
+      }));
+
+    /* ── LoRA models (for LTX 2.3 IC-LoRA and distillation LoRA) ── */
+    const loraModels = scanRecursive("loras", [".safetensors"], 2, true)
+      .filter(m => /ltx.*2\.3/i.test(m.name))
+      .map(m => ({
+        ...m,
+        label: fmtSize(m.size) + (/_ic[_-]lora/i.test(m.name) ? " IC-LoRA" : /distilled/i.test(m.name) ? " Distill" : "")
+      }));
+
+    /* ── Spatial Upscale Models (latent_upscale_models) ── */
+    const latentUpscale = scanRecursive("latent_upscale_models", [".safetensors"], 2, true)
+      .filter(m => /ltx|spatial/i.test(m.name))
+      .map(m => ({ ...m, label: fmtSize(m.size) }));
+    /* Also check upscale_models dir */
+    const upscaleModels = scanRecursive("upscale_models", [".pth", ".pt", ".safetensors"], 2, true)
+      .filter(m => /ltx|spatial/i.test(m.name))
+      .map(m => ({ ...m, label: fmtSize(m.size) }));
+    const allUpscale = [...latentUpscale, ...upscaleModels];
+
+    /* Default models — must match workflow builder defaults exactly (forward slashes for consistency with scan) */
+    const defaults = {
+      flux2: {
+        unet: "FLUX.2/flux-2-klein-9b-fp8.safetensors",
+        vae: "FLUX.2/flux2-vae.safetensors",
+        clip: "qwen_3_8b_fp8mixed.safetensors",
+      },
+      ltx2: {
+        unet: "ltx2.3/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf",
+        vae: "ltx2.3/ltx-2.3-22b-distilled_video_vae.safetensors",
+        clip: "ltx2.3/ltx-2.3-22b-distilled_embeddings_connectors.safetensors",
+        audioVae: "ltx2.3/ltx-2.3-22b-distilled_audio_vae.safetensors",
+        icLora: "",
+        upscale: "",
+      },
+    };
+
+    res.json({
+      connected: true,
+      vram: { total: systemInfo?.vramTotal || 0, free: systemInfo?.vramFree || 0 },
+      defaults,
+      models: {
+        fluxUnets,
+        fluxClip,
+        fluxVae,
+        ltxUnets,
+        ltxClip,
+        ltxVae,
+        ltxLoras: loraModels,
+        upscale: allUpscale,
+      },
+    });
   } catch (err) {
+    console.error("[PipelineModels] Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-/* POST /api/models/rescan — force cache invalidation and re-scan */
-app2.post("/api/models/rescan", async (req, res) => {
+/* Legacy endpoints — redirect to pipeline-models */
+router21.get("/models", async (req, res) => {
+  res.redirect("/api/inspire/pipeline-models");
+});
+router21.get("/models/quick", async (req, res) => {
+  res.redirect("/api/inspire/pipeline-models");
+});
+router21.post("/models/rescan", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     invalidateModelCache();
-    const registry = await buildModelRegistry({});
-    res.json({ rescanned: true, totalModels: registry.totalModels, categories: registry.categories });
+    res.json({ rescanned: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -298591,8 +298872,8 @@ app2.post("/api/models/rescan", async (req, res) => {
 
 /* ── ComfyUI Bridge — Capability Discovery + Generation ─────────────────── */
 
-/* GET /api/comfyui/capabilities — discover what ComfyUI can do */
-app2.get("/api/comfyui/capabilities", async (req, res) => {
+/* GET /comfyui/capabilities — discover what ComfyUI can do */
+router21.get("/comfyui/capabilities", async (req, res) => {
   try {
     const caps = await discoverCapabilities();
     res.json(caps);
@@ -298601,8 +298882,8 @@ app2.get("/api/comfyui/capabilities", async (req, res) => {
   }
 });
 
-/* GET /api/comfyui/pipelines — list registered pipeline archetypes */
-app2.get("/api/comfyui/pipelines", (req, res) => {
+/* GET /comfyui/pipelines — list registered pipeline archetypes */
+router21.get("/comfyui/pipelines", (req, res) => {
   const pipelines = listPipelinesMod();
   res.json(pipelines.map(p => ({
     id: p.id,
@@ -298612,8 +298893,8 @@ app2.get("/api/comfyui/pipelines", (req, res) => {
   })));
 });
 
-/* GET /api/comfyui/infer-params?model=filename — auto-detect generation parameters */
-app2.get("/api/comfyui/infer-params", (req, res) => {
+/* GET /comfyui/infer-params?model=filename — auto-detect generation parameters */
+router21.get("/comfyui/infer-params", (req, res) => {
   const model = req.query.model || "";
   const params = inferModelParamsMod(model);
   res.json({ model, ...params });
@@ -298624,7 +298905,7 @@ router21.post("/comfyui/generate-image", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    let { sectionType, lyrics, style, vocalistGender, title, subject, songId, width, height, steps, cfg, seed, prompt: clientPrompt, sectionIndex, totalSections } = req.body;
+    let { sectionType, lyrics, style, vocalistGender, title, subject, songId, width, height, steps, cfg, seed, prompt: clientPrompt, sectionIndex, totalSections, unetModel, vaeModel, clipModel } = req.body;
 
     /* If songId provided and fields missing, look up metadata from DB */
     if (songId && (!lyrics || !style || !subject || !title)) {
@@ -298653,7 +298934,7 @@ router21.post("/comfyui/generate-image", async (req, res) => {
 
     const imagePrompt = clientPrompt || buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex: parseInt(sectionIndex) || 0, totalSections: parseInt(totalSections) || 6 });
     console.log(`[MVC] Image prompt: ${imagePrompt.substring(0, 120)}...`);
-    const workflow = buildFLUX2Workflow({ prompt: imagePrompt, width: width||1024, height: height||1024, steps: steps||20, cfg: cfg||3.5, seed });
+    const workflow = buildFLUX2Workflow({ prompt: imagePrompt, width: width||1024, height: height||1024, steps: steps||4, cfg: cfg||1.0, seed, unetModel: unetModel||"auto", vaeModel: vaeModel||"auto", clipModel: clipModel||"auto" });
     const result = await comfySubmitAndWait(workflow);
     const output = comfyFindOutput(result.outputs);
     if (!output) throw new Error("No output found in workflow results");
@@ -298681,9 +298962,10 @@ router21.post("/comfyui/generate-video", async (req, res) => {
       imageUrl,         /* local path or URL to reference image */
       audioUrl,         /* local path or URL to audio segment */
       videoPrompt,      /* auto-generated or user-provided */
-      negativePrompt, width, height, frames, audioDuration, audioStart,
-      frameRate, cfg, imgStrength, imgCompression, upscale, rtxUltra, seed,
-      sectionType, vocalistGender, style
+      negativePrompt, width, height, frames,
+      frameRate, cfg, imgStrength, seed,
+      sectionType, vocalistGender, style,
+      unetModel, vaeModel, clipModel, audioVaeModel, icLoraModel, upscaleModel
     } = req.body;
     if (!imageUrl) return res.status(400).json({ error: "imageUrl required" });
     if (!audioUrl) return res.status(400).json({ error: "audioUrl required" });
@@ -298740,12 +299022,13 @@ router21.post("/comfyui/generate-video", async (req, res) => {
       audioFilename: audioFileName,
       videoPrompt: finalVideoPrompt,
       negativePrompt, width: width||768, height: height||512,
-      frames: frames||97, audioDuration: audioDuration||9,
-      audioStart: audioStart||0, frameRate: frameRate||24,
-      cfg: cfg||1.0, imgStrength: imgStrength||0.7,
-      imgCompression: imgCompression||18,
-      upscale: upscale !== false, rtxUltra: rtxUltra !== false,
-      seed, outputPrefix: `mvc_${sectionType || "clip"}`
+      frames: frames||97, frameRate: frameRate||25,
+      steps: 20, cfg: cfg||3.0, imgStrength: imgStrength||1.0,
+      seed, outputPrefix: `mvc_${sectionType || "clip"}`,
+      unetModel: unetModel||"auto", vaeModel: vaeModel||"auto",
+      clipModel: clipModel||"auto",
+      audioVaeModel: audioVaeModel||"auto",
+      icLoraModel: icLoraModel||"auto"
     });
 
     const result = await comfySubmitAndWait(workflow);
@@ -299084,9 +299367,9 @@ var execFileAsync7 = promisify7(execFile8);
 var MODEL_MANIFEST = [
   {
     filename: REQUIRED_FILES.diffusionModel,
-    url: "https://huggingface.co/leejet/FLUX.2-klein-9B-GGUF/resolve/main/flux-2-klein-9b-Q4_0.gguf",
-    sizeBytes: 5620000000,
-    description: "FLUX.2-klein-9B diffusion model (Q4) — upgraded from 4B for higher quality cover art"
+    url: "https://huggingface.co/leejet/FLUX.2-klein-4B-GGUF/resolve/main/flux-2-klein-4b-Q4_0.gguf",
+    sizeBytes: 2600000000,
+    description: "FLUX.2-klein-4B diffusion model (Q4)"
   },
   {
     filename: REQUIRED_FILES.vae,
@@ -299610,6 +299893,38 @@ router22.get("/status", (_req, res) => {
       overallProgress: downloadStatus.overallProgress
     }
   });
+});
+router22.get("/comfyui-models", async (req, res) => {
+  try {
+    const { detectComfyUI: detectComfyUI3, findComfyUIDir: findComfyUIDir2, COMFYUI_MODEL_DIRS: COMFYUI_MODEL_DIRS2, scanDirForModels: scanDirForModels2 } = await import("./services/comfyui-model-scanner.mjs");
+    const { connected, systemInfo } = await detectComfyUI3(true);
+    if (!connected) {
+      res.json({ connected: false, models: { unet: [], vae: [], clip: [] }, systemInfo: null });
+      return;
+    }
+    const comfyDir = findComfyUIDir2();
+    const modelsDir = comfyDir ? path12.join(comfyDir, "models") : null;
+    let unetModels = [];
+    let vaeModels = [];
+    let clipModels = [];
+    if (modelsDir) {
+      unetModels = scanDirForModels2(path12.join(modelsDir, "diffusion_models"), [".gguf", ".safetensors", ".ckpt", ".bin", ".pt"])
+        .concat(scanDirForModels2(path12.join(modelsDir, "unet"), [".gguf", ".safetensors", ".ckpt", ".bin", ".pt"]))
+        .concat(scanDirForModels2(path12.join(modelsDir, "checkpoints"), [".safetensors", ".ckpt"]))
+        .filter(m => /flux|klien|klein|sd3|sdxl|sd/i.test(m.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      vaeModels = scanDirForModels2(path12.join(modelsDir, "vae"), [".safetensors", ".ckpt", ".bin", ".pt", ".pth"])
+        .concat(scanDirForModels2(path12.join(modelsDir, "vae_approx"), [".safetensors", ".ckpt", ".bin", ".pt", ".pth"]))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      clipModels = scanDirForModels2(path12.join(modelsDir, "clip"), [".safetensors",".gguf",".bin",".pt",".pth"])
+        .concat(scanDirForModels2(path12.join(modelsDir, "text_encoder"), [".safetensors",".gguf",".bin",".pt",".pth"]))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    res.json({ connected: true, systemInfo, models: { unet: unetModels, vae: vaeModels, clip: clipModels } });
+  } catch (err) {
+    console.error("[CoverArt] ComfyUI models query failed:", err.message);
+    res.status(500).json({ connected: false, error: err.message, models: { unet: [], vae: [], clip: [] } });
+  }
 });
 router22.post("/download", (req, res) => {
   const userId = getUserId(req);
@@ -300330,13 +300645,17 @@ function startAceServer() {
   if (config.aceServer.vaeOverlap) {
     args.push("--vae-overlap", String(config.aceServer.vaeOverlap));
   }
-  if (config.aceServer.onnxDir && fs34.existsSync(config.aceServer.onnxDir)) {
-    const hasOnnx = fs34.readdirSync(config.aceServer.onnxDir).some((f) => f.endsWith(".onnx"));
-    if (hasOnnx) {
-      args.push("--onnx-dir", config.aceServer.onnxDir);
-      console.log(`[Server] ONNX models: ${config.aceServer.onnxDir}`);
-    }
-  }
+  /* NOTE: --onnx-dir removed from main ace-server to prevent SuperSep ONNX models
+     (bs_roformer_sw.onnx etc) from loading into VRAM at startup. SuperSep is now
+     run via a separate on-demand ace-server worker (spawnSuperSepWorker) that is
+     killed after each job, freeing VRAM for ace-step generation. */
+  // if (config.aceServer.onnxDir && fs34.existsSync(config.aceServer.onnxDir)) {
+  //   const hasOnnx = fs34.readdirSync(config.aceServer.onnxDir).some((f) => f.endsWith(".onnx"));
+  //   if (hasOnnx) {
+  //     args.push("--onnx-dir", config.aceServer.onnxDir);
+  //     console.log(`[Server] ONNX models: ${config.aceServer.onnxDir}`);
+  //   }
+  // }
   console.log(`[Server] Starting ace-server: ${path27.basename(exe)}`);
   console.log(`[Server] Models: ${config.aceServer.models}`);
   console.log(`[Server] Port: ${config.aceServer.port}`);

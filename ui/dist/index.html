@@ -842,6 +842,10 @@
             coverArtEnabled: hs('coverArtEnabled', false) || void 0,
             coverArtSubject: hs('coverArtSubject', '') || void 0,
             vocalLanguage: hs('vocalLanguage', 'en') || 'en',
+            coverArtUseComfyUI: hs('coverArtUseComfyUI', false) || void 0,
+            coverArtModel: hs('coverArtModel', '') || void 0,
+            coverArtVae: hs('coverArtVae', '') || void 0,
+            coverArtClip: hs('coverArtClip', '') || void 0,
             ppVaeReencode: postProcessingEnabled ? (hs('ppVaeReencode', false) || void 0) : void 0,
             ppVaeBlend: postProcessingEnabled && hs('ppVaeReencode', false) ? (hs('ppVaeBlend', 1) || void 0) : void 0
           };
@@ -1178,6 +1182,257 @@
         /* Initialize: try to load template, then render */
         tryLoadTemplate();
       })();
+    </script>
+    <!-- ComfyUI Cover Art Model Picker — allows users with existing ComfyUI models
+         to select which UNet/VAE/CLIP to use for cover art generation instead of
+         downloading separate local models. -->
+    <script>
+      (function() {
+        var btn = document.createElement('button');
+        btn.title = 'Cover Art Engine — ComfyUI or Local';
+        btn.textContent = '\uD83D\uDDBC\uFE0F';
+        btn.style.cssText = 'position:fixed;bottom:116px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#059669,#10b981);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;text-decoration:none;z-index:9999;box-shadow:0 4px 14px rgba(5,150,105,0.4);transition:all 0.2s;cursor:pointer;border:none;';
+        btn.onmouseenter = function() { this.style.transform = 'scale(1.1)'; this.style.boxShadow = '0 6px 20px rgba(5,150,105,0.6)'; };
+        btn.onmouseleave = function() { this.style.transform = 'scale(1)'; this.style.boxShadow = '0 4px 14px rgba(5,150,105,0.4)'; };
+        document.body.appendChild(btn);
+
+        /* Panel overlay */
+        var panel = document.createElement('div');
+        panel.id = 'cover-art-engine-panel';
+        panel.style.cssText = 'position:fixed;bottom:170px;right:16px;width:380px;max-height:500px;overflow-y:auto;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;z-index:10000;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:none;color:#e2e8f0;font-family:system-ui,sans-serif;font-size:13px;';
+        panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+          '<b style="font-size:15px;color:#f1f5f9;">\uD83D\uDDBC\uFE0F Cover Art Engine</b>' +
+          '<button id="ca-panel-close" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">\u2715</button></div>' +
+
+          /* Mode toggle */
+          '<div style="margin-bottom:12px;">' +
+          '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;">' +
+          '<input type="checkbox" id="ca-use-comfyui" style="accent-color:#10b981;width:16px;height:16px;">' +
+          '<span style="color:#f1f5f9;">Use ComfyUI Bridge</span>' +
+          '<span id="ca-mode-label" style="font-size:11px;color:#64748b;margin-left:auto;">(instead of local sd-cli)</span></label></div>' +
+
+          /* Status + refresh row */
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">' +
+          '<span id="ca-status-dot" style="width:10px;height:10px;border-radius:50%;background:#64748b;display:inline-block;"></span>' +
+          '<span id="ca-status-text" style="color:#94a3b8;">Checking...</span>' +
+          '<button id="ca-refresh-models" style="margin-left:auto;background:#334155;border:1px solid #475569;color:#e2e8f0;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;">\u21BB Refresh</button></div>' +
+
+          /* Model selectors — initially hidden until ComfyUI is confirmed */
+          '<div id="ca-model-selectors" style="display:none;">' +
+          '<div style="margin-bottom:8px;">' +
+          '<label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:3px;">Diffusion Model (UNet) *</label>' +
+          '<select id="ca-unet-model" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:13px;">' +
+          '<option value="">\u2014 Auto-detect \u2014</option></select></div>' +
+          '<div style="margin-bottom:8px;">' +
+          '<label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:3px;">VAE (optional)</label>' +
+          '<select id="ca-vae-model" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:13px;">' +
+          '<option value="">\u2014 Auto-detect \u2014</option></select></div>' +
+          '<div style="margin-bottom:8px;">' +
+          '<label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:3px;">Text Encoder / CLIP (optional)</label>' +
+          '<select id="ca-clip-model" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:6px 8px;color:#e2e8f0;font-size:13px;">' +
+          '<option value="">\u2014 Auto-detect \u2014</option></select></div>' +
+          '<div style="margin-top:10px;padding:8px;background:#0f172a;border-radius:6px;font-size:11px;color:#64748b;">' +
+          'When ComfyUI bridge is active, cover art generation sends the prompt to your running ComfyUI instance ' +
+          'using the selected model. Models are scanned from <code>ComfyUI/models/diffusion_models/</code> and related directories.</div>' +
+          '</div>' +
+
+          /* Local mode help */
+          '<div id="ca-local-help" style="margin-top:8px;padding:8px;background:#0f172a;border-radius:6px;font-size:11px;color:#64748b;">' +
+          'Local mode uses <code>sd-cli.exe</code> with models in the <code>models/cover-art/</code> directory. ' +
+          'Download missing models via <b>Settings \u2192 Cover Art \u2192 Download Models + Engine</b>.</div>';
+
+        document.body.appendChild(panel);
+
+        /* Toggle panel on button click */
+        btn.onclick = function() {
+          panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          if (panel.style.display === 'block') refreshComfyUIStatus();
+        };
+
+        /* Close button */
+        document.getElementById('ca-panel-close').onclick = function() { panel.style.display = 'none'; };
+
+        /* Load saved settings */
+        function loadSavedSettings() {
+          try {
+            var useComfyUI = localStorage.getItem('hs-coverArtUseComfyUI');
+            document.getElementById('ca-use-comfyui').checked = useComfyUI === 'true';
+            var savedModel = localStorage.getItem('hs-coverArtModel') || '';
+            var savedVae = localStorage.getItem('hs-coverArtVae') || '';
+            var savedClip = localStorage.getItem('hs-coverArtClip') || '';
+            if (savedModel) document.getElementById('ca-unet-model').value = savedModel;
+            if (savedVae) document.getElementById('ca-vae-model').value = savedVae;
+            if (savedClip) document.getElementById('ca-clip-model').value = savedClip;
+          } catch(e) { console.warn('[CoverArtPanel] Error loading settings:', e); }
+        }
+
+        /* Save settings to localStorage */
+        function saveSettings() {
+          try {
+            var useComfyUI = document.getElementById('ca-use-comfyui').checked;
+            localStorage.setItem('hs-coverArtUseComfyUI', useComfyUI ? 'true' : 'false');
+            localStorage.setItem('hs-coverArtModel', document.getElementById('ca-unet-model').value || '');
+            localStorage.setItem('hs-coverArtVae', document.getElementById('ca-vae-model').value || '');
+            localStorage.setItem('hs-coverArtClip', document.getElementById('ca-clip-model').value || '');
+          } catch(e) { console.warn('[CoverArtPanel] Error saving settings:', e); }
+        }
+
+        /* Refresh ComfyUI status + model list */
+        async function refreshComfyUIStatus() {
+          var dot = document.getElementById('ca-status-dot');
+          var text = document.getElementById('ca-status-text');
+          var selectors = document.getElementById('ca-model-selectors');
+          var localHelp = document.getElementById('ca-local-help');
+
+          dot.style.background = '#f59e0b';
+          text.textContent = 'Connecting...';
+
+          try {
+            var resp = await fetch('/api/cover-art/comfyui-models', { signal: AbortSignal.timeout(8000) });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            var data = await resp.json();
+
+            if (data.connected) {
+              dot.style.background = '#10b981';
+              text.textContent = 'ComfyUI connected \u2014 ' + data.systemInfo.deviceName + ' (' +
+                (data.systemInfo.vramFree / 1e9).toFixed(1) + 'GB free)';
+              populateSelector('ca-unet-model', data.models.unet);
+              populateSelector('ca-vae-model', data.models.vae);
+              populateSelector('ca-clip-model', data.models.clip);
+              selectors.style.display = 'block';
+              localHelp.style.display = 'none';
+            } else {
+              dot.style.background = '#ef4444';
+              text.textContent = 'ComfyUI not reachable. Switch to Local mode or start ComfyUI.';
+              selectors.style.display = 'none';
+              localHelp.style.display = 'block';
+            }
+          } catch (err) {
+            dot.style.background = '#ef4444';
+            text.textContent = 'Connection failed: ' + err.message;
+            selectors.style.display = 'none';
+            localHelp.style.display = 'block';
+          }
+        }
+
+        /* Populate a dropdown with model options */
+        function populateSelector(selectId, models) {
+          var sel = document.getElementById(selectId);
+          var current = sel.value;
+          sel.innerHTML = '<option value="">\u2014 Auto-detect \u2014</option>' +
+            '<option value="" disabled style="font-size:1px;">\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014</option>';
+          if (!models || models.length === 0) {
+            sel.innerHTML += '<option value="" disabled style="color:#64748b;">(no models found)</option>';
+            return;
+          }
+          for (var i = 0; i < models.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = models[i].name;
+            opt.textContent = models[i].name + (models[i].sizeFormatted ? ' (' + models[i].sizeFormatted + ')' : '');
+            if (models[i].name === current) opt.selected = true;
+            sel.appendChild(opt);
+          }
+        }
+
+        /* Wire up refresh button */
+        document.getElementById('ca-refresh-models').onclick = refreshComfyUIStatus;
+
+        /* Wire up mode toggle and selector changes to auto-save */
+        document.getElementById('ca-use-comfyui').onchange = function() {
+          saveSettings();
+          var modeLabel = document.getElementById('ca-mode-label');
+          modeLabel.textContent = this.checked ? '(cover art uses your ComfyUI)' : '(cover art uses local sd-cli)';
+          if (this.checked) refreshComfyUIStatus();
+          else {
+            document.getElementById('ca-model-selectors').style.display = 'none';
+            document.getElementById('ca-local-help').style.display = 'block';
+          }
+        };
+        document.getElementById('ca-unet-model').onchange = saveSettings;
+        document.getElementById('ca-vae-model').onchange = saveSettings;
+        document.getElementById('ca-clip-model').onchange = saveSettings;
+
+        /* Initialize */
+        loadSavedSettings();
+        var initChecked = document.getElementById('ca-use-comfyui').checked;
+        document.getElementById('ca-mode-label').textContent = initChecked ? '(cover art uses your ComfyUI)' : '(cover art uses local sd-cli)';
+        /* Don't auto-connect on page load — only when panel is opened */
+        console.log('[CoverArtPanel] ComfyUI model picker initialized');
+      })();
+    </script>
+    <!-- Cover Art Post-Processing ComfyUI Bridge Status Indicator -->
+    <script>
+    (function() {
+      /* Injects ComfyUI bridge status into the Post-Processing Panel's Cover Art section */
+      var injected = false;
+      function injectComfyUICoverArtStatus() {
+        if (injected) return;
+        /* Look for the Cover Art section's description text */
+        var allElements = document.querySelectorAll('p, div, span');
+        var coverArtDesc = null;
+        for (var i = 0; i < allElements.length; i++) {
+          if (allElements[i].textContent && allElements[i].textContent.indexOf('Generate 1024') >= 0 && allElements[i].textContent.indexOf('FLUX.2-klein-4B') >= 0) {
+            coverArtDesc = allElements[i];
+            break;
+          }
+        }
+        if (!coverArtDesc) { return; }
+
+        /* Check if we already injected here */
+        var parent = coverArtDesc.parentNode;
+        if (!parent || parent.querySelector('.ca-comfyui-pp-indicator')) return;
+        injected = true;
+
+        /* Fetch ComfyUI bridge status */
+        var indicator = document.createElement('div');
+        indicator.className = 'ca-comfyui-pp-indicator';
+        indicator.style.cssText = 'margin-top:6px;padding:6px 8px;border-radius:6px;font-size:10px;line-height:1.4;display:flex;align-items:center;gap:6px;';
+
+        fetch('/api/cover-art/comfyui-models', { signal: AbortSignal.timeout(5000) })
+          .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
+          .then(function(data) {
+            if (data && data.connected && data.models && data.models.length > 0) {
+              var modelName = data.models[0].name || data.models[0].filename || '9B model';
+              indicator.style.cssText += 'background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.15);color:#22c55e;';
+              indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#22c55e;display:inline-block;flex-shrink:0;"></span> ComfyUI Bridge: <strong>' + escapeHtml(modelName) + '</strong> <span style="opacity:0.6">(' + data.models.length + ' models available)</span>';
+            } else if (data && data.connected) {
+              indicator.style.cssText += 'background:rgba(250,204,21,0.08);border:1px solid rgba(250,204,21,0.15);color:#eab308;';
+              indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#eab308;display:inline-block;flex-shrink:0;"></span> ComfyUI Bridge: Connected (no diffusion models found)';
+            } else {
+              indicator.style.cssText += 'background:rgba(161,161,170,0.08);border:1px solid rgba(161,161,170,0.15);color:#a1a1aa;';
+              indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#a1a1aa;display:inline-block;flex-shrink:0;"></span> ComfyUI Bridge: Disconnected — using local 4B';
+            }
+          })
+          .catch(function() {
+            indicator.style.cssText += 'background:rgba(161,161,170,0.08);border:1px solid rgba(161,161,170,0.15);color:#a1a1aa;';
+            indicator.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:#a1a1aa;display:inline-block;flex-shrink:0;"></span> ComfyUI Bridge: Offline — using local 4B';
+          })
+          .finally(function() {
+            if (indicator.parentNode) return;
+            /* Insert after the description element */
+            var container = coverArtDesc.parentNode;
+            if (container) container.appendChild(indicator);
+          });
+
+        var container = coverArtDesc.parentNode;
+        if (container && !indicator.parentNode) container.appendChild(indicator);
+      }
+
+      function escapeHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      /* Observe for the Cover Art section to appear (Post-Processing panel opens on user action) */
+      var observer = new MutationObserver(function() {
+        setTimeout(injectComfyUICoverArtStatus, 100);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      /* Also try periodically */
+      setInterval(injectComfyUICoverArtStatus, 2000);
+      /* Initial check */
+      setTimeout(injectComfyUICoverArtStatus, 500);
+    })();
     </script>
   </body>
 </html>

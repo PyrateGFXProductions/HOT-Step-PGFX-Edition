@@ -411,9 +411,9 @@ async function generateVideo(opts) {
     height,
     frames,
     frameRate,
-    steps1: params.steps1 || 9,
-    steps2: params.steps2 || 4,
-    cfg: params.cfg || 1.0,
+    steps: params.steps || 20,
+    cfg: params.cfg || 3.0,
+    imgStrength: 1.0,
     seed: actualSeed,
     outputPrefix,
     unetModel: model || "auto",
@@ -451,7 +451,7 @@ registerPipeline({
   id: "flux-image",
   mediaType: "image",
   modelPattern: /flux|klien|klein/i,
-  requiredNodes: ["UnetLoaderGGUF", "VAELoader", "DualCLIPLoader", "CLIPTextEncode", "EmptyLatentImage", "SamplerCustom", "VAEDecode", "SaveImage"],
+  requiredNodes: ["UNETLoader", "VAELoader", "CLIPLoader", "CLIPTextEncode", "ConditioningZeroOut", "EmptyFlux2LatentImage", "RandomNoise", "Flux2Scheduler", "KSamplerSelect", "CFGGuider", "SamplerCustomAdvanced", "VAEDecode", "SaveImage"],
   build: (ctx) => buildFLUX2Workflow(ctx),
 });
 
@@ -459,7 +459,7 @@ registerPipeline({
   id: "ltx-video",
   mediaType: "video",
   modelPattern: /ltx|wan|cogvideox/i,
-  requiredNodes: ["UnetLoaderGGUF", "VAELoader", "DualCLIPLoader", "LTXVConditioning", "LTXVImgToVideo", "SamplerCustom", "VAEDecode"],
+  requiredNodes: ["UnetLoaderGGUF", "VAELoader", "CLIPLoader", "CLIPTextEncode", "LTXVConditioning", "ModelSamplingLTXV", "LTXVScheduler", "LTXVImgToVideo", "CFGGuider", "SamplerCustomAdvanced", "VAEDecode", "VHS_VideoCombine"],
   build: (ctx) => buildLTX2Workflow(ctx),
 });
 

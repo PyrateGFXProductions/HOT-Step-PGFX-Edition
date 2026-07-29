@@ -1,14 +1,14 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 26, 2026 (updated — Phase 10: ComfyUI Bridge, Model Discovery, Performance Fixes, Canvas Disco Particles)  
-**Modified Files**: `server/server.mjs`, `server/services/comfyui-client.mjs`, `server/services/comfyui-model-scanner.mjs` (NEW), `server/services/comfyui-bridge.mjs` (NEW), `server/services/beat-detector.mjs`, `server/services/prompt-builder.mjs`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`, `ui/dist/music-video.html`
+**Report Date**: July 28, 2026 (updated — Phase 14: ComfyUI Model Manager tab, LTX2.3 model registry, Gemini 403 suppression, stall timeout fix)  
+**Modified Files**: `server/server.mjs`, `server/services/comfyui-client.mjs`, `server/services/comfyui-model-scanner.mjs` (NEW), `server/services/comfyui-bridge.mjs` (NEW), `server/services/beat-detector.mjs`, `server/services/prompt-builder.mjs`, `server/data/model-registry.json`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`, `ui/dist/music-video.html`
 
 ---
 
 ## Summary
 
-This report documents all enhancements made to the HOT-Step CPP codebase. The work spans ten major phases:
+This report documents all enhancements made to the HOT-Step CPP codebase. The work spans twelve major phases:
 
 **Phase 1** (July 18–20): Anti-AI slop vocabulary, genre-adaptive structure rules, Patois dialect integration, new genre profiles (acapella, duet, adult/sensual), and lyric quality evaluation improvements.
 
@@ -22,7 +22,7 @@ This report documents all enhancements made to the HOT-Step CPP codebase. The wo
 
 **Phase 6** (July 25): Multi-select genre picker with 200+ genres across 17 categories (replacing single dropdown), unified video generation pipeline (`POST /api/inspire/video/create`), gender/vocalist context system for coherent pronoun usage in lyrics and AI images, random genre-aware album theme generator, genre fusion prompt fixes, Disco audio-reactive performance fixes (threshold gate, throttling, RAF loop), and recovery of stashed files (wildcards, section captions, Disco analyzer, DiscoVisualizer).
 
-The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net addition of ~5,135 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler + album library panel).
+The modified `server.mjs` grew from **294,865 lines** to **~301,100 lines** (net addition of ~6,235 lines). Three files modified and three new files added: `ui/dist/album.html` (Album Generator page), `ui/dist/visualizer.html` (Audio-reactive visualizer), and modifications to `ui/dist/index.html` (floating buttons + batch handler + album library panel).
 
 **Phase 7** (July 25): Full language audit — 18 ACE-Step supported languages verified and exposed in UI, 40+ unsupported language fallback mappings, automatic vocal language remapping in `translateParams()`, code-switching guard (Patois variant detection to prevent unwanted bilingual mixing), vocabulary lock Patois skip (prevents English→Patois word replacement for non-Patois genres), visualizer fixes (auth token support, correct audio URL construction, auto-play, new-tab opening), album track limit increase (9→20), `vocalLanguage` added to `readSettingsFromStorage()`, `LANGUAGE_NAMES` cleanup (removed unsupported jam/jmc/jmd entries).
 
@@ -31,6 +31,14 @@ The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net
 **Phase 9** (July 25): Server modularization — 3 service modules extracted from monolithic server.mjs (comfyui-client.mjs, beat-detector.mjs, prompt-builder.mjs), FIFO ComfyUI job queue preventing OOM, FLUX.2 cover art model upgrade from Klein 4B to 9B (5.62 GB, within RTX 5060 Ti 16GB budget), SuperSep bug fixes (ONNX dir path, KickExtract re-enable, level=NaN guard), dead code cleanup (-1,736 lines from server.mjs), MediaRecorder guidance in visualizer.
 
 **Phase 10** (July 26): ComfyUI bridge architecture (pipeline archetype registry, model parameter inference, capability discovery, unified generation with sd-cli.exe fallback), ComfyUI model discovery service (filesystem scan across 12 model categories, `/object_info/` API query, unified model registry), model browser UI with real-time status widget, visualizer performance (Plasma sin/cos LUT, scanline cache, delta-time frame timing), canvas-based Disco particle system replacing DOM particles in React bundle, configurable model paths in workflow builders, 7 new API endpoints.
+
+**Phase 11** (July 27): Pipeline model discovery rewrite — fixed `scanRecursive` to scan correct ComfyUI directories (`unet/` for GGUF, `diffusion_models/` for safetensors), added `stripRoot` parameter so model names match what ComfyUI loaders expect (relative to their own search dir, not `models/` root). Split model arrays per pipeline: `fluxUnets`, `fluxClip`, `fluxVae` for FLUX.2; `ltxUnets`, `ltxClip`, `ltxVae`, `ltxLoras`, `upscale` for LTX 2.3. LTX Pipeline Config UI expanded from 4 to 6 dropdowns: UNet, Video VAE, Text Encoder, Audio VAE (new), IC-LoRA (new), Upscaler. Full data flow wired: all 6 model selections flow from UI → `_pipelineModels` state → `generateVideoClip()` → server `generate-video` → `buildLTX2Workflow()`. Added `LTXICLoRALoaderModelOnly` node support to LTX workflow builder — when IC-LoRA selected, loads it and re-wires UNet through it before sampling. Forward slash consistency across all model paths. Smart labels: IC-LoRA/Distill for LoRAs, video/audio for VAEs, Gemma/connectors for CLIPs. Updated defaults paths in workflow builders to match.
+
+**Phase 12** (July 27): SuperSep auto-trigger cooldown guard — React `useEffect` in minified bundle watches `[currentTrack.id, currentTrack.discoDataUrl, discoKickExtract]` and fires `POST /api/songs/:id/extract-kick` on every page load when the zustand store lacks `discoDataUrl`. If extraction had previously failed (e.g., `analyzeAndSaveDiscoData` threw), `disco_data_url` was never saved to DB, causing an infinite loop: page load → extraction → failure → stem URLs cleared → next page load → extraction again. Fixed with `recentlyAttemptedExtractions` cooldown Map (10-minute TTL) that prevents re-triggering SuperSep for the same song within the window. Cooldown cleared on successful extraction. Periodic cleanup every 30 minutes prevents unbounded Map growth. Background extraction cleanup path also clears the cooldown entry.
+
+**Phase 13** (July 28): ComfyUI Bridge for Cover Art — refactored `generateCoverImage()` to support ComfyUI mode via `bridgeGenerateImage()`, added `GET /api/cover-art/comfyui-models` endpoint (scans ComfyUI `diffusion_models/`, `unet/`, `vae/`, `clip/`, `text_encoder/` directories), model picker floating panel in index.html (connection status with VRAM info, dropdown selectors for UNet/VAE/CLIP, auto-save to localStorage), threaded new settings (`coverArtUseComfyUI`, `coverArtModel`, `coverArtVae`, `coverArtClip`) through both parallel and sequential generation pipelines, readiness check split (ComfyUI connection check vs local file check), backward-compatible — falls back to local sd-cli.exe when ComfyUI is offline.
+
+**Phase 14** (July 28): ComfyUI Model Manager tab & LTX2.3 model registry — added `"comfyui"` role tab to the React bundle's role-based model manager (4 patches to `index-DscBS4mv.js`: Z_ array, $_ description, useMemo filter, return handler), registered 6 LTX2.3 model files and 2 Video Pipeline packs in `model-registry.json` (download to `models/ComfyUI/` subdirectories), suppressed Gemini 403 error with early return when API key is empty, restored local default 4B model (`flux-2-klein-4b-Q4_0.gguf`) after accidental 9B upgrade, bumped stall timeout from 120s→240s, promoted `[CoverArt] Skipped` logs from DEBUG→WARNING for visibility.
 
 ---
 
@@ -120,6 +128,49 @@ The modified `server.mjs` grew from **294,865 lines** to **~300,000 lines** (net
 66. [ComfyUI Server-Side Client](#66-comfyui-server-side-client)
 67. [Stem Decomposition (SuperSep)](#67-stem-decomposition-supersep)
 68. [Inline Visualizer Overlay](#68-inline-visualizer-overlay)
+
+### Phase 9 — Server Modularization, FIFO Queue, Performance & Cleanup
+69. [Server Modularization (4 Service Modules)](#69-server-modularization-4-service-modules)
+70. [FIFO ComfyUI Job Queue](#70-fifo-comfyui-job-queue)
+71. [FLUX.2 Cover Art Model Upgrade (4B → 9B)](#71-flux2-cover-art-model-upgrade-4b--9b)
+72. [SuperSep Bug Fixes](#72-supersep-bug-fixes)
+73. [Dead Code Cleanup (-1,736 Lines)](#73-dead-code-cleanup--1736-lines)
+74. [MediaRecorder Guidance](#74-mediarecorder-guidance)
+
+### Phase 10 — ComfyUI Bridge, Model Discovery, Performance & Canvas Disco
+75. [ComfyUI Bridge Architecture](#75-comfyui-bridge-architecture)
+76. [ComfyUI Model Discovery Service](#76-comfyui-model-discovery-service)
+77. [Model Browser UI with Status Widget](#77-model-browser-ui-with-status-widget)
+78. [Plasma Performance Optimization](#78-plasma-performance-optimization)
+79. [Canvas-Based Disco Particle System](#79-canvas-based-disco-particle-system)
+80. [App2→Router21 Routing Fix](#80-app2router21-routing-fix)
+81. [Model Registry ENOENT Fix](#81-model-registry-enoent-fix)
+
+### Phase 11 — Pipeline Model Discovery Rewrite & LTX Multi-Model UI
+82. [Model Scanner Directory Fix (GGUF in unet/ not diffusion_models/)](#82-model-scanner-directory-fix)
+83. [stripRoot Parameter for Correct ComfyUI Loader Paths](#83-striproot-parameter-for-correct-comfyui-loader-paths)
+84. [Per-Pipeline Model Arrays](#84-per-pipeline-model-arrays)
+85. [LTX Pipeline Config UI Expansion (4→6 Dropdowns)](#85-ltx-pipeline-config-ui-expansion-46-dropdowns)
+86. [Full Data Flow Wiring (UI → Server → Workflow Builder)](#86-full-data-flow-wiring-ui--server--workflow-builder)
+87. [IC-LoRA Workflow Support (LTXICLoRALoaderModelOnly)](#87-ic-lora-workflow-support)
+88. [Forward Slash Consistency & Smart Labels](#88-forward-slash-consistency--smart-labels)
+
+### Phase 12 — SuperSep Auto-Trigger Cooldown Guard
+89. [Extraction Cooldown Map (prevents infinite re-trigger loop)](#89-extraction-cooldown-map)
+90. [Background Extraction Cleanup & Map Periodic Cleanup](#90-background-extraction-cleanup)
+
+### Phase 13 — ComfyUI Bridge for Cover Art + Model Picker
+91. [Cover Art ComfyUI Integration](#91-cover-art-comfyui-integration)
+92. [ComfyUI Model Scanner for Cover Art](#92-comfyui-model-scanner-for-cover-art)
+93. [Cover Art Engine Model Picker UI](#93-cover-art-engine-model-picker-ui)
+
+### Phase 14 — ComfyUI Model Manager Tab, LTX2.3 Registry & Quality-of-Life Fixes
+94. [Gemini 403 Error Suppression](#94-gemini-403-error-suppression)
+95. [Local Default Model Restoration (4B)](#95-local-default-model-restoration-4b)
+96. [ComfyUI Tab in Model Manager](#96-comfyui-tab-in-model-manager)
+97. [LTX2.3 Video Pipeline Model Registry](#97-ltx23-video-pipeline-model-registry)
+98. [Stall Timeout Bump (120s→240s)](#98-stall-timeout-bump-120s240s)
+99. [Cover Art Log Visibility (DEBUG→WARNING)](#99-cover-art-log-visibility-debugwarning)
 
 ---
 
@@ -1037,7 +1088,7 @@ On page load, these are restored from localStorage, so metadata survives page re
 
 **Location**: `ui/dist/index.html`, `splitLyricsIntoSections()` function, video generation block in `startGeneration()`
 
-**Status**: *WIP — requires cover art models (FLUX.2-klein-4B) to be installed and ffmpeg.exe in the server directory.*
+**Status**: *WIP — requires cover art models (FLUX.2-klein-9B) to be installed and ffmpeg.exe in the server directory. Download via Settings → Cover Art → Download Models + Engine (~8.8 GB total: 5.6 GB model + 335 MB VAE + 2.8 GB text encoder + sd-cli).*
 
 ---
 
@@ -2110,6 +2161,432 @@ useEffect([e]) → runs once on disco toggle
 
 ---
 
+## Phase 11 — Pipeline Model Discovery Rewrite & LTX Multi-Model UI
+
+### 82. Model Scanner Directory Fix
+
+**Location**: `server/server.mjs`, pipeline-models endpoint (~line 298587)
+
+**Bug**: `scanRecursive("diffusion_models", [".gguf"])` was scanning `diffusion_models/` for GGUF files, but GGUF models actually live in `models/unet/`. This caused the FLUX.2 Klein 9B GGUF and LTX 2.3 GGUF models to never appear in the pipeline dropdowns.
+
+**Fix**: Changed scan paths to match actual ComfyUI directory structure:
+- GGUF unets: `scanRecursive("unet", [".gguf"])` — finds `flux2/Flux-2-Klein-9B-KV-Q8_0.gguf`, `ltx2.3/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf`, etc.
+- Safetensors unets: `scanRecursive("diffusion_models", [".safetensors"])` — finds `FLUX.2/flux-2-klein-9b-fp8.safetensors`, etc.
+- Also added `latent_upscale_models/` directory scanning for spatial upscalers
+
+---
+
+### 83. stripRoot Parameter for Correct ComfyUI Loader Paths
+
+**Location**: `server/server.mjs`, `scanRecursive()` function (~line 298560)
+
+**Bug**: `scanRecursive("unet", ...)` returned paths like `unet/flux2/Klein-9B.gguf`, but ComfyUI's `UnetLoaderGGUF` expects `flux2/Klein-9B.gguf` (relative to its own search directory `unet/`). Same issue for CLIPLoader, VAELoader, etc.
+
+**Fix**: Added `stripRoot = false` parameter to `scanRecursive()`. When `true`, strips the initial directory prefix from returned names:
+```
+displayName = stripRoot ? relPath.replace(/^[^/]+\//, '') : relPath;
+```
+All pipeline-models scan calls now pass `stripRoot=true`.
+
+---
+
+### 84. Per-Pipeline Model Arrays
+
+**Location**: `server/server.mjs`, pipeline-models response (~line 298670)
+
+**Before**: Single flat arrays shared across pipelines:
+```
+models: { fluxUnets, ltxUnets, clip, vae, upscale }
+```
+
+**After**: Separate arrays per pipeline with format-aware labels:
+```
+models: {
+  fluxUnets,      // FLUX.2 UNet (safetensors FP8 + GGUF)
+  fluxClip,       // FLUX.2 text encoders (Qwen 3 8B, T5xxl, clip_l)
+  fluxVae,        // FLUX.2 VAEs
+  ltxUnets,       // LTX 2.3 UNet (GGUF)
+  ltxClip,        // LTX 2.3 text encoders (Gemma 3 12B + embeddings connectors)
+  ltxVae,         // LTX 2.3 VAEs (video + audio, with type labels)
+  ltxLoras,       // LTX 2.3 LoRAs (IC-LoRA + distillation, with type labels)
+  upscale,        // Spatial upscalers (latent_upscale_models + upscale_models)
+}
+```
+
+---
+
+### 85. LTX Pipeline Config UI Expansion (4→6 Dropdowns)
+
+**Location**: `ui/dist/music-video.html`, `renderPipelineConfig()` (~line 2461)
+
+**Before** (4 dropdowns): UNet, VAE, Text Enc, Upscaler
+
+**After** (6 dropdowns):
+1. **UNet** — LTX 2.3 GGUF models
+2. **Video VAE** — distilled + dev video VAEs
+3. **Text Enc** — Gemma 3 12B + embeddings connectors
+4. **Audio VAE** (new) — distilled + dev audio VAEs, filtered from ltxVae array
+5. **IC-LoRA** (new) — 7 LoRAs (union-control, colorizer, motion-track, outpaint, etc.)
+6. **Upscaler** — spatial upscalers
+
+State expanded: `_pipelineModels.ltx` now has `clip`, `audioVae`, `icLora` fields in addition to `unet`, `vae`, `upscale`.
+
+---
+
+### 86. Full Data Flow Wiring (UI → Server → Workflow Builder)
+
+**Frontend** (`music-video.html`):
+- `generateVideoClip()` sends all 6 LTX model selections in the request body
+- Change listeners wired to all 6 dropdowns via `$('pipeline-ltx-*').addEventListener`
+
+**Server** (`server.mjs`):
+- `generate-video` endpoint destructures all 6 fields: `unetModel, vaeModel, clipModel, audioVaeModel, icLoraModel, upscaleModel`
+- Passes them all to `buildLTX2Workflow()`
+
+**Workflow Builder** (`comfyui-client.mjs`):
+- `buildLTX2Workflow()` accepts `unetModel`, `vaeModel`, `clipModel`, `audioVaeModel`, `icLoraModel`
+- Each parameter uses its value when not `"auto"`, otherwise falls back to the distilled default
+
+---
+
+### 87. IC-LoRA Workflow Support
+
+**Location**: `server/services/comfyui-client.mjs`, `buildLTX2Workflow()` (~line 423)
+
+When `icLoraModel` is provided and not `"auto"`, inserts a `LTXICLoRALoaderModelOnly` node:
+```json
+"50": {
+  "class_type": "LTXICLoRALoaderModelOnly",
+  "inputs": {
+    "lora_name": "<icLoraModel>",
+    "strength": 1.0,
+    "model": ["1", 0]
+  }
+}
+```
+Then re-wires `ModelSamplingLTXV` (node 7) to use `["50", 0]` instead of `["1", 0]`, so the IC-LoRA-modified model flows through sampling.
+
+---
+
+### 88. Forward Slash Consistency & Smart Labels
+
+**Locations**: `server/server.mjs` defaults, `server/services/comfyui-client.mjs` default paths
+
+- All default model paths changed from backslashes (`FLUX.2\\flux-2-klein-9b-fp8.safetensors`) to forward slashes (`FLUX.2/flux-2-klein-9b-fp8.safetensors`) to match scan output
+- Smart labels added to model arrays:
+  - LoRAs: ` IC-LoRA` suffix for `/_ic[_-]lora/` matches, ` Distill` for `/distilled/` matches
+  - VAEs: ` video` or ` audio` suffix
+  - CLIPs: ` Gemma` for gemma matches, ` connectors` for embeddings connectors
+
+---
+
+## Phase 12 — SuperSep Auto-Trigger Cooldown Guard
+
+### 89. Extraction Cooldown Map
+
+**Location**: `server/server.mjs`, near line ~132434
+
+**Problem**: React `useEffect` in minified bundle (`index-DscBS4mv.js`, line 208) watches `[currentTrack.id, currentTrack.discoDataUrl, discoKickExtractSetting]` and fires `POST /api/songs/:id/extract-kick` on every page load when `discoKickExtract` is enabled. The zustand `currentTrack` store does not persist `discoDataUrl` across page reloads, so the effect fires on every mount. If the previous extraction failed (e.g., `analyzeAndSaveDiscoData` threw), `disco_data_url` was never saved to DB, and the background `.catch()` handler cleared all stem URLs — leaving the song in a "clean slate" state that triggers a new SuperSep extraction on every page load.
+
+**Root cause of infinite loop**:
+1. Page load → useEffect → `F.discoDataUrl` empty → POST extract-kick
+2. Server: `disco_data_url` empty, stem URLs empty → starts SuperSep job
+3. SuperSep processes → stems saved → `analyzeAndSaveDiscoData` fails → `disco_data_url` NOT saved → stem URLs cleared by `.catch()`
+4. Next page load → same state → SuperSep runs again → ONNX model reloads → infinite cycle
+
+**Fix**: Added `recentlyAttemptedExtractions` Map (songId → timestamp) with a 10-minute cooldown window. Before starting a new extraction, the server checks if the same song was attempted within the last 10 minutes. If so, it returns `{status: "exists", discoDataUrl: ""}` immediately — no SuperSep job created, no ONNX model load.
+
+```
+var recentlyAttemptedExtractions = new Map();
+var EXTRACTION_COOLDOWN_MS = 10 * 60 * 1000;
+```
+
+The timestamp is set when a new SuperSep job is dispatched (`recentlyAttemptedExtractions.set(req.params.id, Date.now())`). On the next call for the same song within 10 minutes, the cooldown guard logs the skip and returns immediately.
+
+---
+
+### 90. Background Extraction Cleanup & Map Periodic Cleanup
+
+**Location**: `server/server.mjs`, near line ~132462 and ~132622
+
+**Successful extraction cleanup**: When `extractDrumStemsBackground()` completes successfully (disco data saved, stems deleted), it calls `recentlyAttemptedExtractions.delete(songId)` to remove the cooldown entry. This ensures the song can be re-extracted later if the user manually triggers it.
+
+**Periodic Map cleanup**: Added a `setInterval` every 30 minutes that iterates the Map and removes entries older than 2× the cooldown window (20 minutes). The timer is `.unref()`'d so it doesn't prevent Node.js process exit.
+
+```
+setInterval(() => {
+  const now = Date.now();
+  for (const [songId, ts] of recentlyAttemptedExtractions) {
+    if (now - ts > EXTRACTION_COOLDOWN_MS * 2) recentlyAttemptedExtractions.delete(songId);
+  }
+}, 30 * 60 * 1000).unref();
+```
+
+**Effect**: Server startup loads ONNX model once per SuperSep job (not per page load). Users with `discoKickExtract` enabled will see extraction run once per song that hasn't been extracted yet. After 10 minutes, failed extractions can be retried. Successful extractions clear the cooldown immediately.
+
+---
+
+## Phase 13 — ComfyUI Bridge for Cover Art + Model Picker
+
+### 91. Cover Art ComfyUI Integration
+
+**Location**: `server/server.mjs`, lines ~42530-42620, ~136003-136037, ~136497-136545
+
+**Problem**: Cover art generation used a completely separate stack (`sd-cli.exe` + local GGUF models in `models/cover-art/`) from the existing ComfyUI bridge (`comfyui-bridge.mjs`). If users already had FLUX.2 9B models in their ComfyUI installation, they had to download *duplicate* models just for cover art. The bridge's `generateImage()` (imported as `bridgeGenerateImage`) was already capable of routing through ComfyUI with automatic fallback to local sd-cli, but `coverArtService.generateCoverImage()` bypassed it entirely.
+
+**Fix**: Refactored `generateCoverImage()` to accept a `useComfyUI` flag and model selection params. When `useComfyUI` is `true`:
+- Checks ComfyUI connectivity via `detectComfyUI()`
+- Calls `bridgeGenerateImage()` with the user's selected UNet model, VAE, and CLIP
+- Saves the generated image to the audio directory (same as local mode)
+- Returns `{coverUrl, prompt, durationMs, source, model}`
+
+```javascript
+if (useComfyUI) {
+  const { detectComfyUI: detectComfyUI2 } = await import("./services/comfyui-model-scanner.mjs");
+  const { connected } = await detectComfyUI2(true);
+  if (!connected) throw new Error("ComfyUI is not reachable — ...");
+  const result = await bridgeGenerateImage({
+    prompt, negativePrompt,
+    width: GEN_WIDTH, height: GEN_HEIGHT,
+    model: opts.comfyModel || undefined,
+    seed, outputPrefix: "cover",
+    outputDir: config.data.audioDir,
+  });
+  // ... returns coverUrl from result.localPath
+}
+```
+
+When `useComfyUI` is `false` or unset, the original local `sd-cli.exe` pipeline runs unchanged — full backward compatibility.
+
+**Settings threaded through pipeline**: Both parallel and sequential generation paths now destructure and pass `coverArtUseComfyUI`, `coverArtModel`, `coverArtVae`, `coverArtClip` from `job.params` to `generateCoverImage()`. Readiness check is split: ComfyUI mode checks ComfyUI connection via `detectComfyUI()`, local mode checks file existence via `getCoverArtReadiness()`.
+
+---
+
+### 92. ComfyUI Model Scanner for Cover Art
+
+**Location**: `server/server.mjs`, near line ~299862
+
+**New endpoint**: `GET /api/cover-art/comfyui-models`
+
+Scans the ComfyUI installation's model directories for available cover art models:
+- **UNet/diffusion models**: `ComfyUI/models/diffusion_models/`, `ComfyUI/models/unet/`, `ComfyUI/models/checkpoints/` — filtered by `/flux|klien|klein|sd3|sdxl|sd/i` pattern
+- **VAE models**: `ComfyUI/models/vae/`, `ComfyUI/models/vae_approx/`
+- **CLIP/text encoders**: `ComfyUI/models/clip/`, `ComfyUI/models/text_encoder/`
+
+Returns `{ connected, systemInfo, models: { unet, vae, clip } }` with file names, sizes, and modification dates. Connection status includes VRAM info (total/free) from ComfyUI's `/system_stats/` endpoint.
+
+```javascript
+router22.get("/comfyui-models", async (req, res) => {
+  const { detectComfyUI, findComfyUIDir, COMFYUI_MODEL_DIRS, scanDirForModels } =
+    await import("./services/comfyui-model-scanner.mjs");
+  const { connected, systemInfo } = await detectComfyUI(true);
+  // Scan diffusion_models/, unet/, vae/, clip/, text_encoder/ ...
+  res.json({ connected, systemInfo, models: { unet, vae, clip } });
+});
+```
+
+---
+
+### 93. Cover Art Engine Model Picker UI
+
+**Location**: `ui/dist/index.html`, near closing `</body>` tag
+
+**New floating panel**: A green 🖼️ button (bottom-right, positioned above the album button) opens the Cover Art Engine settings panel:
+
+**Features**:
+- **Mode toggle**: Checkbox to switch between "Use ComfyUI Bridge" and "Use Local sd-cli" (local storage persisted as `hs-coverArtUseComfyUI`)
+- **Connection status**: Green/amber/red dot + text showing ComfyUI connection state and VRAM info (e.g., "ComfyUI connected — NVIDIA RTX 5060 Ti (10.2GB free)")
+- **Model selectors**: Three dropdowns populated from `GET /api/cover-art/comfyui-models`:
+  - Diffusion Model (UNet) — required, auto-detect available
+  - VAE — optional, auto-detect available
+  - Text Encoder / CLIP — optional, auto-detect available
+- **Refresh button**: Re-scans ComfyUI model directories
+- **Auto-save**: All selections are saved to localStorage immediately on change (`hs-coverArtModel`, `hs-coverArtVae`, `hs-coverArtClip`)
+- **Context help**: Shows explanatory text depending on mode (ComfyUI mode: explains model scanning from ComfyUI dirs; Local mode: explains sd-cli.exe + download instructions)
+
+**Settings integration**: New fields added to `readSettingsFromStorage()`:
+```javascript
+coverArtUseComfyUI: hs('coverArtUseComfyUI', false) || void 0,
+coverArtModel: hs('coverArtModel', '') || void 0,
+coverArtVae: hs('coverArtVae', '') || void 0,
+coverArtClip: hs('coverArtClip', '') || void 0,
+```
+
+These are automatically sent to the server as part of the generation request parameters, threaded through the entire generation pipeline.
+
+---
+
+## Phase 14 — ComfyUI Model Manager Tab, LTX2.3 Registry & Quality-of-Life Fixes
+
+### 94. Gemini 403 Error Suppression
+
+**Location**: `server/server.mjs`, `getRemoteModels()` function
+
+**Problem**: `getRemoteModels()` called the Google Gemini API endpoint every time it ran, regardless of whether the user had configured a Gemini API key. When `config.lireek.geminiApiKey` was empty or undefined, the HTTP request to Google returned a 403 Forbidden error, which was logged to the console. This created unnecessary error noise even for users who had no intention of using Gemini.
+
+**Fix**: Added an early return at the top of `getRemoteModels()`:
+
+```javascript
+async function getRemoteModels() {
+  if (!config.lireek.geminiApiKey) {
+    logger.log("[Models] Gemini API key not configured — skipping remote model fetch");
+    return [];
+  }
+  // ... existing fetch logic only runs when key is present
+}
+```
+
+This completely eliminates the 403 error log when Gemini is not configured. The function returns an empty array immediately — no HTTP call, no connection attempt, no error.
+
+**Impact**: Zero. Users who have a Gemini API key configured see no change. Users without Gemini see a clean console without misleading 403 errors.
+
+---
+
+### 95. Local Default Model Restoration (4B)
+
+**Location**: `server/server.mjs`, `REQUIRED_FILES` cover art definition (near line ~42660)
+
+**Problem**: During Phase 9 (FLUX.2 Cover Art Model Upgrade 4B → 9B), the `REQUIRED_FILES.diffusionModel` was changed from `flux-2-klein-4b-Q4_0.gguf` to `flux-2-klein-9b-Q4_0.gguf`. However, the download infrastructure continued to download the 4B model — the 9B filename in `REQUIRED_FILES` didn't match what was actually downloaded. This meant the readiness check (`getCoverArtReadiness()`) was checking for a 9B file that didn't exist, causing the cover art status to show "not installed" even though the 4B model was present.
+
+**Fix**: Reverted `REQUIRED_FILES.diffusionModel` back to `flux-2-klein-4b-Q4_0.gguf` (4B), along with its download URL (pointing to the 4B model on HuggingFace) and the description text.
+
+```javascript
+REQUIRED_FILES: {
+  diffusionModel: "flux-2-klein-4b-Q4_0.gguf",  // was: flux-2-klein-9b-Q4_0.gguf
+  diffusionModelUrl: "https://huggingface.co/KleinKargo/FLUX.2-klein-4B/resolve/main/flux-2-klein-4b-Q4_0.gguf",
+  // ...
+}
+```
+
+**Design Decision**: The 4B model remains the LOCAL default because:
+- It runs on lower-end GPUs (RTX 2060-class, 6GB VRAM)
+- It's the model that the download infrastructure actually fetches
+- Users with ComfyUI can still use 9B+ models via the ComfyUI bridge toggle (Phase 13)
+- The ComfyUI bridge is the proper path for high-quality model usage, not swapping REQUIRED_FILES
+
+**Impact**: Local cover art generation now correctly reports "Ready — FLUX.2-klein-4B" and works immediately after the standard one-click download (~5.9 GB).
+
+---
+
+### 96. ComfyUI Tab in Model Manager
+
+**Location**: `ui/dist/assets/index-DscBS4mv.js` (minified React bundle)
+
+**Problem**: The Model Manager (React SPA) displayed models organized by role-based tabs (stable diffusion models, feature extractors, VAE, etc.) but had no tab for ComfyUI-specific models. Users who installed LTX2.3 models via the new model registry had no way to see or manage them from the UI.
+
+**Fix**: Four targeted patches to the minified bundle's role-based tab system.
+
+**Architecture Discovery**: The role-based tabs are governed by:
+- **`Z_`**: Array of tab IDs (e.g., `["sd", "fe", "vae", ...]`)
+- **`$_`**: Object mapping tab IDs to display labels (e.g., `{sd: "Stable Diffusion", fe: "Feature Extractor", ...}`)
+- **`g`**: `useMemo` filter function that filters model entries by role
+- **`rv`**: Return statement function that renders the filtered models using `h(g, $_(tabId))`
+
+**The 4 Patches**:
+
+1. **`Z_` array**: Appended `"comfyui"` to the tab list — adds a new tab button
+2. **`$_` object**: Added `comfyui: "ComfyUI"` entry — labels the tab
+3. **`useMemo` filter (`g`)**: Added `o==="comfyui"` condition so models with `role: "comfyui"` appear under this tab
+4. **Return handler (`rv`)**: Added `o==='comfyui'&&h(g,$_.comfyui)` so the tab renders content when clicked
+
+```javascript
+// Patch 1: Z_ array
+const Z_ = [...existingTabs, "comfyui"]; // append to end
+
+// Patch 2: $_ labels
+const $_ = {...existingLabels, comfyui: "ComfyUI"};
+
+// Patch 3: useMemo filter (simplified)
+const g = useMemo(() => {
+  return Z_.reduce((acc, tab) => {
+    if (tab === "comfyui") {
+      acc[tab] = items.filter(i => i.role === "comfyui");
+    } else { /* existing logic */ }
+    return acc;
+  }, {});
+}, [items]);
+
+// Patch 4: return handler
+return (<div>{Z_.map(tab => {
+  if (tab === 'comfyui') return h(g, $_.comfyui);
+  // existing tab rendering
+})}</div>);
+```
+
+**Impact**: The ComfyUI tab now appears in the Model Manager, showing all models with `role: "comfyui"` in `model-registry.json` (LTX2.3 UNets, VAEs, CLIPs, checkpoints, text encoders). Users can see download status, trigger downloads, and manage ComfyUI-specific models directly from the UI.
+
+---
+
+### 97. LTX2.3 Video Pipeline Model Registry
+
+**Location**: `server/data/model-registry.json`
+
+**Problem**: The Model Manager's model registry had entries for audio generation models but no entries for the ComfyUI video pipeline models (LTX2.3 UNets, VAEs, CLIPs, etc.). Users who wanted to install models for the ComfyUI video pipeline had to manually download and place them in the correct directories.
+
+**Fix**: Added 6 new file entries with `role: "comfyui"` and 2 new pack entries to `model-registry.json`.
+
+**New File Entries**:
+
+| ID | File | Size | Repo | Path |
+|----|------|------|------|------|
+| `ltx-unet-q4km` | `LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf` | 4.08 GB | Lightricks/LTX-2.3-GGUF | `unet/ltx2.3/` |
+| `ltx-unet-fp8` | `ltx-2.3-22b-distilled-fp8.safetensors` | 8.24 GB | Lightricks/LTX-2.3-fp8 | `models/unet/ltx2.3/` |
+| `ltx-video-vae` | `ltx-2.3-22b-distilled_video_vae.safetensors` | 335 MB | Lightricks/LTX-2.3 | `vae/ltx2.3/` |
+| `ltx-audio-vae` | `ltx-2.3-22b-distilled_audio_vae.safetensors` | 235 MB | Lightricks/LTX-2.3 | `vae/ltx2.3/` |
+| `ltx-clip` | `gemma_3_12B_it_fp4_mixed.safetensors` | 3.93 GB | vantagewithai/LTX-2.3-GGUF | `text_encoders/` |
+| `ltx-gemma-encoder` | `ltx-2.3-22b-distilled_embeddings_connectors.safetensors` | 93 MB | Comfy-Org/ltx-2.3 | `text_encoders/ltx2.3/` |
+
+**New Pack Entries**:
+
+| Pack | Files Included | Total Size |
+|------|---------------|------------|
+| `Video Pipeline` | ltx-unet-q4km, ltx-video-vae, ltx-audio-vae, ltx-clip, ltx-gemma-encoder | ~8.7 GB |
+| `Video Pipeline (Full)` | ltx-unet-q4km, ltx-unet-fp8, ltx-video-vae, ltx-audio-vae, ltx-clip, ltx-gemma-encoder | ~16.9 GB |
+
+**Download URL Construction**: The download service constructs URLs as `https://huggingface.co/{file.repo}/resolve/main/{repoPath}` where `repoPath` is derived from the download path relative to the model root.
+
+**Impact**: Users can now install the complete LTX2.3 video pipeline (UNet + VAEs + CLIP + text encoders) directly from the ComfyUI tab in Model Manager — no manual downloading or file placement needed.
+
+---
+
+### 98. Stall Timeout Bump (120s→240s)
+
+**Location**: `server/server.mjs`, generation pipeline stall detection
+
+**Problem**: The stall timeout (`STALE_TIMEOUT_MS`) was set to 120 seconds, meaning if the ACE-Step engine or ComfyUI job didn't report progress within 2 minutes, the generation would be cancelled as "stalled." For longer generations — particularly the LTX2.3 video pipeline with two-pass sampling, upscaling, and post-processing — 120 seconds was too short, causing legitimate in-progress jobs to be cancelled prematurely.
+
+**Fix**: Bumped the timeout from 120,000ms to 240,000ms:
+
+```javascript
+const STALE_TIMEOUT_MS = 240000; // was 120000 — 4 minutes for long ComfyUI jobs
+```
+
+**Impact**: Video pipeline generations (which can take 3-5 minutes depending on model size and GPU) no longer get incorrectly cancelled during normal operation. Audio-only generations are unaffected since they typically complete well within 60 seconds.
+
+---
+
+### 99. Cover Art Log Visibility (DEBUG→WARNING)
+
+**Location**: `server/server.mjs`, cover art generation pipeline
+
+**Problem**: Two `[CoverArt] Skipped` log messages were logged at `DEBUG` level, making them invisible in normal console output. When cover art was configured to skip certain songs (e.g., due to missing models or user preference), there was no visible indication — users couldn't tell whether cover art was being generated, skipped, or failing silently.
+
+**Fix**: Changed both `[CoverArt] Skipped` log messages from `logger.debug()` to `logger.warn()`:
+
+```javascript
+// Before:
+logger.debug(`[CoverArt] Skipped — cover art disabled for this request`);
+logger.debug(`[CoverArt] Skipped — no song ID provided`);
+
+// After:
+logger.warn(`[CoverArt] Skipped — cover art disabled for this request`);
+logger.warn(`[CoverArt] Skipped — no song ID provided`);
+```
+
+**Impact**: Users can now see in the console when cover art is being skipped and why. This aids debugging without being overly verbose — `WARNING` level is appropriate for skipped operations that aren't errors but are worth knowing about.
+
+---
+
 ## How to Reproduce on a Clean v1.1.4
 
 ### Backend (`server/server.mjs`)
@@ -2151,6 +2628,28 @@ useEffect([e]) → runs once on disco toggle
 32. **Phase 10**: Add `GET /api/comfyui/capabilities`, `GET /api/comfyui/pipelines`, `GET /api/comfyui/infer-params` bridge endpoints
 33. **Phase 10**: Add configurable model paths (`unetModel`, `vaeModel`, `clipModel`, `clip2Model`, `upscaleModel`) to `buildLTX2Workflow()` and `buildFLUX2Workflow()`
 34. **Phase 10**: Add ComfyUI model scanner import + bridge import to server.mjs module imports section
+35. **Phase 11**: Fix `scanRecursive()` scan paths — GGUF from `unet/`, safetensors from `diffusion_models/`, latent upscalers from `latent_upscale_models/`
+36. **Phase 11**: Add `stripRoot` parameter to `scanRecursive()` so returned names match ComfyUI loader expectations (relative to search dir, not `models/` root)
+37. **Phase 11**: Split model arrays per-pipeline: `fluxUnets`, `fluxClip`, `fluxVae`, `ltxUnets`, `ltxClip`, `ltxVae`, `ltxLoras`, `upscale`
+38. **Phase 11**: Update defaults paths to forward slashes (`FLUX.2/` not `FLUX.2\\`)
+39. **Phase 11**: Add `audioVaeModel` and `icLoraModel` params to `buildLTX2Workflow()`
+40. **Phase 11**: Add `LTXICLoRALoaderModelOnly` node insertion when IC-LoRA selected
+41. **Phase 11**: Update `generate-video` endpoint to destructure and pass all 6 LTX model params
+42. **Phase 11**: Add smart labels (IC-LoRA/Distill, video/audio, Gemma/connectors) to model arrays
+43. **Phase 12**: Add `recentlyAttemptedExtractions` cooldown Map (10-minute TTL) and `EXTRACTION_COOLDOWN_MS` constant after `extractionsInFlight` Set declaration
+44. **Phase 12**: Add cooldown guard check in `router3.post("/:id/extract-kick")` — after `extractionsInFlight` check, before ACE server call — return `{status: "exists", discoDataUrl: ""}` if song was attempted within cooldown
+45. **Phase 12**: Set cooldown timestamp (`recentlyAttemptedExtractions.set(req.params.id, Date.now())`) when starting a new SuperSep job
+46. **Phase 12**: Add `recentlyAttemptedExtractions.delete(songId)` at end of `extractDrumStemsBackground()` (successful completion path)
+47. **Phase 12**: Add `setInterval` for periodic Map cleanup every 30 minutes (`.unref()`'d, removes entries older than 2× cooldown)
+48. **Phase 13**: Refactor `generateCoverImage()` to support `useComfyUI` flag — when true, routes through `bridgeGenerateImage()` instead of spawning `sd-cli.exe`; when false, uses existing local pipeline
+49. **Phase 13**: Add `GET /api/cover-art/comfyui-models` endpoint — scans ComfyUI `diffusion_models/`, `unet/`, `vae/`, `clip/`, `text_encoder/` directories, reports connection status + VRAM info + available models
+50. **Phase 13**: Thread new settings (`coverArtUseComfyUI`, `coverArtModel`, `coverArtVae`, `coverArtClip`) through both parallel and sequential cover art generation pipelines with readiness check split (ComfyUI connection vs local file check)
+51. **Phase 14**: Add early return in `getRemoteModels()` when `!config.lireek.geminiApiKey` — log message + return `[]`, no HTTP call
+52. **Phase 14**: Revert `REQUIRED_FILES.diffusionModel` from `flux-2-klein-9b-Q4_0.gguf` to `flux-2-klein-4b-Q4_0.gguf` — matching what the download infrastructure actually fetches
+53. **Phase 14**: Change `STALE_TIMEOUT_MS` from 120000 to 240000 — prevent premature stall cancellation of long ComfyUI video jobs
+54. **Phase 14**: Change `[CoverArt] Skipped` messages from `logger.debug` to `logger.warn` for console visibility
+55. **Phase 14**: Add 6 LTX2.3 model entries to `server/data/model-registry.json` with `role: "comfyui"` — `ltx-unet-q4km`, `ltx-unet-fp8`, `ltx-video-vae`, `ltx-audio-vae`, `ltx-clip`, `ltx-gemma-encoder`
+56. **Phase 14**: Add 2 video pipeline packs to `model-registry.json` — `Video Pipeline` (5 files, ~8.7 GB) and `Video Pipeline (Full)` (6 files, ~16.9 GB)
 
 ### Frontend (`ui/dist/assets/index-DscBS4mv.js`)
 
@@ -2159,6 +2658,10 @@ useEffect([e]) → runs once on disco toggle
 3. Add new "DJ / Turntablism" genre group with DJ, Dual DJ, Turntablism, Scratch Battle
 4. Add new "Traditional / World" genre group with Klezmer, Mariachi, Bhangra, Andean
 5. Verify the bundle loads without errors
+6. **Phase 14**: Append `"comfyui"` to the `Z_` tab array for Model Manager role-based tabs
+7. **Phase 14**: Add `comfyui: "ComfyUI"` to the `$_` description labels object
+8. **Phase 14**: Add `o==="comfyui"` clause to the `useMemo` filter (`g`) that matches models with `role: "comfyui"`
+9. **Phase 14**: Add `o==='comfyui'&&h(g,$_.comfyui)` to the `rv` return handler so the tab renders ComfyUI model content when clicked
 
 ### Frontend (`ui/dist/index.html`)
 
@@ -2186,6 +2689,13 @@ useEffect([e]) → runs once on disco toggle
 22. **Phase 10**: Replace Disco DOM particle system (`Ty` component, 735→1421 chars) with canvas-based renderer in `index-DscBS4mv.js`
 23. **Phase 10**: Add Plasma sin/cos lookup tables (2048-entry), distance LUT, pre-rendered scanline overlay, proper delta-time frame timing to `visualizer.html`
 24. **Phase 10**: Add ComfyUI status widget (green/orange/red dot), model browser panel, image/video model selectors to `music-video.html`
+25. **Phase 11**: Expand `_pipelineModels.ltx` to include `clip`, `audioVae`, `icLora` fields
+26. **Phase 11**: Add Audio VAE and IC-LoRA dropdowns to `renderPipelineConfig()` with proper filters
+27. **Phase 11**: Wire all 6 LTX dropdown change listeners to `_pipelineModels` state
+28. **Phase 11**: Update `generateVideoClip()` to send `clipModel`, `audioVaeModel`, `icLoraModel` in request body
+29. **Phase 11**: Update `optList()` to read from per-pipeline arrays (`m.fluxClip`, `m.ltxClip`, `m.ltxVae`, `m.ltxLoras`)
+30. **Phase 13**: Add floating Cover Art Engine panel button (🖼️, green gradient, bottom-right) that opens a model picker with ComfyUI connection status (green/red dot + VRAM info), model dropdown selectors (UNet/VAE/CLIP auto-scanned from ComfyUI), mode toggle (ComfyUI Bridge vs Local sd-cli), and auto-save to localStorage
+31. **Phase 13**: Add `coverArtUseComfyUI`, `coverArtModel`, `coverArtVae`, `coverArtClip` to `readSettingsFromStorage()` return object
 
 ### Frontend (`ui/dist/album.html`)
 
@@ -2253,7 +2763,7 @@ This project builds upon the work of the following creators and open-source proj
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn (Plasma LUT optimization, scanline cache, delta-time frame timing), MP4 video generator, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), ComfyUI bridge with pipeline archetype registry, model parameter inference, capability discovery, and sd-cli.exe fallback, ComfyUI model browser with status widget, canvas-based Disco particle system, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, server modularization (4 service modules), FIFO ComfyUI job queue, FLUX.2 9B model upgrade, SuperSep bug fixes, and all Phase 1-10 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn (Plasma LUT optimization, scanline cache, delta-time frame timing), MP4 video generator, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), ComfyUI bridge with pipeline archetype registry, model parameter inference, capability discovery, and sd-cli.exe fallback, ComfyUI model browser with status widget, canvas-based Disco particle system, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, server modularization (4 service modules), FIFO ComfyUI job queue, FLUX.2 9B model upgrade, SuperSep auto-trigger cooldown guard (prevents infinite re-trigger loop on every page load), pipeline model discovery rewrite (correct directory scanning, stripRoot for loader-compatible paths), LTX 2.3 multi-model UI (6 dropdowns including Audio VAE and IC-LoRA), IC-LoRA workflow support (LTXICLoRALoaderModelOnly), ComfyUI Model Manager tab with role-based filtering, LTX2.3 video pipeline model registry (6 models + 2 packs), Gemini 403 error suppression, local default 4B model restoration, stall timeout bump (120s→240s), and all Phase 1-14 enhancements.
 
 ### Additional
 - **Node.js** runtime — Server-side JavaScript execution

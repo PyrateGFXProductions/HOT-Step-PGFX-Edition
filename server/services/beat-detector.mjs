@@ -13,7 +13,13 @@
  */
 
 import fs from "fs";
+import { promises as fsPromises } from "fs";
 import path from "path";
+
+/** Yield to the event loop so other requests can be served */
+function yieldEventLoop() {
+  return new Promise(resolve => setImmediate(resolve));
+}
 
 const ANALYSIS_FPS = 60;
 
@@ -319,6 +325,145 @@ function analyzeAndSaveDiscoData(songId, audioDir, stemUrls) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   Async WAV Parsing — non-blocking, yields to event loop between stems
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+async function parseWavAsync(filePath) {
+  const buf = await fsPromises.readFile(filePath);
+  const riff = buf.toString("ascii", 0, 4);
+  const wave = buf.toString("ascii", 8, 12);
+  if (riff !== "RIFF" || wave !== "WAVE") {
+    throw new Error(`Not a WAV file: ${filePath}`);
+  }
+  let fmtOffset = -1;
+  let dataOffset = -1;
+  let dataSize = 0;
+  let pos = 12;
+  while (pos < buf.length - 8) {
+    const chunkId = buf.toString("ascii", pos, pos + 4);
+    const chunkSize = buf.readUInt32LE(pos + 4);
+    if (chunkId === "fmt ") {
+      fmtOffset = pos + 8;
+    } else if (chunkId === "data") {
+      dataOffset = pos + 8;
+      dataSize = chunkSize;
+    }
+    pos += 8 + chunkSize;
+    if (chunkSize % 2 !== 0) pos++;
+  }
+  if (fmtOffset < 0) throw new Error(`No fmt chunk in: ${filePath}`);
+  if (dataOffset < 0) throw new Error(`No data chunk in: ${filePath}`);
+  const audioFormat = buf.readUInt16LE(fmtOffset);
+  const channels = buf.readUInt16LE(fmtOffset + 2);
+  const sampleRate = buf.readUInt32LE(fmtOffset + 4);
+  const bitsPerSample = buf.readUInt16LE(fmtOffset + 14);
+  const bytesPerSample = bitsPerSample / 8;
+  const totalFrames = Math.floor(dataSize / (bytesPerSample * channels));
+  const samples = new Float32Array(totalFrames);
+  for (let i = 0; i < totalFrames; i++) {
+    let monoSum = 0;
+    for (let ch = 0; ch < channels; ch++) {
+      const offset = dataOffset + (i * channels + ch) * bytesPerSample;
+      let sample;
+      if (audioFormat === 3 && bitsPerSample === 32) {
+        sample = buf.readFloatLE(offset);
+      } else if (audioFormat === 1 && bitsPerSample === 16) {
+        sample = buf.readInt16LE(offset) / 32768;
+      } else if (audioFormat === 1 && bitsPerSample === 24) {
+        const b0 = buf[offset];
+        const b1 = buf[offset + 1];
+        const b2 = buf[offset + 2];
+        const val2 = b2 << 16 | b1 << 8 | b0;
+        sample = (val2 >= 8388608 ? val2 - 16777216 : val2) / 8388608;
+      } else if (audioFormat === 1 && bitsPerSample === 32) {
+        sample = buf.readInt32LE(offset) / 2147483648;
+      } else {
+        throw new Error(`Unsupported WAV format: ${audioFormat}/${bitsPerSample}bit in ${filePath}`);
+      }
+      monoSum += sample;
+    }
+    samples[i] = monoSum / channels;
+  }
+  return { sampleRate, channels, samples };
+}
+
+async function analyzeWavAsync(filePath) {
+  const wav = await parseWavAsync(filePath);
+  const windowSamples = Math.floor(wav.sampleRate / ANALYSIS_FPS);
+  const totalWindows = Math.ceil(wav.samples.length / windowSamples);
+  const energy = new Float32Array(totalWindows);
+  let maxRms = 0;
+  for (let w = 0; w < totalWindows; w++) {
+    const start = w * windowSamples;
+    const end2 = Math.min(start + windowSamples, wav.samples.length);
+    let sumSq = 0;
+    for (let i = start; i < end2; i++) {
+      sumSq += wav.samples[i] * wav.samples[i];
+    }
+    const rms = Math.sqrt(sumSq / (end2 - start));
+    energy[w] = rms;
+    if (rms > maxRms) maxRms = rms;
+  }
+  const result = new Array(totalWindows);
+  if (maxRms > 1e-8) {
+    for (let w = 0; w < totalWindows; w++) {
+      result[w] = Math.round(energy[w] / maxRms * 100) / 100;
+    }
+  } else {
+    result.fill(0);
+  }
+  const duration = wav.samples.length / wav.sampleRate;
+  return { energy: result, duration };
+}
+
+/**
+ * Async version of analyzeAndSaveDiscoData — yields to event loop between
+ * each stem analysis so other HTTP requests can be served.
+ */
+async function analyzeAndSaveDiscoDataAsync(songId, audioDir, stemUrls) {
+  const stemCount = [stemUrls.kick, stemUrls.snare, stemUrls.hihat].filter(Boolean).length;
+  if (stemCount === 0) {
+    console.log(`[DiscoAnalyzer] Song ${songId}: no stems to analyze`);
+    return "";
+  }
+  console.log(`[DiscoAnalyzer] Song ${songId}: analyzing ${stemCount} stem(s) (async)...`);
+  const t0 = Date.now();
+  let duration = 0;
+
+  async function analyzeStem(url, label) {
+    if (!url) return [];
+    const filename = path.basename(url);
+    const filePath = path.join(audioDir, filename);
+    try {
+      const result = await analyzeWavAsync(filePath);
+      if (result.duration > duration) duration = result.duration;
+      console.log(`[DiscoAnalyzer]   ${label}: ${result.energy.length} windows, ${result.duration.toFixed(1)}s`);
+      return result.energy;
+    } catch (err) {
+      console.warn(`[DiscoAnalyzer] ${label}: ${err.message}`);
+      return [];
+    }
+  }
+
+  // Yield before heavy work so the Express handler can respond
+  await yieldEventLoop();
+  const kick = await analyzeStem(stemUrls.kick, "kick");
+  await yieldEventLoop();
+  const snare = await analyzeStem(stemUrls.snare, "snare");
+  await yieldEventLoop();
+  const hihat = await analyzeStem(stemUrls.hihat, "hihat");
+
+  const data = { version: 1, fps: ANALYSIS_FPS, duration, kick, snare, hihat };
+  const filename = `${songId}_disco.json`;
+  const filePath = path.join(audioDir, filename);
+  await fsPromises.writeFile(filePath, JSON.stringify(data));
+  const stat = await fsPromises.stat(filePath);
+  const elapsed = Date.now() - t0;
+  console.log(`[DiscoAnalyzer] Song ${songId}: saved ${filename} (${(stat.size / 1024).toFixed(1)} KB) in ${elapsed}ms`);
+  return `/audio/${filename}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    Exports
    ═══════════════════════════════════════════════════════════════════════════════ */
 
@@ -329,6 +474,7 @@ export {
   parseVideoSections,
   calculateSectionTimings,
   analyzeAndSaveDiscoData,
+  analyzeAndSaveDiscoDataAsync,
   SECTION_TYPE_MAP,
   ANALYSIS_FPS
 };
