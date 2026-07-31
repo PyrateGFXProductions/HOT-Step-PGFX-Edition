@@ -42532,7 +42532,7 @@ async function generateCoverImage(opts) {
   const useComfyUI = opts.useComfyUI === true;
   const prompt = buildCoverArtPrompt(opts);
   console.log(`[CoverArt] Prompt: "${prompt}"`);
-  const negativePrompt = "text, lettering, words, typography, watermark, signature, logo, title, font, writing, caption, label, stamp, banner";
+  const negativePrompt = "text, lettering, words, typography, watermark, signature, logo, title, font, writing, caption, label, stamp, banner, storyboard, comic strip, multiple panels, split panel layout, grid layout, sequence of images, collage";
 
   /* ── ComfyUI Bridge Mode ── */
   if (useComfyUI) {
@@ -154097,6 +154097,10 @@ var AnthropicProvider = class extends LLMProvider {
 };
 
 // server/src/services/lireek/llm/ollama.ts
+/* PGFX: LLM request timeout — env-overridable. Default 30 min (was hard-coded 15 min).
+   Local models + long lyrics can legitimately exceed 15 min; the previous cap caused
+   false "timed out" failures while the model was still generating. */
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS) || 1800000;
 init_config();
 var OllamaProvider = class extends LLMProvider {
   id = "ollama";
@@ -154161,7 +154165,7 @@ var OllamaProvider = class extends LLMProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(9e5)
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS)
     });
     let resp = await doFetch();
     if (!resp.ok && noThink && resp.status === 400 && "think" in payload) {
@@ -154281,7 +154285,7 @@ var LMStudioProvider = class extends LLMProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(9e5)
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS)
     });
     let resp = await doFetch();
     if (!resp.ok && noThink && resp.status === 400) {
@@ -154382,7 +154386,7 @@ var UnslothProvider = class extends LLMProvider {
         "Authorization": `Bearer ${token}`
       },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(9e5)
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS)
     });
     if (!resp.ok) throw new Error(`Unsloth error: ${resp.status} ${await resp.text()}`);
     return await readSSE(resp, onChunk || (() => {
@@ -154461,7 +154465,7 @@ var OpenAICompatProvider = class extends LLMProvider {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(9e5)
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS)
     });
     if (!resp.ok) throw new Error(`${this.name} error: ${resp.status} ${await resp.text()}`);
     return await readSSE(resp, onChunk, (data2) => data2.choices?.[0]?.delta?.content || null, (data2) => data2.choices?.[0]?.delta?.reasoning_content || null);
@@ -154533,7 +154537,7 @@ var LlamaCppProvider = class extends LLMProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(9e5)
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS)
     });
     if (!resp.ok) throw new Error(`llama.cpp error: ${resp.status} ${await resp.text()}`);
     return await readSSE(resp, onChunk, (data2) => data2.choices?.[0]?.delta?.content || null, (data2) => data2.choices?.[0]?.delta?.reasoning_content || null);
@@ -297954,7 +297958,7 @@ setInterval(() => {
 }, 6e4);
 async function pollUntilDone2(aceJobId, job, signal) {
   const POLL_INTERVAL = 500;
-  const MAX_POLLS = 600;
+  const MAX_POLLS = 2400; /* PGFX: 5 min -> 20 min. Engine LM inspire jobs on slower CUDA builds routinely exceed 5 min. */
   for (let i = 0; i < MAX_POLLS; i++) {
     if (signal.aborted || job.status === "cancelled") {
       await aceClient.cancelJob(aceJobId);
@@ -299054,11 +299058,11 @@ router21.post("/video/create", async (req, res) => {
     /* ── VISUALIZATION: Select mode based on section type for variety ── */
     /* Instead of always using showwaves, cycle through visualization modes */
     var vizModes = [
-      "showfreqs=s=1920x200:mode=line:fscale=lin:color=green:rate=30",           /* frequency bars (verse) */
+      "showfreqs=s=1920x200:mode=line:fscale=lin:colors=green:rate=30",           /* frequency bars (verse) */
       "showwaves=s=1920x200:mode=cline:colors=cyan@0.5:rate=30",                  /* waveform (intro/outro) */
       "showspectrum=s=1920x200:mode=combined:color=intensity:fscale=lin:saturation=5:rate=30", /* spectrum (chorus) */
       "showwaves=s=1920x200:mode=point:colors=magenta@0.6:rate=30",               /* dot pattern (bridge) */
-      "showfreqs=s=1920x200:mode=line:fscale=log:color=yellow:rate=30",           /* log freq (build) */
+      "showfreqs=s=1920x200:mode=line:fscale=log:colors=yellow:rate=30",           /* log freq (build) */
       "showvolume=s=1920x80:rate=30:v=0.7",                                       /* volume meter (drop) */
       "showwaves=s=1920x200:mode=p2p:colors=orange@0.5:rate=30",                  /* peaks-to-peaks (outro) */
       "showspectrum=s=1920x200:mode=combined:color=channel:fscale=lin:rate=30"    /* channel spectrum (interlude) */

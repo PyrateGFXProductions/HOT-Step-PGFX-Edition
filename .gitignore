@@ -64,3 +64,6 @@ package-lock.json
 
 # ── Windows shortcuts ────────────────────────────────────────
 *.lnk
+
+# ── AI Agents Memory ─────────────────────────────────────────
+Agents.md

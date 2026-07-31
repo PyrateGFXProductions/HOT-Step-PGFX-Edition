@@ -432,13 +432,16 @@ function buildCoverArtPrompt(opts) {
 
   if (sectionIndex >= 0 && totalSections > 0) {
     var progress = sectionIndex / Math.max(1, totalSections - 1);
-    var arcDesc = progress < 0.2 ? "early chapter — introducing the world"
-      : progress < 0.4 ? "rising action — deepening into the world"
-      : progress < 0.6 ? "middle of the story — the world is fully alive"
-      : progress < 0.8 ? "climax approaching — intensity building"
-      : "final chapter — resolution, lasting impression";
-    parts.push("Visual continuity: all section images depict the same scene, same characters, same location, same lighting palette. This is one continuous visual story, not disconnected images.");
-    parts.push("Narrative progression: " + arcDesc);
+    var arcDesc = progress < 0.2 ? "an opening moment"
+      : progress < 0.4 ? "a building moment"
+      : progress < 0.6 ? "a peak emotional moment"
+      : progress < 0.8 ? "an intensifying moment"
+      : "a closing moment";
+    /* PGFX: Avoid storyboard/chapter language — FLUX.2 renders narrative phrasing as multi-panel grids.
+       Force a single full-frame composition and move continuity into a per-series consistency note. */
+    parts.push("SINGLE IMAGE, SINGLE FRAME: one full-frame composition showing one scene only. Not a storyboard, not a comic strip, not multiple panels, not a grid of images, not a sequence, not a collage. This image stands alone.");
+    parts.push("Visual consistency: same characters, same location, same lighting palette as the other section images in this series (each section image is generated separately as its own single image).");
+    parts.push("Song moment: " + arcDesc);
   }
 
   parts.push("photorealistic, real photograph, no text, no words, no letters, no signs, no UI, no HUD, no watermark, no drawing, no illustration, no comic, no anime, no cartoon, no painted style");
@@ -476,25 +479,27 @@ function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, ti
   const total = typeof totalSections === "number" ? totalSections : 6;
   const progress = total > 1 ? idx / (total - 1) : 0.5;
   let narrativeArc = "";
-  if (progress < 0.2) narrativeArc = "early chapter — introducing the world, first impressions, dawn of the story";
-  else if (progress < 0.4) narrativeArc = "rising action — deepening into the world, details emerging";
-  else if (progress < 0.6) narrativeArc = "middle of the story — the world is fully alive, stakes are real";
-  else if (progress < 0.8) narrativeArc = "climax approaching — intensity building, the world at its most vivid";
-  else narrativeArc = "final chapter — resolution, the world fading or transforming, lasting impression";
+  if (progress < 0.2) narrativeArc = "an opening moment, first impressions";
+  else if (progress < 0.4) narrativeArc = "a building moment, details emerging";
+  else if (progress < 0.6) narrativeArc = "a peak emotional moment, the mood at its fullest";
+  else if (progress < 0.8) narrativeArc = "an intensifying moment, the mood at its most vivid";
+  else narrativeArc = "a closing moment, resolution settling in";
 
   const visualEssence = extractVisualEssence(lyrics);
 
   const parts = [
     `Scene: ${visualWorld}`,
-    `Story arc: ${narrative.position}, ${narrative.energy}`,
-    `Narrative progression: ${narrativeArc}`,
+    `Song moment: ${narrative.position}, ${narrative.energy} — ${narrativeArc}`,
     genreVisual ? `Visual style: ${genreVisual}` : "",
     `Atmosphere: ${scene.mood}`,
     `Moment: ${scene.pose}`,
     visualEssence ? `Imagery: ${visualEssence}` : "",
     title ? `Song theme: ${title}` : "",
-    `Visual continuity: all section images depict the same scene, same characters, same location, same lighting palette. This is one continuous visual story, not disconnected images.`,
-    "cinematic film still, dramatic lighting, photorealistic, 8k, cohesive visual narrative"
+    /* PGFX: FLUX.2 treats "visual story/chapters" as a request for multi-panel storyboards.
+       Keep per-series consistency without narrative framing; force a single frame. */
+    `Visual consistency: same characters, same location, same lighting palette as the other section images in this series (each section image is generated separately as its own single image).`,
+    "SINGLE IMAGE, SINGLE FRAME: one full-frame composition showing one scene only. Not a storyboard, not a comic strip, not multiple panels, not a grid of images, not a sequence, not a collage. This image stands alone.",
+    "cinematic film still, dramatic lighting, photorealistic, 8k"
   ].filter(Boolean);
   return parts.join(". ");
 }

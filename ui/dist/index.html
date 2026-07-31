@@ -600,6 +600,14 @@
             if (t._stage) html += '<span style="font-size:10px;color:#71717a;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + t._stage + '</span>';
             if (t._videoUrl) html += '<a href="' + t._videoUrl + '" target="_blank" style="font-size:10px;color:#22c55e;text-decoration:none;" title="Watch video">\uD83C\uDFA5</a>';
             if (t._audioUrl) html += '<a href="' + t._audioUrl + '" target="_blank" style="font-size:10px;color:#a855f7;text-decoration:none;">\u25B6</a>';
+            /* Per-track retry buttons — visible only when the batch is idle */
+            if (!generating && !retryingTrack) {
+              if (t._status === 'error') {
+                html += '<button class="ab-r-audio" data-i="' + i + '" title="Retry audio — regenerate this track" style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid rgba(239,68,68,0.4);background:rgba(239,68,68,0.15);color:#fca5a5;cursor:pointer;">\u21BB</button>';
+              } else if (t._status === 'done' && !t._videoUrl && (t.lyrics || '').length > 50) {
+                html += '<button class="ab-r-video" data-i="' + i + '" title="Generate video for this track" style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid rgba(168,85,247,0.4);background:rgba(168,85,247,0.15);color:#d8b4fe;cursor:pointer;">\uD83C\uDFA5</button>';
+              }
+            }
             html += '</div>';
           }
 
@@ -628,6 +636,20 @@
           if (canBtn) canBtn.onclick = function() { cancelled = true; };
           var retryBtn = document.getElementById('ab-retry-template');
           if (retryBtn) retryBtn.onclick = function() { tryLoadTemplate(); };
+
+          /* Wire per-track retry buttons */
+          var audioBtns = panel.querySelectorAll('.ab-r-audio');
+          for (var abi = 0; abi < audioBtns.length; abi++) {
+            (function(idx) {
+              audioBtns[idx].onclick = function() { retryTrackAudio(parseInt(this.getAttribute('data-i'), 10)); };
+            })(abi);
+          }
+          var videoBtns = panel.querySelectorAll('.ab-r-video');
+          for (var vbi = 0; vbi < videoBtns.length; vbi++) {
+            (function(idx) {
+              videoBtns[idx].onclick = function() { retryTrackVideo(parseInt(this.getAttribute('data-i'), 10)); };
+            })(vbi);
+          }
         }
 
         function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
@@ -671,11 +693,15 @@
 
         /* Poll job status until complete */
         async function pollJob(jobId) {
-          var TIMEOUT = 15 * 60 * 1000;
+          /* Client wait cap — must be >= server per-phase limit (generationTimeoutMinutes,
+             default 45 min per phase, clamped 5-120). Album jobs run LM + synthesis
+             phases inside one job, so allow up to 90 min total. The server job keeps
+             running even if this client gives up — raising this prevents false failures. */
+          var TIMEOUT = 90 * 60 * 1000;
           var start = Date.now();
           while (!cancelled) {
             await sleep(2000);
-            if (Date.now() - start > TIMEOUT) throw new Error('Timed out after 15 minutes');
+            if (Date.now() - start > TIMEOUT) throw new Error('Timed out after 90 minutes (job continues on server — check the library before regenerating)');
             var resp = await fetch('/api/generate/status/' + jobId, {
               headers: { 'Authorization': 'Bearer ' + TOKEN }
             });
@@ -1007,112 +1033,165 @@
           for (var i = 0; i < tracks.length; i++) {
             if (cancelled) break;
             var t = tracks[i];
-            t._status = 'generating';
-            t._stage = 'Preparing params...';
-            render();
-
-            try {
-              var params = getParamsForTrack(t);
-              console.log('[AlbumBatch] Track ' + (i+1) + ': POST /api/generate — source=' + params.source +
-                ' inferMethod=' + params.inferMethod + ' scheduler=' + params.scheduler +
-                ' guidanceMode=' + params.guidanceMode + ' guidanceScale=' + params.guidanceScale +
-                ' inferenceSteps=' + params.inferenceSteps +
-                ' dcwEnabled=' + params.dcwEnabled + ' dcwMode=' + params.dcwMode +
-                ' dcwScaler=' + params.dcwScaler);
-
-              t._stage = 'Submitting...';
-              render();
-
-              /* Submit generation request */
-              var resp = await fetch('/api/generate', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer ' + TOKEN
-                },
-                body: JSON.stringify(params)
-              });
-
-              if (!resp.ok) {
-                var errData = await resp.json().catch(function() { return {}; });
-                throw new Error(errData.error || 'Generation request failed (' + resp.status + ')');
-              }
-
-              var jobData = await resp.json();
-              var jobId = jobData.jobId;
-              if (!jobId) throw new Error('No jobId returned from server');
-
-              t._jobId = jobId;
-              t._stage = 'Queued...';
-              render();
-              console.log('[AlbumBatch] Track ' + (i+1) + ': jobId=' + jobId);
-
-              /* Poll for completion */
-              t._stage = 'Generating...';
-              render();
-
-              var result = await pollJob(jobId);
-              t._audioUrl = (result.result && result.result.audioUrls && result.result.audioUrls[0]) || '';
-              t._masteredUrl = (result.result && result.result.masteredAudioUrl) || '';
-              t._status = 'done';
-              t._stage = 'Audio complete';
-              render();
-              console.log('[AlbumBatch] Track ' + (i+1) + ' audio complete: ' + (t.title || 'Untitled'));
-
-              /* ── VIDEO GENERATION: unified endpoint (same as visualizer single-track) ── */
-              try {
-                var trackLyrics = t.lyrics || '';
-                if (trackLyrics.length > 50 && t._audioUrl) {
-                  t._stage = 'Generating video...';
-                  render();
-                  console.log('[AlbumBatch] Track ' + (i+1) + ': Generating video via unified endpoint');
-
-                  var videoResp = await fetch('/api/inspire/video/create', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-                    body: JSON.stringify({
-                      audioUrl: t._audioUrl,
-                      lyrics: trackLyrics,
-                      style: albumGenre || '',
-                      caption: t.style || '',
-                      trackTitle: t.title || '',
-                      coverArtSubject: t.coverArtSubject || ''
-                    })
-                  });
-                  if (videoResp.ok) {
-                    var videoData = await videoResp.json();
-                    t._videoUrl = videoData.videoPath || '';
-                    t._stage = 'Complete (+ video)';
-                    console.log('[AlbumBatch] Track ' + (i+1) + ' video: ' + t._videoUrl + ' (' + videoData.images + ' sections)');
-                  } else {
-                    var vErr = await videoResp.json().catch(function() { return {}; });
-                    console.warn('[AlbumBatch] Track ' + (i+1) + ' video failed: ' + (vErr.error || videoResp.status));
-                    t._stage = 'Audio complete (video failed)';
-                  }
-                } else {
-                  t._stage = 'Audio complete';
-                }
-              } catch(vidErr) {
-                console.warn('[AlbumBatch] Track ' + (i+1) + ' video pipeline error:', vidErr);
-                t._stage = 'Audio complete (video error)';
-              }
-              render();
-
-              /* Brief pause between tracks */
-              await sleep(1000);
-
-            } catch(e) {
-              t._status = 'error';
-              t._stage = 'Failed: ' + e.message;
-              render();
-              console.error('[AlbumBatch] Track ' + (i+1) + ' failed:', e);
-            }
+            var ok = await generateTrackAudio(t, i);
+            if (!ok) continue;
+            await generateTrackVideo(t, i);
+            await sleep(1000);
           }
 
           generating = false;
           render();
           var finalDone = tracks.filter(function(t) { return t._status === 'done'; }).length;
           console.log('[AlbumBatch] Batch complete: ' + finalDone + '/' + tracks.length + ' succeeded');
+        }
+
+        /* ── Per-track generation helpers (audio + video) ── */
+
+        /* Generate audio for ONE track: submit /api/generate, poll to completion.
+           Returns true on success, false on failure (track state set accordingly). */
+        async function generateTrackAudio(t, i) {
+          t._status = 'generating';
+          t._stage = 'Preparing params...';
+          t._error = '';
+          render();
+          try {
+            var params = getParamsForTrack(t);
+            console.log('[AlbumBatch] Track ' + (i+1) + ': POST /api/generate — source=' + params.source +
+              ' inferMethod=' + params.inferMethod + ' scheduler=' + params.scheduler +
+              ' guidanceMode=' + params.guidanceMode + ' guidanceScale=' + params.guidanceScale +
+              ' inferenceSteps=' + params.inferenceSteps +
+              ' dcwEnabled=' + params.dcwEnabled + ' dcwMode=' + params.dcwMode +
+              ' dcwScaler=' + params.dcwScaler);
+
+            t._stage = 'Submitting...';
+            render();
+
+            /* Submit generation request */
+            var resp = await fetch('/api/generate', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + TOKEN
+              },
+              body: JSON.stringify(params)
+            });
+
+            if (!resp.ok) {
+              var errData = await resp.json().catch(function() { return {}; });
+              throw new Error(errData.error || 'Generation request failed (' + resp.status + ')');
+            }
+
+            var jobData = await resp.json();
+            var jobId = jobData.jobId;
+            if (!jobId) throw new Error('No jobId returned from server');
+
+            t._jobId = jobId;
+            t._stage = 'Queued...';
+            render();
+            console.log('[AlbumBatch] Track ' + (i+1) + ': jobId=' + jobId);
+
+            /* Poll for completion */
+            t._stage = 'Generating...';
+            render();
+
+            var result = await pollJob(jobId);
+            t._audioUrl = (result.result && result.result.audioUrls && result.result.audioUrls[0]) || '';
+            t._masteredUrl = (result.result && result.result.masteredAudioUrl) || '';
+            t._status = 'done';
+            t._stage = 'Audio complete';
+            render();
+            console.log('[AlbumBatch] Track ' + (i+1) + ' audio complete: ' + (t.title || 'Untitled'));
+            return true;
+          } catch(e) {
+            t._status = 'error';
+            t._stage = 'Failed: ' + e.message;
+            t._error = e.message;
+            render();
+            console.error('[AlbumBatch] Track ' + (i+1) + ' failed:', e);
+            return false;
+          }
+        }
+
+        /* Generate video for ONE track via the unified /api/inspire/video/create endpoint.
+           Best-effort — never fails the track (audio is the critical deliverable). */
+        async function generateTrackVideo(t, i) {
+          var trackLyrics = t.lyrics || '';
+          if (trackLyrics.length <= 50 || !t._audioUrl) {
+            if (t._status === 'done' && !t._videoUrl) t._stage = 'Audio complete';
+            render();
+            return false;
+          }
+          t._stage = 'Generating video...';
+          t._videoError = '';
+          render();
+          try {
+            console.log('[AlbumBatch] Track ' + (i+1) + ': Generating video via unified endpoint');
+            var videoResp = await fetch('/api/inspire/video/create', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+              body: JSON.stringify({
+                audioUrl: t._audioUrl,
+                lyrics: trackLyrics,
+                style: albumGenre || '',
+                caption: t.style || '',
+                trackTitle: t.title || '',
+                coverArtSubject: t.coverArtSubject || ''
+              })
+            });
+            if (videoResp.ok) {
+              var videoData = await videoResp.json();
+              t._videoUrl = videoData.videoPath || '';
+              t._stage = 'Complete (+ video)';
+              render();
+              console.log('[AlbumBatch] Track ' + (i+1) + ' video: ' + t._videoUrl + ' (' + videoData.images + ' sections)');
+              return true;
+            } else {
+              var vErr = await videoResp.json().catch(function() { return {}; });
+              console.warn('[AlbumBatch] Track ' + (i+1) + ' video failed: ' + (vErr.error || videoResp.status));
+              t._stage = 'Audio complete (video failed)';
+              t._videoError = vErr.error || ('HTTP ' + videoResp.status);
+              render();
+              return false;
+            }
+          } catch(vidErr) {
+            console.warn('[AlbumBatch] Track ' + (i+1) + ' video pipeline error:', vidErr);
+            t._stage = 'Audio complete (video error)';
+            t._videoError = vidErr.message || 'Unknown error';
+            render();
+            return false;
+          }
+        }
+
+        /* Per-track retry handlers (single-flight guarded so only one retry runs at a time) */
+        var retryingTrack = false;
+        async function retryTrackAudio(i) {
+          if (generating || retryingTrack || !templateReady) return;
+          var t = tracks[i];
+          if (!t) return;
+          retryingTrack = true;
+          render();
+          try {
+            t._videoUrl = '';            /* stale video no longer matches the new audio */
+            t._videoError = '';
+            var ok = await generateTrackAudio(t, i);
+            if (ok) await generateTrackVideo(t, i);   /* also recover video if audio was the blocker */
+          } finally {
+            retryingTrack = false;
+            render();
+          }
+        }
+        async function retryTrackVideo(i) {
+          if (generating || retryingTrack) return;
+          var t = tracks[i];
+          if (!t) return;
+          retryingTrack = true;
+          render();
+          try {
+            await generateTrackVideo(t, i);
+          } finally {
+            retryingTrack = false;
+            render();
+          }
         }
 
         /* Download all completed tracks as a ZIP file with folder structure:
