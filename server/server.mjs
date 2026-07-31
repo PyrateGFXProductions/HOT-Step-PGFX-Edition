@@ -62361,7 +62361,7 @@ var require_formdata = __commonJS({
     var { webidl } = require_webidl();
     var nodeUtil = __require("node:util");
     var FormData = class _FormData {
-      #state = [];
+      _state = [];
       constructor(form = void 0) {
         webidl.util.markAsUncloneable(this);
         if (form !== void 0) {
@@ -62386,39 +62386,39 @@ var require_formdata = __commonJS({
           value = webidl.converters.USVString(value);
         }
         const entry = makeEntry(name, value, filename);
-        this.#state.push(entry);
+        this._state.push(entry);
       }
       delete(name) {
         webidl.brandCheck(this, _FormData);
         const prefix = "FormData.delete";
         webidl.argumentLengthCheck(arguments, 1, prefix);
         name = webidl.converters.USVString(name);
-        this.#state = this.#state.filter((entry) => entry.name !== name);
+        this._state = this._state.filter((entry) => entry.name !== name);
       }
       get(name) {
         webidl.brandCheck(this, _FormData);
         const prefix = "FormData.get";
         webidl.argumentLengthCheck(arguments, 1, prefix);
         name = webidl.converters.USVString(name);
-        const idx = this.#state.findIndex((entry) => entry.name === name);
+        const idx = this._state.findIndex((entry) => entry.name === name);
         if (idx === -1) {
           return null;
         }
-        return this.#state[idx].value;
+        return this._state[idx].value;
       }
       getAll(name) {
         webidl.brandCheck(this, _FormData);
         const prefix = "FormData.getAll";
         webidl.argumentLengthCheck(arguments, 1, prefix);
         name = webidl.converters.USVString(name);
-        return this.#state.filter((entry) => entry.name === name).map((entry) => entry.value);
+        return this._state.filter((entry) => entry.name === name).map((entry) => entry.value);
       }
       has(name) {
         webidl.brandCheck(this, _FormData);
         const prefix = "FormData.has";
         webidl.argumentLengthCheck(arguments, 1, prefix);
         name = webidl.converters.USVString(name);
-        return this.#state.findIndex((entry) => entry.name === name) !== -1;
+        return this._state.findIndex((entry) => entry.name === name) !== -1;
       }
       set(name, value, filename = void 0) {
         webidl.brandCheck(this, _FormData);
@@ -62434,19 +62434,19 @@ var require_formdata = __commonJS({
           value = webidl.converters.USVString(value);
         }
         const entry = makeEntry(name, value, filename);
-        const idx = this.#state.findIndex((entry2) => entry2.name === name);
+        const idx = this._state.findIndex((entry2) => entry2.name === name);
         if (idx !== -1) {
-          this.#state = [
-            ...this.#state.slice(0, idx),
+          this._state = [
+            ...this._state.slice(0, idx),
             entry,
-            ...this.#state.slice(idx + 1).filter((entry2) => entry2.name !== name)
+            ...this._state.slice(idx + 1).filter((entry2) => entry2.name !== name)
           ];
         } else {
-          this.#state.push(entry);
+          this._state.push(entry);
         }
       }
       [nodeUtil.inspect.custom](depth, options) {
-        const state = this.#state.reduce((a, b) => {
+        const state = this._state.reduce((a, b) => {
           if (a[b.name]) {
             if (Array.isArray(a[b.name])) {
               a[b.name].push(b.value);
@@ -62467,14 +62467,14 @@ var require_formdata = __commonJS({
        * @param {FormData} formData
        */
       static getFormDataState(formData) {
-        return formData.#state;
+        return formData._state;
       }
       /**
        * @param {FormData} formData
        * @param {any[]} newState
        */
       static setFormDataState(formData, newState) {
-        formData.#state = newState;
+        formData._state = newState;
       }
     };
     var { getFormDataState, setFormDataState } = FormData;
