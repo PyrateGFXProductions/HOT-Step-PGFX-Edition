@@ -1547,5 +1547,81 @@
       document.body.appendChild(btn);
     })();
     </script>
+
+    <!-- Collapsible Floating Icon Tray — collapses 4 right-side icons into a thin pill with an arrow -->
+    <script>
+      (function() {
+        var STORAGE_KEY = 'hs-floating-collapsed';
+        var isCollapsed = localStorage.getItem(STORAGE_KEY) === 'true';
+
+        // Find all 4 floating buttons by their unique title attributes
+        function getFloatingButtons() {
+          return document.querySelectorAll(
+            '#cr-btn, ' +
+            'button[title*="Cover Art Engine"], ' +
+            'a[title*="Album Generator"], ' +
+            'button[title*="Ko-fi"], a[title*="Ko-fi"]'
+          );
+        }
+
+        // Close any open floating panels
+        function closePanels() {
+          var crPanel = document.getElementById('cr-panel');
+          var caPanel = document.getElementById('cover-art-engine-panel');
+          if (crPanel) crPanel.style.display = 'none';
+          if (caPanel) caPanel.style.display = 'none';
+        }
+
+        // Apply collapsed/expanded state
+        function applyState(collapsed) {
+          var btns = getFloatingButtons();
+          for (var i = 0; i < btns.length; i++) {
+            btns[i].style.display = collapsed ? 'none' : '';
+          }
+          if (collapsed) closePanels();
+          pill.textContent = collapsed ? '\u25B2' : '\u25BC';
+          pill.title = collapsed ? 'Show floating tools' : 'Hide floating tools';
+          // When collapsed, pill sits where the lowest button was; when expanded, drops below
+          pill.style.bottom = collapsed ? '60px' : '8px';
+        }
+
+        // Create the pill toggle
+        var pill = document.createElement('button');
+        pill.id = 'hs-floating-toggle';
+        pill.title = '';
+        pill.style.cssText =
+          'position:fixed;bottom:8px;right:16px;width:44px;height:18px;' +
+          'border-radius:9px;border:1px solid rgba(148,163,184,0.3);' +
+          'background:rgba(30,41,59,0.6);color:#94a3b8;font-size:10px;' +
+          'display:flex;align-items:center;justify-content:center;' +
+          'z-index:10001;cursor:pointer;padding:0;' +
+          'transition:all 0.2s;backdrop-filter:blur(4px);' +
+          'font-family:system-ui,sans-serif;line-height:1;';
+        pill.onmouseenter = function() {
+          this.style.background = 'rgba(51,65,85,0.8)';
+          this.style.color = '#e2e8f0';
+          this.style.borderColor = 'rgba(148,163,184,0.6)';
+        };
+        pill.onmouseleave = function() {
+          this.style.background = 'rgba(30,41,59,0.6)';
+          this.style.color = '#94a3b8';
+          this.style.borderColor = 'rgba(148,163,184,0.3)';
+        };
+        pill.onclick = function() {
+          isCollapsed = !isCollapsed;
+          localStorage.setItem(STORAGE_KEY, isCollapsed ? 'true' : 'false');
+          applyState(isCollapsed);
+        };
+
+        document.body.appendChild(pill);
+        // Apply initial state (wait for all buttons to be in DOM)
+        if (isCollapsed) {
+          // Apply after a tick to ensure all buttons exist
+          setTimeout(function() { applyState(true); }, 50);
+        } else {
+          applyState(false);
+        }
+      })();
+    </script>
   </body>
 </html>

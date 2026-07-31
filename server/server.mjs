@@ -45723,22 +45723,24 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
     // UPDATED: Detect any tag starting with [Outro, allowing for descriptions like [Outro: Fade]
     const hasOutroSection = /^\[Outro(\s*[:\-].*)?\]$/i.test(lastNonEmpty);
     const allOutroSections = lines.filter(l => /^\[Outro/i.test(l.trim()));
-    // Check if the last [Outro] section has any lyric lines after it
-    let outroHasLyrics = false;
-    if (hasOutroSection) {
-      const outroIdx = lastNonEmptyIdx;
-      // Find the ACTUAL start of the last outro section to count its lyrics
-      let startOfLastOutro = 0;
-      for(let i = lines.length - 1; i >= 0; i--) {
-        if (/^\[Outro/i.test(lines[i].trim())) {
-          startOfLastOutro = i;
-          break;
-        }
+    // Check if ANY [Outro] section has adequate lyrics (not just the last one —
+    // the LLM sometimes appends an empty [Outro] header after a valid outro)
+    let hasValidOutro = false;
+    let lastOutroStart = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\[Outro/i.test(lines[i].trim())) {
+        lastOutroStart = i;
+        const afterLines = lines.slice(i + 1).filter(l => l.trim() && !/^\[.+\]$/.test(l.trim()));
+        if (afterLines.length >= 2) hasValidOutro = true;
       }
-      const linesAfterOutro = lines.slice(startOfLastOutro + 1).filter(l => l.trim() && !/^\[.+\]$/.test(l.trim()));
-      outroHasLyrics = linesAfterOutro.length >= 2;
     }
-    if (!hasOutroSection || !outroHasLyrics) {
+    // Check if the last [Outro] section is the empty trailing one
+    let lastOutroIsEmpty = false;
+    if (hasOutroSection && lastOutroStart >= 0) {
+      const afterLines = lines.slice(lastOutroStart + 1).filter(l => l.trim() && !/^\[.+\]$/.test(l.trim()));
+      lastOutroIsEmpty = afterLines.length < 2;
+    }
+    if (!hasOutroSection || !hasValidOutro) {
       // Extract the last chorus or verse lines to use as outro fodder
       const chorusLines = [];
       let inChorus = false;
@@ -45798,6 +45800,31 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
         // No chorus lines available — add a minimal [Outro] header (instrumental fade)
         result = result.replace(/\s*$/, "") + "\n\n[Outro]\n\n";
         console.log(`[OutroFix] Added empty [Outro] section (no chorus lines available for echo)`);
+      }
+    } else if (lastOutroIsEmpty) {
+      // Valid outro exists elsewhere — just clean up the trailing empty [Outro] header
+      const cleanedLines = [];
+      let skipEmptyOutro = false;
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i].trim();
+        if (/^\[Outro\]$/i.test(l)) {
+          let nextLyricIdx = i + 1;
+          while (nextLyricIdx < lines.length && !lines[nextLyricIdx].trim()) nextLyricIdx++;
+          const nextLine = lines[nextLyricIdx]?.trim() || "";
+          if (!nextLine || /^\[.+\]$/.test(nextLine)) {
+            skipEmptyOutro = true;
+            continue;
+          }
+        }
+        if (skipEmptyOutro && /^\[.+\]$/.test(l) && !/^\[Outro\]/i.test(l)) {
+          skipEmptyOutro = false;
+        }
+        if (!skipEmptyOutro) cleanedLines.push(lines[i]);
+      }
+      const cleaned = cleanedLines.join("\n").replace(/\n{3,}/g, "\n\n");
+      if (cleaned !== result) {
+        result = cleaned;
+        console.log(`[OutroFix] Cleaned up trailing empty [Outro] header (existing outro with lyrics preserved)`);
       }
     }
   }
@@ -47871,6 +47898,7 @@ STRUCTURE RULES (MANDATORY \u2014 THESE ARE NON-NEGOTIABLE):
 - If the blueprint includes a [Pre-Chorus], you MUST write a pre-chorus.
 - VALID SECTION LABELS (use ONLY these): [Intro], [Verse 1], [Verse 2], [Verse 3], [Pre-Chorus], [Chorus], [Post-Chorus], [Bridge], [Interlude], [Outro]. Do NOT use [X], [Breakdown], [Drop], [Solo], [Hook], or any other labels.
 - CHORUS IS MANDATORY: Every song MUST have at least one [Chorus]. A chorus is a repeating section \u2014 if a section appears more than once, it is a chorus, not a bridge.
+- CHORUS VARIATION (CRITICAL): When a chorus repeats later in the song, VARY the lyrics. Do NOT copy the chorus verbatim from its first appearance. Keep the SAME HOOK PHRASE(S) and melodic/core structure, but change the supporting lines. Each repetition should feel like the SAME chorus with EVOLVED energy \u2014 the first chorus establishes, the second intensifies, the third resolves (or is the most intense). The emotion must build across repetitions. A chorus that appears 3 times with identical lyrics sounds lazy and repetitive. The hook stays; the surrounding words grow.
 - BRIDGE vs CHORUS: A bridge is a ONE-TIME contrasting section, typically appearing once before the final chorus. It should NOT repeat. If you are writing a section that repeats throughout the song, label it [Chorus], NOT [Bridge].
 - *** LINE COUNT \u2014 ABSOLUTE RULE ***
   VERSES: Every verse MUST have EXACTLY 4 lines or EXACTLY 8 lines. NO EXCEPTIONS.
