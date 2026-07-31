@@ -1,8 +1,9 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 28, 2026 (updated — Phase 14: ComfyUI Model Manager tab, LTX2.3 model registry, Gemini 403 suppression, stall timeout fix)  
-**Modified Files**: `server/server.mjs`, `server/services/comfyui-client.mjs`, `server/services/comfyui-model-scanner.mjs` (NEW), `server/services/comfyui-bridge.mjs` (NEW), `server/services/beat-detector.mjs`, `server/services/prompt-builder.mjs`, `server/data/model-registry.json`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`, `ui/dist/music-video.html`
+**Report Date**: July 29, 2026 (updated — Phase 15: Hook Architecture for lyric memorability, Layer 1–3)  
+**Modified Files**: `server/server.mjs`, `server/services/comfyui-client.mjs`, `server/services/comfyui-model-scanner.mjs` (NEW), `server/services/comfyui-bridge.mjs` (NEW), `server/services/beat-detector.mjs`, `server/services/prompt-builder.mjs`, `server/data/model-registry.json`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`, `ui/dist/music-video.html`  
+**Phase 15** (July 29): `server/server.mjs` only — Hook Architecture Layer 1 (9 system prompt edits), Layer 2 (`enhanceHook()` quality gate + 2 call sites), Layer 3 (`GENRE_HOOK_TIMING` dictionary + `buildGenreStructureHint()` enhancement)
 
 ---
 
@@ -38,7 +39,9 @@ The modified `server.mjs` grew from **294,865 lines** to **~301,100 lines** (net
 
 **Phase 13** (July 28): ComfyUI Bridge for Cover Art — refactored `generateCoverImage()` to support ComfyUI mode via `bridgeGenerateImage()`, added `GET /api/cover-art/comfyui-models` endpoint (scans ComfyUI `diffusion_models/`, `unet/`, `vae/`, `clip/`, `text_encoder/` directories), model picker floating panel in index.html (connection status with VRAM info, dropdown selectors for UNet/VAE/CLIP, auto-save to localStorage), threaded new settings (`coverArtUseComfyUI`, `coverArtModel`, `coverArtVae`, `coverArtClip`) through both parallel and sequential generation pipelines, readiness check split (ComfyUI connection check vs local file check), backward-compatible — falls back to local sd-cli.exe when ComfyUI is offline.
 
-**Phase 14** (July 28): ComfyUI Model Manager tab & LTX2.3 model registry — added `"comfyui"` role tab to the React bundle's role-based model manager (4 patches to `index-DscBS4mv.js`: Z_ array, $_ description, useMemo filter, return handler), registered 6 LTX2.3 model files and 2 Video Pipeline packs in `model-registry.json` (download to `models/ComfyUI/` subdirectories), suppressed Gemini 403 error with early return when API key is empty, restored local default 4B model (`flux-2-klein-4b-Q4_0.gguf`) after accidental 9B upgrade, bumped stall timeout from 120s→240s, promoted `[CoverArt] Skipped` logs from DEBUG→WARNING for visibility.
+**Phase 14** (July 28): ComfyUI Model Manager tab & LTX2.3 model registry — added `"comfyui"` role tab to the React bundle's role-based model manager
+
+**Phase 15** (July 29): Hook Architecture for lyric memorability — rewrote hook instructions across all 4 LLM system prompts (GENERATION_SYSTEM_PROMPT, REFINEMENT_SYSTEM_PROMPT, INSTAGEN_LYRIC_SYSTEM_PROMPT, INSTAGEN_FULL_SYSTEM_PROMPT) with the full Hook Architecture framework: HOOK ≠ CHORUS distinction, Rule of Three with variation on 3rd repeat, hard consonant preference (K,T,P,B,D,G), concrete noun anchor requirement, hum test quality gate, hook positioning (start/end of chorus), and genre-specific Rule of Three flexibility (pop strict 3×, hip-hop 2×+ad-libs, metal 3-5× escalating, EDM vocal chop, folk lyrical variation). Added post-generation `enhanceHook()` quality gate that parses lyrics, scores hooks against the Architecture (syllable count, hard consonants, Rule of Three compliance, hook positioning), and logs warnings for low-scoring hooks. Added `GENRE_HOOK_TIMING` dictionary with 36+ genre-specific hook timing formulas injected via `buildGenreStructureHint()` — tells the LLM exactly when and how the hook should land for each genre (e.g. pop: cold-open first 8s, metalcore: ~48s breakdown, house: ~52s drop). (4 patches to `index-DscBS4mv.js`: Z_ array, $_ description, useMemo filter, return handler), registered 6 LTX2.3 model files and 2 Video Pipeline packs in `model-registry.json` (download to `models/ComfyUI/` subdirectories), suppressed Gemini 403 error with early return when API key is empty, restored local default 4B model (`flux-2-klein-4b-Q4_0.gguf`) after accidental 9B upgrade, bumped stall timeout from 120s→240s, promoted `[CoverArt] Skipped` logs from DEBUG→WARNING for visibility.
 
 ---
 
@@ -171,6 +174,11 @@ The modified `server.mjs` grew from **294,865 lines** to **~301,100 lines** (net
 97. [LTX2.3 Video Pipeline Model Registry](#97-ltx23-video-pipeline-model-registry)
 98. [Stall Timeout Bump (120s→240s)](#98-stall-timeout-bump-120s240s)
 99. [Cover Art Log Visibility (DEBUG→WARNING)](#99-cover-art-log-visibility-debugwarning)
+
+### Phase 15 — Hook Architecture for Lyric Memorability
+100. [Layer 1: Hook Instructions Rewrite (4 Prompts)](#100-layer-1-hook-instructions-rewrite-4-prompts)
+101. [Layer 2: enhanceHook() Post-Generation Quality Gate](#101-layer-2-enhancehook-post-generation-quality-gate)
+102. [Layer 3: Genre-Specific Hook Timing](#102-layer-3-genre-specific-hook-timing)
 
 ---
 
@@ -2650,6 +2658,18 @@ logger.warn(`[CoverArt] Skipped — no song ID provided`);
 54. **Phase 14**: Change `[CoverArt] Skipped` messages from `logger.debug` to `logger.warn` for console visibility
 55. **Phase 14**: Add 6 LTX2.3 model entries to `server/data/model-registry.json` with `role: "comfyui"` — `ltx-unet-q4km`, `ltx-unet-fp8`, `ltx-video-vae`, `ltx-audio-vae`, `ltx-clip`, `ltx-gemma-encoder`
 56. **Phase 14**: Add 2 video pipeline packs to `model-registry.json` — `Video Pipeline` (5 files, ~8.7 GB) and `Video Pipeline (Full)` (6 files, ~16.9 GB)
+57. **Phase 15**: Rewrite `REPETITION / HOOK RULES` + `HOOK SPECIFICITY RULES` in `GENERATION_SYSTEM_PROMPT` — replaced with HOOK ARCHITECTURE section (Hook ≠ Chorus, Rule of Three, hard consonants, concrete noun anchor, hum test, positioning, genre flexibility) and enhanced HOOK SPECIFICITY RULES with cross-genre specificity examples
+58. **Phase 15**: Rewrite Section 2 (`CHORUS DESIGN`) in `REFINEMENT_SYSTEM_PROMPT` — replaced with `CHORUS & HOOK ARCHITECTURE` section covering all Hook Architecture rules
+59. **Phase 15**: Replace Rule 24 (`HOOKIFY`) in `REFINEMENT_SYSTEM_PROMPT` with `HOOK ARCHITECTURE` — 10-point system (a-j) covering hook definition, Rule of Three, hard consonant check, concrete noun anchor, hum test, positioning, vocal exclamations, genre calibration, exception, and quality check
+60. **Phase 15**: Replace Rule 26 (`HOOK QUALITY GATE`) in `REFINEMENT_SYSTEM_PROMPT` with full 7-point Hook Architecture quality gate (banned formula check, Rule of Three check, concrete noun check, hard consonant check, hum test, positioning check, genre fit)
+61. **Phase 15**: Replace `HOOK RULES` in `INSTAGEN_LYRIC_SYSTEM_PROMPT` with full `HOOK ARCHITECTURE` section (14 rules from Hook≠Chorus through vocal exclamations)
+62. **Phase 15**: Update STRUCTURE hook line in `INSTAGEN_LYRIC_SYSTEM_PROMPT` to reference HOOK ARCHITECTURE rules
+63. **Phase 15**: Update STRUCTURE hook line in `INSTAGEN_FULL_SYSTEM_PROMPT` — inline Hook Architecture summary with all rules
+64. **Phase 15**: Replace `CHORUS HOOK REPETITION` in `INSTAGEN_FULL_SYSTEM_PROMPT` with full `HOOK ARCHITECTURE` inline description
+65. **Phase 15**: Add `enhanceHook()` function (~130 lines) — post-generation quality gate that parses lyrics by section, identifies the hook (most repeated line in each chorus), scores against 4 criteria (syllable count 4-10, hard consonants K/T/P/B/D/G, Rule of Three compliance with variation detection, hook positioning start/end), logs detailed warnings for low-scoring hooks
+66. **Phase 15**: Insert `enhanceHook()` calls in both generation and refinement pipelines — runs after `enforceLineCounts()` and slop scan, logs score + actionable warnings
+67. **Phase 15**: Add `GENRE_HOOK_TIMING` dictionary (36+ genres) — genre-specific hook timing formulas covering when the hook lands (pop: first 8s cold-open, metalcore: ~48s breakdown, house: ~52s drop), hook style guidance, and concrete noun anchor examples
+68. **Phase 15**: Enhance `buildGenreStructureHint()` to append `HOOK ARCHITECTURE NOTE` from `GENRE_HOOK_TIMING` for the primary genre — injects timing info into the LLM prompt
 
 ### Frontend (`ui/dist/assets/index-DscBS4mv.js`)
 
@@ -2750,6 +2770,50 @@ logger.warn(`[CoverArt] Skipped — no song ID provided`);
 5. Execute via `child_process.execFile` using bundled `ffmpeg.exe`
 3. API integration: `/api/auth/auto`, `/api/inspire/llm`, `/api/generate`, `/api/generate/status`
 
+## Phase 15 — Hook Architecture for Lyric Memorability
+
+### Overview
+
+Phase 15 implements a comprehensive **Hook Architecture** framework across HOT-Step-CPP's entire lyric generation pipeline. The goal: produce genuinely catchy, memorable hooks (not just passable choruses) across all 200+ genres. The implementation is split into three layers:
+
+- **Layer 1**: Rewrite hook instructions in all 4 LLM system prompts with the full Hook Architecture framework.
+- **Layer 2**: Build a post-generation `enhanceHook()` quality gate that scores hooks against the Architecture rules.
+- **Layer 3**: Inject genre-specific hook timing formulas into `buildGenreStructureHint()`.
+
+### Background: What Makes a Hook?
+
+Research (web-sourced, June–July 2026) confirmed:
+- **Hook ≠ Chorus**: The hook is a single line/phrase (4-10 syllables); the chorus is the container.
+- **Rule of Three**: First two landings establish the pattern; the third breaks it for memorability.
+- **Hard consonants**: K, T, P, B, D, G create physical "pop" in the ear.
+- **Concrete noun anchor**: Every hook needs a physical object ("Check engine light" not "I feel empty").
+- **Hum test**: If a hook can't be hummed, it can't be remembered.
+- **Positioning**: Start or end of chorus is strongest; middle is weakest.
+- **Genre-specific timing**: Pop cold-opens in 8s, metalcore hooks at ~48s in the breakdown, house hooks at ~52s at the drop.
+
+### 100. Layer 1: Hook Instructions Rewrite (4 Prompts)
+
+**9 edits across 4 system prompts**, all in `server/server.mjs`:
+
+1. **GENERATION_SYSTEM_PROMPT**: Replaced `REPETITION / HOOK RULES` + `HOOK SPECIFICITY RULES` with `HOOK ARCHITECTURE` section (14 rules) and enhanced specificity rules with cross-genre examples.
+2. **REFINEMENT_SYSTEM_PROMPT Section 2**: Replaced "CHORUS DESIGN" with "CHORUS & HOOK ARCHITECTURE" (8 rules).
+3. **REFINEMENT_SYSTEM_PROMPT Rule 24**: Replaced "HOOKIFY" with "HOOK ARCHITECTURE" (10 sub-rules a-j).
+4. **REFINEMENT_SYSTEM_PROMPT Rule 26**: Replaced "HOOK QUALITY GATE" with full 7-point quality gate.
+5. **INSTAGEN_LYRIC_SYSTEM_PROMPT**: Replaced HOOK RULES with full HOOK ARCHITECTURE.
+6. **INSTAGEN_FULL_SYSTEM_PROMPT**: Updated STRUCTURE hook line + replaced CHORUS HOOK REPETITION with inline Hook Architecture.
+
+### 101. Layer 2: enhanceHook() Post-Generation Quality Gate
+
+Added ~130-line `enhanceHook()` function that runs after post-processing in both the generation and refinement pipelines. It parses lyrics by section, identifies the hook (most repeated line in each chorus), and scores against 4 criteria (0.25 each): syllable count 4-10, hard consonants (K/T/P/B/D/G), Rule of Three compliance with variation detection, and hook positioning (start/end). Logs detailed warnings for low-scoring hooks.
+
+### 102. Layer 3: Genre-Specific Hook Timing
+
+Added `GENRE_HOOK_TIMING` dictionary (~36 genres) with hook timing, style guidance, and concrete noun examples. Enhanced `buildGenreStructureHint()` to append a `HOOK ARCHITECTURE NOTE` from the dictionary for the primary genre, injecting timing info directly into the LLM prompt.
+
+### Modified Files
+
+- `server/server.mjs` — All changes: 9 system prompt edits, `enhanceHook()` function + 2 call sites, `GENRE_HOOK_TIMING` dictionary, `buildGenreStructureHint()` enhancement
+
 ---
 
 ## Credits & Attribution
@@ -2763,7 +2827,7 @@ This project builds upon the work of the following creators and open-source proj
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn (Plasma LUT optimization, scanline cache, delta-time frame timing), MP4 video generator, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), ComfyUI bridge with pipeline archetype registry, model parameter inference, capability discovery, and sd-cli.exe fallback, ComfyUI model browser with status widget, canvas-based Disco particle system, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, server modularization (4 service modules), FIFO ComfyUI job queue, FLUX.2 9B model upgrade, SuperSep auto-trigger cooldown guard (prevents infinite re-trigger loop on every page load), pipeline model discovery rewrite (correct directory scanning, stripRoot for loader-compatible paths), LTX 2.3 multi-model UI (6 dropdowns including Audio VAE and IC-LoRA), IC-LoRA workflow support (LTXICLoRALoaderModelOnly), ComfyUI Model Manager tab with role-based filtering, LTX2.3 video pipeline model registry (6 models + 2 packs), Gemini 403 error suppression, local default 4B model restoration, stall timeout bump (120s→240s), and all Phase 1-14 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn (Plasma LUT optimization, scanline cache, delta-time frame timing), MP4 video generator, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), ComfyUI bridge with pipeline archetype registry, model parameter inference, capability discovery, and sd-cli.exe fallback, ComfyUI model browser with status widget, canvas-based Disco particle system, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, server modularization (4 service modules), FIFO ComfyUI job queue, FLUX.2 9B model upgrade, SuperSep auto-trigger cooldown guard (prevents infinite re-trigger loop on every page load), pipeline model discovery rewrite (correct directory scanning, stripRoot for loader-compatible paths), LTX 2.3 multi-model UI (6 dropdowns including Audio VAE and IC-LoRA), IC-LoRA workflow support (LTXICLoRALoaderModelOnly), ComfyUI Model Manager tab with role-based filtering, LTX2.3 video pipeline model registry (6 models + 2 packs), Gemini 403 error suppression, local default 4B model restoration, stall timeout bump (120s→240s), **Hook Architecture with full LLM prompt rewrite across 4 system prompts (9 edits), post-generation hook quality gate (enhanceHook()), genre-specific hook timing dictionary (36 genres) injected via buildGenreStructureHint()**, and all Phase 1-15 enhancements.
 
 ### Additional
 - **Node.js** runtime — Server-side JavaScript execution

@@ -30,7 +30,7 @@
         btn.target = '_blank';
         btn.title = 'Album Generator — Generate up to 9 tracks';
         btn.textContent = '💿';
-        btn.style.cssText = 'position:fixed;bottom:60px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;text-decoration:none;z-index:9999;box-shadow:0 4px 14px rgba(168,85,247,0.4);transition:all 0.2s;cursor:pointer;';
+        btn.style.cssText = 'position:fixed;bottom:114px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#ec4899);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;text-decoration:none;z-index:9999;box-shadow:0 4px 14px rgba(168,85,247,0.4);transition:all 0.2s;cursor:pointer;';
         btn.onmouseenter = function() { this.style.transform = 'scale(1.1)'; this.style.boxShadow = '0 6px 20px rgba(168,85,247,0.6)'; };
         btn.onmouseleave = function() { this.style.transform = 'scale(1)'; this.style.boxShadow = '0 4px 14px rgba(168,85,247,0.4)'; };
         document.body.appendChild(btn);
@@ -462,17 +462,32 @@
           var url = arguments[0];
           var opts = arguments[1] || {};
           var method = opts.method || 'GET';
-          var isGenerate = method === 'POST' && typeof url === 'string' && url.indexOf('/api/generate') !== -1;
+          var urlStr = typeof url === 'string' ? url : '';
+          var isGenerate = method === 'POST' && urlStr.indexOf('/api/generate') !== -1;
+          var isLLM = method === 'POST' && urlStr.indexOf('/api/inspire/llm') !== -1;
+          // Inject creativity slider value into LLM text generation requests
+          if (isLLM) {
+            try {
+              var body = JSON.parse(opts.body);
+              var creativity = parseFloat(localStorage.getItem('hs-instagen-creativity') || '0.5');
+              if (!isNaN(creativity) && creativity >= 0 && creativity <= 1) {
+                body.creativity = Math.round(creativity * 100) / 100;
+                var newOpts = {};
+                for (var k in opts) newOpts[k] = opts[k];
+                newOpts.body = JSON.stringify(body);
+                return _origFetch.call(window, url, newOpts);
+              }
+            } catch(e) {}
+          }
           if (isGenerate) {
             try { window.__abCapturedParams = JSON.parse(opts.body); } catch(e) {}
             var chain = _origFetch.apply(this, arguments);
-            var clonedResp = chain.then(function(resp) {
+            chain.then(function(resp) {
               var c = resp.clone();
               c.json().then(function(data) {
                 if (data && data.jobId) { window.__abPendingJobId = data.jobId; }
               }).catch(function(){});
-              return resp;
-            });
+            }).catch(function(){});
             return chain;
           }
           return _origFetch.apply(this, arguments);
@@ -1191,7 +1206,7 @@
         var btn = document.createElement('button');
         btn.title = 'Cover Art Engine — ComfyUI or Local';
         btn.textContent = '\uD83D\uDDBC\uFE0F';
-        btn.style.cssText = 'position:fixed;bottom:116px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#059669,#10b981);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;text-decoration:none;z-index:9999;box-shadow:0 4px 14px rgba(5,150,105,0.4);transition:all 0.2s;cursor:pointer;border:none;';
+        btn.style.cssText = 'position:fixed;bottom:168px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#059669,#10b981);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;text-decoration:none;z-index:9999;box-shadow:0 4px 14px rgba(5,150,105,0.4);transition:all 0.2s;cursor:pointer;border:none;';
         btn.onmouseenter = function() { this.style.transform = 'scale(1.1)'; this.style.boxShadow = '0 6px 20px rgba(5,150,105,0.6)'; };
         btn.onmouseleave = function() { this.style.transform = 'scale(1)'; this.style.boxShadow = '0 4px 14px rgba(5,150,105,0.4)'; };
         document.body.appendChild(btn);
@@ -1199,7 +1214,7 @@
         /* Panel overlay */
         var panel = document.createElement('div');
         panel.id = 'cover-art-engine-panel';
-        panel.style.cssText = 'position:fixed;bottom:170px;right:16px;width:380px;max-height:500px;overflow-y:auto;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;z-index:10000;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:none;color:#e2e8f0;font-family:system-ui,sans-serif;font-size:13px;';
+        panel.style.cssText = 'position:fixed;bottom:222px;right:16px;width:380px;max-height:500px;overflow-y:auto;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;z-index:10000;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:none;color:#e2e8f0;font-family:system-ui,sans-serif;font-size:13px;';
         panel.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
           '<b style="font-size:15px;color:#f1f5f9;">\uD83D\uDDBC\uFE0F Cover Art Engine</b>' +
           '<button id="ca-panel-close" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">\u2715</button></div>' +
@@ -1432,6 +1447,104 @@
       setInterval(injectComfyUICoverArtStatus, 2000);
       /* Initial check */
       setTimeout(injectComfyUICoverArtStatus, 500);
+    })();
+    </script>
+    <!-- Creativity Slider — Controls how strictly/loosely the LLM interprets genre prompts.
+         Injects into /api/inspire/llm calls via fetch monkey-patch above. -->
+    <script>
+    (function() {
+      var STORAGE_KEY = 'hs-instagen-creativity';
+      var currentVal = parseFloat(localStorage.getItem(STORAGE_KEY)) || 0.5;
+      currentVal = Math.max(0, Math.min(1, currentVal));
+
+      function getLabel(val) {
+        if (val < 0.15) return 'Precise';
+        if (val < 0.35) return 'Balanced';
+        if (val < 0.55) return 'Creative';
+        if (val < 0.75) return 'Adventurous';
+        return 'Wild';
+      }
+
+      function getDesc(val) {
+        if (val < 0.15) return 'Follow instructions precisely — safe & consistent';
+        if (val < 0.35) return 'Moderate creativity — default sweet spot';
+        if (val < 0.55) return 'Allow interpretation — more surprises';
+        if (val < 0.75) return 'Loose interpretation — expect the unexpected';
+        return 'Maximum creativity — anything goes!';
+      }
+
+      function getColor(val) {
+        if (val < 0.15) return '#3b82f6';
+        if (val < 0.35) return '#22c55e';
+        if (val < 0.55) return '#a855f7';
+        if (val < 0.75) return '#f97316';
+        return '#ef4444';
+      }
+
+      // Floating button
+      var btn = document.createElement('button');
+      btn.id = 'cr-btn';
+      btn.title = 'Creativity Control (Auto-Gen)';
+      btn.textContent = '\u2728';
+      btn.style.cssText = 'position:fixed;bottom:222px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,' + getColor(currentVal) + ',' + getColor(Math.min(1, currentVal + 0.15)) + ');color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;text-decoration:none;z-index:9999;box-shadow:0 4px 14px rgba(0,0,0,0.4);transition:all 0.25s;cursor:pointer;border:none;';
+      btn.onmouseenter = function() { this.style.transform = 'scale(1.1)'; };
+      btn.onmouseleave = function() { this.style.transform = 'scale(1)'; };
+      document.body.appendChild(btn);
+
+      // Panel
+      var panel = document.createElement('div');
+      panel.id = 'cr-panel';
+      panel.style.cssText = 'position:fixed;bottom:276px;right:16px;width:270px;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px;z-index:10000;box-shadow:0 8px 32px rgba(0,0,0,0.5);display:none;color:#e2e8f0;font-family:system-ui,sans-serif;font-size:13px;';
+      panel.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+        '<b style="font-size:14px;color:#f1f5f9;">\u2728 Creativity</b>' +
+        '<button id="cr-close" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;padding:0;line-height:1;">\u2715</button></div>' +
+        '<div style="text-align:center;margin-bottom:4px;">' +
+        '<span id="cr-label" style="font-size:15px;font-weight:600;color:' + getColor(currentVal) + ';">' + getLabel(currentVal) + '</span></div>' +
+        '<input type="range" id="cr-slider" min="0" max="1" step="0.01" value="' + currentVal + '" style="width:100%;height:6px;cursor:pointer;">' +
+        '<div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:4px 0 8px 0;">' +
+        '<span>Strict</span><span style="margin-left:8px;">Balanced</span><span>Creative</span><span>Wild</span></div>' +
+        '<div id="cr-desc" style="font-size:11px;color:#94a3b8;line-height:1.4;text-align:center;">' + getDesc(currentVal) + '</div>';
+      document.body.appendChild(panel);
+
+      // Toggle panel
+      btn.onclick = function() {
+        var isVisible = panel.style.display !== 'none';
+        panel.style.display = isVisible ? 'none' : 'block';
+      };
+      document.getElementById('cr-close').onclick = function() {
+        panel.style.display = 'none';
+      };
+
+      // Slider handler
+      var slider = document.getElementById('cr-slider');
+      var label = document.getElementById('cr-label');
+      var desc = document.getElementById('cr-desc');
+      slider.oninput = function() {
+        var val = parseFloat(this.value);
+        currentVal = val;
+        localStorage.setItem(STORAGE_KEY, val);
+        var color = getColor(val);
+        label.textContent = getLabel(val);
+        label.style.color = color;
+        desc.textContent = getDesc(val);
+        btn.style.background = 'linear-gradient(135deg,' + color + ',' + getColor(Math.min(1, val + 0.15)) + ')';
+      };
+    })();
+    </script>
+    <!-- Support / Ko-fi floating button -->
+    <script>
+    (function() {
+      var btn = document.createElement('a');
+      btn.href = 'https://ko-fi.com/pyrategfxproductions';
+      btn.target = '_blank';
+      btn.rel = 'noopener noreferrer';
+      btn.title = 'Support PyrateGFX Productions on Ko-fi';
+      btn.textContent = '\u2615';
+      btn.style.cssText = 'position:fixed;bottom:60px;right:16px;width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#ff5e5b,#d63031);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;text-decoration:none;z-index:9999;box-shadow:0 4px 14px rgba(214,48,49,0.4);transition:all 0.2s;cursor:pointer;border:none;';
+      btn.onmouseenter = function() { this.style.transform = 'scale(1.1)'; this.style.boxShadow = '0 6px 20px rgba(214,48,49,0.6)'; };
+      btn.onmouseleave = function() { this.style.transform = 'scale(1)'; this.style.boxShadow = '0 4px 14px rgba(214,48,49,0.4)'; };
+      document.body.appendChild(btn);
     })();
     </script>
   </body>

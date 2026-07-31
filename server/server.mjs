@@ -42743,6 +42743,153 @@ function detectAnomalies(text3) {
   }
   return { issues, score };
 }
+// ── enhanceHook ────────────────────────────────────────────────────────────────
+// Post-generation Hook Architecture quality gate.
+// Parses lyrics, finds chorus sections, identifies the hook (most repeated line),
+// and scores it against the Hook Architecture rules:
+//   - Syllable count 4-10
+//   - Hard consonant presence (K,T,P,B,D,G)
+//   - Rule of Three (≥2x repeat, variation on 3rd)
+//   - Hook positioning (start or end of chorus)
+// Logs warnings for issues found.
+function enhanceHook(text) {
+  // Parse lyrics into labeled sections
+  const lines = text.split("\n");
+  const sections = [];
+  let curLabel = null;
+  let curLines = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    const m = line.match(/^\[([^\]]+)\]\s*$/);
+    if (m) {
+      if (curLabel) sections.push({ label: curLabel, lines: curLines });
+      curLabel = m[1];
+      curLines = [];
+    } else if (line) {
+      curLines.push(line);
+    }
+  }
+  if (curLabel) sections.push({ label: curLabel, lines: curLines });
+
+  // Find all chorus sections
+  const choruses = sections.filter(s => /^chorus/i.test(s.label));
+  if (choruses.length === 0) {
+    console.log("[HookGate] No chorus sections found — cannot evaluate hook.");
+    return { score: 0, warnings: ["No chorus found"] };
+  }
+
+  const allWarnings = [];
+  let totalScore = 0;
+
+  for (let ci = 0; ci < choruses.length; ci++) {
+    const lyricLines = choruses[ci].lines.filter(l => l && !/^\[.+\]$/.test(l));
+    if (lyricLines.length < 2) continue;
+
+    // Count line repetition (case-insensitive, stripped punctuation)
+    const normMap = {};
+    const originalByNorm = {};
+    for (const l of lyricLines) {
+      const key = l.toLowerCase().replace(/[^a-z0-9\s']/g, "").trim();
+      if (!key) continue;
+      normMap[key] = (normMap[key] || 0) + 1;
+      if (!originalByNorm[key]) originalByNorm[key] = l;
+    }
+
+    const repeated = Object.entries(normMap).filter(([_, cnt]) => cnt >= 2);
+    repeated.sort((a, b) => b[1] - a[1]);
+
+    const chorusNum = ci + 1;
+    let score = 0;
+    const warnings = [];
+
+    if (repeated.length === 0) {
+      warnings.push(`Chorus ${chorusNum}: No repeated line — no identifiable hook.`);
+      allWarnings.push(...warnings);
+      continue;
+    }
+
+    const [hookKey, repeatCount] = repeated[0];
+    const hookOriginal = originalByNorm[hookKey] || hookKey;
+    const allLines = lyricLines.map(l => l.toLowerCase().replace(/[^a-z0-9\s']/g, "").trim());
+
+    // 1. Syllable count check (target: 4-10)
+    let syllableCount = 0;
+    const words = hookKey.split(/\s+/);
+    for (const w of words) {
+      if (!w) continue;
+      if (w.length <= 3) { syllableCount += 1; continue; }
+      const vowelGroups = w.match(/[aeiouy]+/gi);
+      let syl = vowelGroups ? vowelGroups.length : 1;
+      if (w.endsWith("e") && w.length > 2 && !"aeiou".includes(w[w.length - 2])) syl--;
+      if (w.endsWith("le") && w.length > 2 && !"aeiou".includes(w[w.length - 3])) syl++;
+      syllableCount += Math.max(syl, 1);
+    }
+    if (syllableCount >= 4 && syllableCount <= 10) {
+      score += 0.25;
+    } else {
+      warnings.push(`Chorus ${chorusNum}: Hook "${truncStr(hookOriginal, 36)}" is ${syllableCount} syllables (target: 4-10).`);
+    }
+
+    // 2. Hard consonant check (K,T,P,B,D,G)
+    if (/[ktpbdg]/i.test(hookKey)) {
+      score += 0.25;
+    } else {
+      warnings.push(`Chorus ${chorusNum}: Hook "${truncStr(hookOriginal, 36)}" has ZERO hard consonants (K,T,P,B,D,G).`);
+    }
+
+    // 3. Rule of Three check
+    if (repeatCount >= 2) {
+      score += 0.25;
+      // Check variation on 3rd+ repeat
+      if (repeatCount >= 3) {
+        const exactMatches = lyricLines.filter(l =>
+          l.toLowerCase().replace(/[^a-z0-9\s']/g, "").trim() === hookKey
+        );
+        if (exactMatches.length >= 3) {
+          warnings.push(`Chorus ${chorusNum}: Hook repeated ${repeatCount}x identically — Rule of Three requires VARIATION on 3rd repeat.`);
+        } else {
+          score += 0.15; // bonus for having variation
+        }
+      }
+    } else {
+      warnings.push(`Chorus ${chorusNum}: Hook "${truncStr(hookOriginal, 36)}" repeated only ${repeatCount}x (target: ≥2x).`);
+    }
+
+    // 4. Hook positioning (start or end of chorus)
+    const firstNorm = allLines[0];
+    const lastNorm = allLines[allLines.length - 1];
+    const isPositioned = firstNorm === hookKey || lastNorm === hookKey;
+    // Also check if hookKey appears as substring of first or last line
+    const isPositionedSubstring = isPositioned ||
+      (firstNorm && firstNorm.includes(hookKey)) ||
+      (lastNorm && lastNorm.includes(hookKey));
+    if (isPositionedSubstring) {
+      score += 0.25;
+    } else {
+      warnings.push(`Chorus ${chorusNum}: Hook not at START or END of chorus (middle position is weaker).`);
+    }
+
+    totalScore += Math.min(score, 1.0);
+    if (warnings.length) allWarnings.push(...warnings);
+  }
+
+  const avgScore = choruses.length > 0 ? totalScore / choruses.length : 0;
+
+  // Log results
+  if (allWarnings.length > 0) {
+    console.warn(`[HookGate] Score: ${avgScore.toFixed(2)} — ${allWarnings.length} issue(s):`);
+    for (const w of allWarnings) console.warn(`  [HookGate]  ${w}`);
+  } else if (avgScore >= 0.8) {
+    console.log(`[HookGate] Score: ${avgScore.toFixed(2)} — Hook architecture looks solid.`);
+  } else {
+    console.log(`[HookGate] Score: ${avgScore.toFixed(2)} — ${allWarnings.length} issue(s).`);
+  }
+
+  return { score: avgScore, warnings: allWarnings };
+}
+function truncStr(s, maxLen) {
+  return s && s.length > maxLen ? s.substring(0, maxLen) + "\u2026" : (s || "");
+}
 function scanForSlop(text3, fingerprint, statisticalWeight = 1) {
   const clean = text3.replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "");
   const words = extractWords(clean);
@@ -45143,20 +45290,6 @@ var GENRE_VOCABULARY_MODULES = {
     replacements: {}
   },
   // ════════════════════════════════════════════════════════════════════════════════
-  // BLUES — raw emotion, 12-bar, slide guitar
-  // ════════════════════════════════════════════════════════════════════════════════
-  blues: {
-    whitelist: [
-      "crossroads", "delta", "Mississippi", "Chicago", "Memphis",
-      "slide guitar", "bottleneck", "resonator", "harmonica", "blues harp",
-      "twelve bar", "shuffle", "boogie", "backbeat", "turnaround",
-      "whiskey", "honky tonk", "juke joint", "roadhouse",
-      "heartbreak", "lonesome", "trouble", "hard times", "blues",
-      "Saturday night", "Sunday morning", "red clay", "cotton field"
-    ],
-    replacements: {}
-  },
-  // ════════════════════════════════════════════════════════════════════════════════
   // SKA — upstroke, horns, offbeat
   // ════════════════════════════════════════════════════════════════════════════════
   ska: {
@@ -45818,13 +45951,14 @@ function resolveGenreFromStyles(genres) {
     "metal": ["metal", "heavy metal", "death metal", "black metal", "thrash metal", "doom metal", "progressive metal", "power metal", "symphonic metal", "groove metal"],
     "reggae": ["reggae", "dub", "ska", "rocksteady", "dancehall", "lovers rock", "roots reggae", "ragga"],
     "kpop": ["k-pop", "kpop", "korean pop", "j-pop", "jpop", "c-pop", "cpop", "mandopop", "cantopop", "korean r&b"],
-    "hiphop": ["hip-hop", "hiphop", "rap", "trap", "drill", "grime", "boom bap", "conscious hip-hop", "gangsta rap", "mumble rap", "lo-fi hip-hop", "r&b"],
+    "hiphop": ["hip-hop", "hiphop", "rap", "trap", "drill", "grime", "boom bap", "conscious hip-hop", "gangsta rap", "mumble rap", "lo-fi hip-hop"],
     "blues": ["blues", "delta blues", "chicago blues", "texas blues", "blues rock", "piano blues", "acoustic blues", "electric blues"],
     "punk": ["punk", "punk rock", "pop punk", "post-punk", "hardcore punk", "ska punk", "anarcho-punk", "garage punk"],
     "folk": ["folk", "indie folk", "folk rock", "celtic folk", "traditional folk", "singer-songwriter", "americana", "country folk", "bluegrass"],
     // REMOVED: "acapella" — acapella, beatbox, barbershop quartet, vocal percussion, ASMR
     // These genres are purely vocal or use techniques ACE-Step was not trained on.
     // The model cannot generate realistic music for these styles.
+    "jazz": ["jazz", "jazz fusion", "smooth jazz", "acid jazz", "free jazz", "bebop", "cool jazz", "swing", "big band", "nu jazz", "jazz rock", "jazz-funk"],
     "duet": ["duet", "duets", "male female duet", "male and female vocals", "dual vocals", "alternating vocals"],
     "porn": ["porn sfw", "sfw porn", "porn instrumentation", "sfw adult pop"],
     "porngroove": ["porn", "porn groove", "70s porn groove", "sensual lounge", "erotic funk", "sexy bedroom soul", "slow jam", "bedroom r&b", "sleazy funk", "nsfw porn", "adult lyrics"],
@@ -45835,7 +45969,38 @@ function resolveGenreFromStyles(genres) {
     "bhangra": ["bhangra", "punjabi folk", "punjab folk", "indian folk dance", "punjabi music", "giddha"],
     "andean": ["andean", "andean folk", "quechua music", "charango music", "quena music", "andes music", "inca music", "south american folk", "latin folk andean"],
     "dubstep": ["dubstep", "brostep", "riddim dubstep", "tearout", "uk dubstep", "deep dubstep", "melodic dubstep", "english dubstep"],
-    "dubstep_patois": ["dubstep (patois)", "patois dubstep", "jamaican dubstep", "dancehall dubstep", "ragga dubstep", "dubstep patois", "raggamuffin dubstep"]
+    "dubstep_patois": ["dubstep (patois)", "patois dubstep", "jamaican dubstep", "dancehall dubstep", "ragga dubstep", "dubstep patois", "raggamuffin dubstep"],
+    "pop": ["pop", "pop music", "pop rock", "synthpop", "art pop", "dance pop", "electropop", "teen pop", "bedroom pop", "sunshine pop", "baroque pop", "traditional pop"],
+    "rock": ["rock", "rock music", "classic rock", "hard rock", "soft rock", "arena rock", "southern rock", "garage rock", "psychedelic rock", "progressive rock", "art rock", "math rock", "post-rock", "stoner rock"],
+    "country": ["country", "country music", "country pop", "country rock", "outlaw country", "country folk", "modern country", "nashville sound", "red dirt"],
+    "electronic": ["electronic", "electronic music", "edm", "electronica", "electronic dance", "idm", "intelligent dance music", "downtempo", "chillwave", "glitch", "glitch hop", "trip hop"],
+    "house": ["house", "house music", "deep house", "progressive house", "electro house", "future house", "tech house", "tribal house", "acid house", "chicago house", "french house", "garage house"],
+    "techno": ["techno", "techno music", "detroit techno", "acid techno", "minimal techno", "industrial techno", "hard techno", "berlin techno"],
+    "trance": ["trance", "trance music", "progressive trance", "uplifting trance", "vocal trance", "psytrance", "goa trance", "acid trance", "hard trance"],
+    "ambient": ["ambient", "ambient music", "ambient drone", "dark ambient", "ambient pop", "drone", "atmospheric"],
+    "synthwave": ["synthwave", "synth wave", "retrowave", "outrun", "darksynth", "cyberpunk", "futuresynth", "neon synth"],
+    "latin": ["latin", "latin music", "latin pop", "latin rock", "latin jazz", "latin soul", "latin alternative", "latin folk"],
+    "reggaeton": ["reggaeton", "reggaeton music", "latin reggaeton", "dembow", "perreo", "reggaeton pop"],
+    "r&b": ["r&b", "rnb", "rhythm and blues", "contemporary r&b", "modern r&b", "rnb soul", "alternative r&b"],
+    "soul": ["soul", "soul music", "soul pop", "neo soul", "motown", "philadelphia soul", "northern soul", "southern soul", "chicago soul"],
+    "funk": ["funk", "funk music", "funk rock", "p-funk", "funkadelic", "funk soul", "funky", "disco funk", "go-go"],
+    "gospel": ["gospel", "gospel music", "gospel choir", "southern gospel", "black gospel", "contemporary gospel", "praise and worship"],
+    "classical": ["classical", "classical music", "orchestral", "neoclassical", "cinematic", "symphonic", "baroque", "romantic", "chamber", "opera"],
+    "afrobeat": ["afrobeat", "afrobeat music", "afrobeats", "afropop", "afro pop", "african pop", "afro fusion", "naija music"],
+    "grunge": ["grunge", "grunge rock", "seattle sound", "post-grunge"],
+    "shoegaze": ["shoegaze", "shoegaze rock", "dream pop", "ethereal", "noise pop"],
+    "new_wave": ["new wave", "new wave music", "new wave pop", "new romantic", "synth pop"],
+    "phonk": ["phonk", "drift phonk", "brazil phonk", "memphis phonk", "phonk beat", "phonk music"],
+    "hyperpop": ["hyperpop", "hyper pop", "bubblegum bass", "digicore", "glitchcore", "scenecore", "pc music"],
+    "vaporwave": ["vaporwave", "vapor wave", "vaportrap", "future funk", "mallsoft"],
+    "nightcore": ["nightcore", "night core", "nightcore pop", "sped up"],
+    "indie": ["indie", "indie music", "indie rock", "indie pop", "indie folk", "indie alternative", "independent music", "lo-fi indie"],
+    "ska": ["ska", "ska music", "2 tone ska", "third wave ska", "ska punk", "jamaican ska", "ska pop"],
+    "doo_wop": ["doo wop", "doowop", "doo wop music", "vocal harmony", "street corner"],
+    "dnb": ["dnb", "drum and bass", "jungle", "liquid drum and bass", "liquid dnb", "jump up", "neurofunk"],
+    "lo_fi": ["lo fi", "lofi", "lo-fi", "lo fi hop", "lofi hip hop", "lo fi hiphop", "chill lo fi", "lofi beats"],
+    "bossa_nova": ["bossa nova", "bossa nova music", "samba jazz", "brazilian bossa"],
+    "salsa": ["salsa", "salsa music", "salsa dura", "salsa romantica", "latin salsa", "salsa pop"]
   };
   const genresLower = genres.map(g => g.toLowerCase().trim());
   const matched = [];
@@ -45843,11 +46008,16 @@ function resolveGenreFromStyles(genres) {
   // Iterate USER-selected genres first (preserves selection order as priority),
   // then check each against all genreMap modules. First module match per user
   // genre wins. This ensures the user's selection order determines priority.
+  // NOTE: Exact match ONLY — no substring matching. Substring matching caused
+  // false positives: "dub" matched "dubstep", "dual dj" matched "dj", "ska" matched
+  // "ska punk", "dj" matched "dualdj". Exact match ensures each genre routes to
+  // exactly the module(s) the user intended. Module aliases should cover all
+  // expected user-input variants explicitly.
   for (const genre of genresLower) {
     for (const [key, aliases] of Object.entries(genreMap)) {
       if (matchedSet.has(key)) continue; // already matched — skip duplicate
       for (const alias of aliases) {
-        if (genre.includes(alias) || alias.includes(genre)) {
+        if (genre === alias) {
           matched.push(key);
           matchedSet.add(key);
           break; // this module matched — move to next user genre
@@ -46157,7 +46327,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "4 or 8 lines; fast delivery, dense syllable count",
     chorusLines: "4 or 6 lines; anthemic, repeated hook",
     bridgeNotes: "Bridge often features a tempo change, breakdown, or clean section before the final heavy chorus.",
-    hookStyle: "Anthemic, shout-along, often uses all-caps phrasing"
+    hookStyle: "Anthemic, shout-along, often uses all-caps phrasing. The hook is the RIFF-CHANT combination — a 3-5 syllable battle cry that fits the palm-muted chug rhythm. Galloping rhythm drives the hook. Use 2\u00d7 repetition with gang-vocal backing on repeat. Concrete noun anchor: war, steel, darkness, battle, power, thunder, chaos. The line that makes a crowd raise their fists and roar in unison."
   },
   "death metal": {
     structure: "I-V-C-V-C-Break-C-O",
@@ -46181,7 +46351,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "4 lines; fast, aggressive, palm-muted delivery",
     chorusLines: "4 lines; slightly slower, more rhythmic, shout-along",
     bridgeNotes: "Guitar solo replaces bridge — technical shredding, tapping, sweep picking. Sometimes a brief breakdown before the solo.",
-    hookStyle: "Shout-along, aggressive, fast. Often a single phrase repeated with increasing intensity."
+    hookStyle: "Shout-along, aggressive, fast. The hook is a 2-4 syllable barked phrase repeated 3\u00d7 with increasing intensity — each repetition louder, more ragged, more desperate. Mosh-pit ignition point. Gang vocals on the final repeat. No melody — pure intensity. Concrete noun anchor: anger, hate, war, breakdown, rage, no future. The three words that the singer screams until veins pop in their neck."
   },
   "doom metal": {
     structure: "I-V-V-V-Outro (short, 3-4 min) to I-V-V-V-V-V-Outro (long, 8-15 min)",
@@ -46259,7 +46429,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "4 lines; smooth, can mix languages",
     chorusLines: "4 or 6 lines; explosive, catchy, highly repetitive",
     bridgeNotes: "Bridge often features a rap break, key change, or dramatic vocal moment. The final chorus is often higher energy or in a new key.",
-    hookStyle: "Extremely catchy, earworm quality, often uses vocal exclamations"
+    hookStyle: "Explosive earworm designed for instant repeat listen. The hook uses strict Rule of Three — Hook → Build → Dance Break → Hook (Varied with key change). Vocal exclamations mandatory ('Hey!', 'Uh!', 'Whoa!') as chorus openers. English/Korean mix welcome. Hook at START of chorus — the most memorable position. Hard consonants (K,T,P,B,D,G) for maximum impact. Concrete noun anchor required. Think: the hook that gets stuck in your head after one listen."
   },
   // ════════════════════════════════════════════════════════════════════════════════
   // HIP-HOP — 7 subgenres with distinct structures
@@ -46302,7 +46472,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "8 lines (16 bars typical); dense, lyrical, multisyllabic rhyme schemes",
     chorusLines: "4 lines; often a sampled vocal hook or a simple repeated phrase",
     bridgeNotes: "Bridge is rare. Boom bap lets the verses shine. Sometimes a scratched hook or DJ break.",
-    hookStyle: "Lyrical, sample-based, often a scratched vocal snippet. 'I got a story to tell', 'Nas is like' energy."
+    hookStyle: "Lyrical, sample-based, often a scratched vocal snippet. The hook is the SAMPLE CHOP — a 2-4 word vocal snippet from a soul record, scratched or looped. The DJ's cut IS the chorus. Use 2\u00d7 repetition of the sample with a drum break build. Concrete noun anchor: street corner imagery, golden era references, classic sneakers, subway, boom box. The sample that makes every head in the cipher nod in recognition."
   },
   "conscious hip-hop": {
     structure: "I-V-C-V-C-V-C-Outro",
@@ -46310,7 +46480,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "8 lines; thoughtful, wordplay-heavy, message-driven, introspective",
     chorusLines: "4 lines; repetitive, message-driven, designed to make you think",
     bridgeNotes: "Bridge might be a spoken word section, a sample, or a tempo change. The message is more important than the structure.",
-    hookStyle: "Message-driven, thoughtful, repetitive. 'Fight the power', 'Keep your head up', 'Changes' energy."
+    hookStyle: "Message-driven, thoughtful, repetitive. The hook is a CALL TO ACTION — a 4-6 word phrase that encapsulates the entire message. The TITLE of the song IS the hook. Each repetition should feel like a gathering force — first time: statement, second time: affirmation, third time: anthem. NOT a flex — a truth. Concrete noun anchor: system, people, struggle, future, children, change. The line that makes listeners nod slowly and say 'Word.'"
   },
   "gangsta rap": {
     structure: "I-V-C-V-C-V-C-Outro",
@@ -46318,7 +46488,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "8 lines; storytelling, vivid, detailed, street life narratives",
     chorusLines: "4 lines; catchy, often a sampled hook or a simple repeated phrase",
     bridgeNotes: "Bridge might be a skit, a phone call, or a spoken word section. Storytelling is more important than structure.",
-    hookStyle: "Catchy, narrative-driven, often a sample. 'Straight Outta Compton', 'Juicy', 'California Love' energy."
+    hookStyle: "Catchy, narrative-driven, often a sample. The hook is the MEMORABLE PHRASE — 4-6 words that encapsulate the street story. High contrast: hard street imagery with a smooth, soulful sung hook. The hook tells you the moral of the tale before the verse delivers it. Use 2\u00d7 repetition with ad-lib fills on the second pass. Concrete noun anchor: specific streets, cars, money, guns, luxury brands, city landmarks."
   },
   "lo-fi hip-hop": {
     structure: "I-V-C-V-C-V-C-Outro",
@@ -46326,7 +46496,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "4-8 lines; soft, mumbled, jazzy, relaxed delivery",
     chorusLines: "4 lines; simple, melodic, often hummed or whispered",
     bridgeNotes: "Bridge might be an instrumental section with ambient sounds — rain, café noise, vinyl crackle. The VIBE is more important than the words.",
-    hookStyle: "Soft, melodic, ambient. Often hummed or whispered. 'Study beats', 'rainy day', 'cozy' energy."
+    hookStyle: "Soft, melodic, ambient. Often hummed or whispered. The hook is an ATMOSPHERIC SNIPPET — a 2-4 word phrase or hummed melody that floats over the beat like a memory. The sample or vocal IS the hook — lo-fi, dusty, feels like nostalgia. Use 1\u00d7 repetition (the hook appears once per chorus, not hammered). Concrete noun anchor: rain, coffee, vinyl, books, Sunday morning, city lights at dawn, vintage objects."
   },
   // ════════════════════════════════════════════════════════════════════════════════
   // DJ / TURNTABLISM — with Single DJ and Dual DJ (battle) variations
@@ -46383,7 +46553,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "4 lines each; AAB pattern — first line stated, second line repeated, third line resolves",
     chorusLines: "Chorus is optional; if used, it's a short refrain between verses",
     bridgeNotes: "Instrumental break (guitar solo) often replaces the bridge.",
-    hookStyle: "Storytelling resolution — the last line of each verse delivers the punch"
+    hookStyle: "The turnaround or refrain IS the hook. In 12-bar blues, the repeated last line of each verse delivers the emotional punch — the AAB pattern's resolution. 4-6 syllable phrase that encapsulates the song's core feeling. The hook may not change between verses — the SAME refrain takes on different meaning as the story advances. Guitar or harmonica 'answers' the vocal hook with a melodic fill. Concrete noun anchor: whiskey, highway, train, heartbreak, dirt, sunrise, jail. The punchline that makes the listener nod and say 'That's the truth.'"
   },
   "delta blues": {
     structure: "I-V-V-V-V-Outro",
@@ -46501,7 +46671,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "4 or 8 lines; narrative, storytelling, natural conversational meter",
     chorusLines: "4 lines; refrain-like, warm, communal feeling",
     bridgeNotes: "Bridge might be a spoken word section, an instrumental verse, or a tempo shift.",
-    hookStyle: "Warm, communal, often a simple repeated refrain that invites singing along"
+    hookStyle: "Warm, communal refrain designed for group singing. The hook may SHIFT LYRICAL CONTENT each chorus while keeping the SAME MELODIC SHAPE — a folk hallmark. Use 2× repetition with natural variation (the story advances, so the hook adjusts). The hook should feel like a chorus the whole pub can join — simple enough to remember, meaningful enough to earn. Concrete noun anchor: specific places, objects, or people. 'The town where I was born' > 'Nostalgia.' Invites singing along without demanding it."
   },
   "celtic folk": {
     structure: "I-V-C-V-C-Instr-V-Outro",
@@ -46517,7 +46687,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "4-8 lines; storytelling, Appalachian, conversational delivery",
     chorusLines: "4 lines; simple refrain, communal, warm",
     bridgeNotes: "Bridge might be an instrumental break — fiddle tune, banjo breakdown. Or a spoken word section.",
-    hookStyle: "Simple, warm, communal. 'This land is your land', 'Amazing Grace' energy."
+    hookStyle: "Simple, warm, communal refrain that a crowd can learn by the second chorus. The hook should feel like it's been sung for generations — timeless, not trendy. Use 2× repetition with the same words each time (folk tradition values consistency). The hook is a SHARED STATEMENT, not a personal confession. Concrete noun anchor: heritage imagery — mountain, river, church, family name, frontier. Think: the kind of song passed down through families around a campfire."
   },
   "indie folk": {
     structure: "I-V-C-V-C-Bridge-C-Outro",
@@ -46541,7 +46711,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "4 lines; confessional, intimate, personal, conversational delivery",
     chorusLines: "4 lines; emotional, melodic, reflective",
     bridgeNotes: "Bridge might be a key change, a spoken word section, or an instrumental break. The emotion drives the structure.",
-    hookStyle: "Emotional, personal, reflective. 'Hallelujah', 'Fast Car', 'Fire and Rain' energy."
+    hookStyle: "Confessional, intimate, emotionally honest. The hook IS the raw truth — that one line the singer was afraid to say aloud. Use 2× repetition with emotional intensity building between the first and second statement. The hook should feel like a secret whispered to the listener. Concrete noun anchor required — the most specific, personal object that holds the song's emotional weight (a worn photograph, a dented wedding ring, a half-written letter). NOT abstract — the object IS the feeling. 'Hallelujah', 'Fast Car', 'Fire and Rain' energy — but built from YOUR specific details, not borrowed poetics."
   },
   "bluegrass": {
     structure: "I-V-C-V-C-Instr-C-Outro",
@@ -46638,7 +46808,7 @@ var GENRE_STRUCTURE_TEMPLATES = {
     verseLines: "4 lines; quirky, dynamic, conversational. Think Pavement, Arctic Monkeys, The Strokes.",
     chorusLines: "4 lines; melodic, layered, more accessible than verses.",
     bridgeNotes: "Bridge is experimental — time signature changes, textural shifts, or a complete arrangement change. The 'art' section.",
-    hookStyle: "Melodic but unconventional. Not pop-catchy — more like an interesting hook that rewards repeated listening."
+    hookStyle: "Melodic but unconventional — an angular, interesting melodic shape that rewards repeated listening. NOT pop-catchy formula. Use 2× repetition with rhythmic variation rather than strict repetition. The hook should feel like an accidental discovery — a weird interval, a rhythmic stumble, an unexpected note. Concrete noun anchor: hyper-specific mundane objects (parking lot gravel, half-empty cup, worn-out sneakers). Think: Pavement's deliberately flat delivery, Arctic Monkeys' witty turns of phrase, The Strokes' lazy drawl that somehow soars."
   },
   "alternative rock": {
     structure: "I-V-C-V-C-Bridge-Solo-C-Outro",
@@ -46912,15 +47082,182 @@ var GENRE_STRUCTURE_TEMPLATES = {
   // ════════════════════════════════════════════════════════════════════════════════
   ska: {
     structure: "I-V-C-V-C-HornBreak-C-Outro",
-    description: "Ska: Intro (horns + upstroke guitar) → Verse (walking bass, upbeat rhythm) → Chorus (horns, catchy) → Verse → Chorus → Horn Break (brass section showcase) → Chorus → Outro. SKA is the UPBEAT RHYTHM — guitar hits on the offbeat (the 'skank'). Walking bass. Horn section. ORIGINAL Ska is Jamaican — the root of reggae. 2-Tone Ska is British — The Specials, Madness.",
+    description: "Ska: Intro (horns + upstroke guitar) \u2192 Verse (walking bass, upbeat rhythm) \u2192 Chorus (horns, catchy) \u2192 Verse \u2192 Chorus \u2192 Horn Break (brass section showcase) \u2192 Chorus \u2192 Outro. SKA is the UPBEAT RHYTHM \u2014 guitar hits on the offbeat (the 'skank'). Walking bass. Horn section. ORIGINAL Ska is Jamaican \u2014 the root of reggae. 2-Tone Ska is British \u2014 The Specials, Madness.",
     verseLines: "4 lines; rhythmic, upbeat, walking bass tempo. Jamaican or British delivery.",
     chorusLines: "4 lines; horns, catchy, designed for dancing. The skank rhythm drives it.",
-    bridgeNotes: "Horn break — trumpet, trombone, sax showcase. The brass section IS the bridge. Walking bass continues underneath.",
+    bridgeNotes: "Horn break \u2014 trumpet, trombone, sax showcase. The brass section IS the bridge. Walking bass continues underneath.",
     hookStyle: "Rhythmic, upbeat, fun. The hook is the UPBEAT GUITAR combined with the horn melody. 'A Message to You Rudy', 'One Step Beyond', 'Monkey Man' energy."
+  },
+  dnb: {
+    structure: "I-Build-Drop-V-Build-Drop-Bridge-Drop-Outro",
+    description: "Drum and Bass: Intro (atmospheric, filtered, beats building) → Build (rising tension, reese bass swell, amen rinse) → Drop (full breakbeat, sub-bass, 170-180 BPM) → Verse (stripped-back, MC or vocal, rolling) → Build → Drop (bigger, more layered, bass switch) → Bridge (atmospheric breakdown, half-time) → Drop (final, maximum energy, amen tear-out) → Outro. DnB is SPEED AND BASS. The amen break is sacred. The drop is the payoff.",
+    verseLines: "4 lines; rapid-fire, rhythmic, MC-style delivery. 10-16 syllables per line. The vocals ride the breakbeat — choppy, syncopated.",
+    chorusLines: "4 lines; atmospheric vocal sample or MC chant. The chorus IS the drop — the vocal hook comes back after the bass switch.",
+    bridgeNotes: "Atmospheric breakdown — pads, reverb, half-time beat. The calm before the final storm. Sometimes a 'liquid' section with piano or strings.",
+    hookStyle: "The DROP IS THE HOOK. A 2-4 word vocal sample (often atmospheric, echoing) introduced before the drop, returning after the bass switch. 'DJ Marky', 'Pendulum', 'London Elektricity' energy. Think: amen break + Reese bass + ethereal female vocal chop."
+  },
+  doo_wop: {
+    structure: "I-V-C-V-C-B-C-O",
+    description: "Doo-Wop: Intro (vocal harmony, a cappella or minimal instruments) → Verse (lead singer, group harmony backing) → Chorus (full group, catchy, repetitive 'doo-wop' syllables) → Verse → Chorus → Bridge (key change, emotional peak, harmony showcase) → Chorus (bigger, more harmonies) → Outro. Doo-Wop is VOCAL HARMONY. The nonsense syllables ARE the hook. Street corner, 1950s. Minimal instruments — voice does everything.",
+    verseLines: "4 lines; lead vocal with group 'oohs' and 'aahs' on the backbeat. 8-10 syllables per line. Simple, romantic, teenage.",
+    chorusLines: "4-6 lines; full group harmony, heavy on 'doo-wop', 'shooby-doo', 'dum-dum' syllables. The nonsense IS the hook.",
+    bridgeNotes: "Key change (up a step). Emotional peak. The group shows off complex harmonies. Often the lead goes solo for a line, then the group swells back.",
+    hookStyle: "The NONSENSE SYLLABLES ARE THE HOOK. 'Shooby-doo-wop', 'dum-dum-dum', 'sha-na-na'. The group vocal riff that sticks in your head. 'In the Still of the Night', 'Earth Angel', 'Why Do Fools Fall in Love' energy."
+  },
+  indie: {
+    structure: "I-V-C-V-C-B-C-C-O",
+    description: "Indie: Intro (jangly guitar riff, unique instrument) → Verse (quirky, conversational, slightly awkward) → Chorus (catchy, melodic, walls of sound or sparse) → Verse → Chorus → Bridge (unexpected instrument change, tempo shift, or stripped-down) → Chorus → Chorus (more energy, maybe key change) → Outro. Indie is CHARACTER over polish. Lo-fi production, unique voice, unexpected songwriting choices. The 'indie' attitude is more important than technical perfection.",
+    verseLines: "4 lines; quirky, conversational, often dry or deadpan delivery. 8-10 syllables per line. Indie verses TELL STORIES with odd details.",
+    chorusLines: "4 lines; catchy, melodic, walls of sound or stark clarity. The chorus should feel EARNED — not too obvious, not too obscure.",
+    bridgeNotes: "Bridge is where indie shines — unexpected instrument changes (xylophone, glockenspiel, handclaps, distorted vocal), tempo shifts, or a complete dynamic drop. The weirdest part of the song.",
+    hookStyle: "The HOOK is a CATCHY MELODIC PHRASE with an UNEXPECTED INTERVAL. Angular, quirky, instantly hummable but never generic. Think: The Strokes' guitar riff, Arcade Fire's chant, Vampire Weekend's preppy melody. The hook should sound like NO ONE ELSE but be stuck in your head for DAYS."
+  },
+  lo_fi: {
+    structure: "I-V-C-V-C-Outro",
+    description: "Lo-Fi: Intro (crackling vinyl, ambient sample, muffled beat) → Verse (laid-back, intimate, whispery vocals) → Chorus (slightly fuller, still lo-fi, kick-snare-kick-snare) → Verse → Chorus → Outro (fade with vinyl crackle). Lo-Fi is IMPERFECTION IS THE AESTHETIC. Sampling, tape hiss, vinyl crackle, imperfect takes. The warmth of old recordings. 70-90 BPM. Relaxing, nostalgic, intimate. Lo-Fi is about FEELING, not fidelity.",
+    verseLines: "4 lines; laid-back, intimate, whispery delivery. 6-10 syllables per line. The vocals SHOULDN'T be perfect — leave the breath in, leave the little mistakes.",
+    chorusLines: "4 lines; slightly fuller but still lo-fi. Kick-snare pattern. A catchy but gentle melodic phrase. Think: 'lofi hip hop radio - beats to relax/study to'.",
+    bridgeNotes: "Lo-Fi often skips the bridge. If present, it's just a sample change or a different loop. Keep it simple — complexity defeats the purpose.",
+    hookStyle: "The HOOK is the SAMPLE or the MELODIC LOOP. A 2-4 second loop that repeats through the song. Chilled, warm, fuzzy. The lo-fi aesthetic IS the hook — the crackle, the warmth, the nostalgia. Think: J Dilla, Nujabes, Tomppabeats. The hook is the FEELING."
   }
 };
 
-// ── Syllable Utility (local wrapper) ─────────────────────────────────────────────
+// \u2500\u2500 Genre-Specific Hook Timing for Hook Architecture (used by buildGenreStructureHint) \u2500\u2500\u2500
+// Tells the LLM WHEN the hook should land in each genre.
+var GENRE_HOOK_TIMING = {
+  pop: "Hook lands within the first 8 seconds (cold-open chorus). The very first thing the listener hears after the intro IS the hook. Use strict Rule of Three: hook \u2192 development \u2192 development \u2192 hook (varied). Every chorus after the first must also open with the hook.",
+  rock: "Hook lands in the first chorus (~20-30s in). Use strict Rule of Three: hook \u2192 development \u2192 development \u2192 hook (varied). Rock hooks favor hard consonants (K,T,P,B,D,G) and concrete noun anchors.",
+  country: "Hook lands in the first chorus (~25-35s in). Story-driven hooks with concrete physical details. Use Rule of Three with the hook at start or end of chorus. 'Daddy's old Ford tailgate' > 'Broken heart.'",
+  metal: "Hook lands in the first chorus (~30-45s in). Anthemic, shout-along hook. Use shouted 2-4 word phrase repeated 3-5\u00d7 with escalating intensity. ALL CAPS for emphasis. Concrete noun anchor required even in abstract themes.",
+  "death metal": "Hook lands in the first chorus (~35-50s). Rhythmic, guttural phrase. Not melodic \u2014 the HEAVINESS is the hook. A single devastating phrase repeated 2-3\u00d7 with increasing vocal intensity. Concrete noun anchor: body parts, weapons, decay.",
+  "black metal": "Hook is atmospheric, not melodic. The COLD DESOLATE FEELING is the hook. Shrieked phrases evoking winter, darkness, void. Hook may appear only once if the atmosphere carries it.",
+  "doom metal": "The RIFF is the hook. Vocals are secondary. Slow, mournful, almost spoken. Hook may be a single line that doesn't repeat \u2014 the crushing weight IS the repetition. Concrete noun anchor: rust, stone, ash, bone.",
+  thrash: "Hook lands in the first chorus (~20-40s). Fast aggressive shout-along. Single phrase repeated with increasing intensity. Hard consonants mandatory \u2014 K, T, P, B, D, G create percussive attack.",
+  "power metal": "Hook lands in the first chorus (~30-50s). SOARING, anthemic, designed for 10,000-person singalong. Use strict Rule of Three. Hook must be a concrete noun anchor in a fantasy/epic setting.",
+  hiphop: "Hook lands in every chorus (~25-45s in). Simple, repetitive, chant-like phrase. 2-bar hook repeated 2\u00d7 with ad-lib variation. 6-10 syllables per hook line. Concrete noun anchor: money, cars, clothes, places.",
+  trap: "Hook lands in the first chorus (~20-40s). Melodic, auto-tuned, designed for virality. 2-4 word phrase repeated 2-3\u00d7 with ad-lib variation. Concrete noun anchor: designer brands, jewelry, drugs, guns.",
+  drill: "Hook lands in the first chorus (~25-45s). Menacing, repetitive, dark. 2-3 word threat/boast repeated 3-4\u00d7. NOT melodic \u2014 the menace IS the hook.",
+  "boom bap": "Hook lands in the first chorus (~30-50s). Lyrical, sample-based. Often a scratched vocal snippet. Hook may be a sampled phrase rather than original vocals. 2-4 bar hook.",
+  edm: "Hook lands at the DROP (~52s-1:20). The hook is a vocal chop or short phrase repeated with processing variation (filtering, reverb, pitch shift, gating). The PRODUCTION is the hook. Rule of Three applies to the build \u2192 drop \u2192 repeat cycle.",
+  house: "Hook lands at the DROP (~52s-1:15). Vocal chop or diva sample repeated with filter sweeps. 2-4 words. The groove IS the hook.",
+  techno: "Hook is the REPETITIVE BEAT. Vocals are minimal \u2014 a word or phrase repeated with processing. The kick drum IS the hook.",
+  dubstep: "Hook lands at the DROP (~50s-1:10). The WOBBLE BASS IS the hook. Vocals are chopped and processed. 1-3 word phrase repeated with modulation.",
+  drumandbass: "Hook lands at the DROP (~45s-1:00). Fast breakbeat + bass. Vocal snippet or atmospheric phrase. The ENERGY is the hook.",
+  reggae: "Hook lands in the first chorus (~30-50s). Positive, uplifting, call-and-response. Use Rule of Three with variation on 3rd. Concrete noun anchor: Jamaica-specific imagery (ocean, herb, riddim, sunrise).",
+  dub: "Sparse, effects-driven. The hook is a vocal snippet with heavy echo/delay. Less is more \u2014 one phrase per chorus, let the production carry it.",
+  dancehall: "Hook lands in the first chorus (~25-40s). Catchy, rhythmic, designed for the dance. 2-4 word phrase repeated with increasing energy. Call-and-response structure.",
+  kpop: "Hook lands in the first 8-15 seconds (cold-open chorus). Explosive, earworm-quality. Vocal exclamations mandatory ('Hey!', 'Uh!'). Use strict Rule of Three with variation on 3rd. English/Korean mix welcome.",
+  punk: "Hook lands in the first chorus (~15-30s). FAST \u2014 150-180 BPM. Shouted 2-4 word phrase repeated 3-4\u00d7. ALL CAPS for emphasis. No bridge \u2014 straight verse-chorus-repeat. Concrete noun anchor: specific real-world objects.",
+  folk: "Hook lands in the first chorus (~35-55s). Story-driven. The hook may shift lyrically each chorus while keeping the SAME MELODIC SHAPE. Concrete noun anchor: specific places, objects, people. 'The town where I was born' > 'Nostalgia.'",
+  blues: "Hook is the TURNAROUND or REFRAIN. 12-bar blues may not use a traditional chorus \u2014 the repeated refrain at the end of each verse IS the hook. 4-6 syllable phrase. Concrete noun anchor: whiskey, highway, train, heartbreak.",
+  jazz: "Hook is the HEAD MELODY, not a vocal line. If vocals exist, a 4-8 bar phrase repeated with improvisational variation. The melody IS the hook.",
+  soul: "Hook lands in the first chorus (~30-50s). SOARING, emotional, gospel-influenced. Call-and-response with backing vocals. Rule of Three with the hook building each repetition.",
+  "r&b": "Hook lands in the first chorus (~25-45s). Smooth, melodic, sensual. Use 2\u00d7 repetition with ad-lib and riff variation on the 3rd pass. Concrete noun anchor: luxury, romance, specific objects.",
+  rnb: "Hook lands in the first chorus (~25-45s). Smooth, melodic, sensual. Use 2\u00d7 repetition with ad-lib and riff variation on the 3rd pass. Concrete noun anchor: luxury, romance, specific objects.",
+  funk: "Hook is the GROOVE. 1-2 word phrase repeated rhythmically. The bass line IS the hook. Vocals ride the groove. 'Get up', 'Get down', 'Funky-town' energy.",
+  gospel: "Hook lands in the first chorus (~30-55s). SOARING, call-and-response. Congregation singalong. Use 3-4\u00d7 repetition with escalating intensity. Concrete noun anchor: biblical or spiritual imagery.",
+  indierock: "Hook lands in the first chorus (~25-45s). Lo-fi, raw, authentic. Rule of Three but with intentional imperfection. Concrete noun anchor: mundane specific objects (parking lots, basement shows, cheap coffee).",
+  shoegaze: "Hook is the WALL OF SOUND. Vocals are buried in reverb. A 2-4 word phrase floats through the mix. The texture IS the hook \u2014 not the words.",
+  ambient: "No traditional hook. The ATMOSPHERE is the song. If a vocal phrase exists, it repeats sparingly with massive reverb and processing. The feeling IS the hook.",
+  classical: "No vocal hook. The MELODIC THEME is the hook. Develops through the composition with variation and recapitulation.",
+
+  // Metal subgenres
+  "progressive metal": "Hook lands in the first chorus (~40-60s). Complex, often in odd time signatures. The hook is a vocal melody in an unusual meter — epic, sweeping. Use Rule of Three with variation on 3rd. Concrete noun anchor: cosmic, mechanical, existential imagery.",
+  "symphonic metal": "Hook lands in the first chorus (~35-55s). Operatic, dramatic, cinematic — the combination of heavy guitar and soaring orchestra/choir. Use Rule of Three with choir building each repetition. Concrete noun anchor: fantasy, myth, epic imagery.",
+  "groove metal": "Hook is RHYTHMIC — the groove IS the hook. A single devastating phrase repeated with the riff. Designed for heads nodding in unison. Short, percussive, 2-4 words. Concrete noun anchor: physical force, weight, mass.",
+
+  // Hip-hop subgenres
+  grime: "Hook lands in the first chorus (~20-40s). 140 BPM rhythmic flow. NOT melodic — the FLOW is the hook. UK slang heavy. Short 2-4 bar hook repeated with increasing aggression. Concrete noun anchor: road life, money, street names.",
+  "conscious hip-hop": "Hook lands in the first chorus (~30-50s). Message-driven, thoughtful, repetitive. The hook delivers the thesis of the song. Use 2× repetition with slight variation. Concrete noun anchor: social/political objects (handcuffs, ballots, prison bars, textbooks).",
+  "gangsta rap": "Hook lands in the first chorus (~25-45s). Catchy, narrative-driven, often a sampled vocal hook. Storytelling over traditional songcraft. 2-4 bar hook that encapsulates the street narrative. Concrete noun anchor: specific guns, cars, neighborhoods, money.",
+  "lo-fi hip-hop": "Hook lands softly in the first chorus (~25-45s). Hummed or whispered. Not shouted — the hook is a gentle melodic phrase that drifts through the vinyl crackle. Use 2× repetition. Concrete noun anchor: cozy, nostalgic objects (rain on glass, old coffee, worn books).",
+
+  // Electronic subgenres
+  electronic: "Hook lands at the DROP (~45s-1:15). The drop is the hook — a rhythmic/tonal payoff after the build. Vocal chops or short phrases (4-6 syllables) repeated with processing variation. Use Rule of Three applied to the build→drop cycle. Concrete noun anchor not required — the texture IS the hook.",
+  trance: "Hook lands at the DROP (~1:00-1:30). The EUPHORIC SYNTH MELODY is the hook — soaring, uplifting, designed to evoke transcendence. Vocal hook (if present) is 4-6 words repeated with processing. The build-drop cycle IS the emotional arc. Concrete noun anchor: sky, light, freedom, infinity.",
+  synthwave: "Hook lands in the first chorus (~25-45s). The SYNTH MELODY combined with the 80s aesthetic IS the hook. Neon-drenched, nostalgic. Rule of Three with the synth hook playing the 'vocal' role. Concrete noun anchor: night-driving imagery (chrome, neon, highway, taillights).",
+
+  // DJ/Turntablism
+  dj: "Hook is SCRATCH-BASED — a scratched vocal sample, cut-up phrase, or simple chant. The turntables ARE the voice. Hook lands in the first chorus after the opening scratch break (~30-60s). Rotate scratch techniques per generation. Concrete noun anchor: vinyl, wheels of steel, crates.",
+  "dual dj": "Hook is DUAL SCRATCH — both DJs scratching in unison or call-and-response. Hook lands in the first chorus after both DJs have established their styles (~45-75s). Three-round battle structure with escalating techniques. No two songs should share the same technique combo. Concrete noun anchor: battle, crowd, duel.",
+  turntablism: "Hook is the SCRATCH IDENTITY — the unique combination of technique + sample + pattern. Each scratch section is a different character. Hook timing varies: could be the first scratch break (~15-30s) or the first chorus (~30-60s). SCRATCH VARIETY IS THE HOOK.",
+
+  // Blues subgenres
+  "delta blues": "Hook is the LAST LINE of each verse — the AAB resolution. The turnaround. 4-6 syllable phrase that delivers the emotional punch. The slide guitar 'answers' the vocal. Concrete noun anchor: crossroads, railroad, river, whiskey, shotgun.",
+  "chicago blues": "Hook is the INTERPLAY between vocals, harmonica, and guitar. The band amplifies the AAB resolution. Harmonica fills serve as 'response' to the vocal 'call'. Hook at the end of each verse. Concrete noun anchor: city, factory, train, bar, woman.",
+  "texas blues": "Hook is the SHUFFLE RHYTHM combined with the vocal punchline. The 'dum-da-dum-da-dum' rhythm IS recognizable. SRV-style stinging guitar fills punctuate the hook. Concrete noun anchor: Texas imagery — highway, ranch, honky-tonk, longhorn.",
+  "acoustic blues": "Hook is intimate — the last line of each verse whispered like a confession. No chorus, just the AAB resolution. Fingerpicking patterns carry the emotional weight. Concrete noun anchor: porch, bottle, photograph, dirt road.",
+  "electric blues": "Hook is GUITAR-DRIVEN. The electric guitar's wailing answer to the vocal line. B.B. King-style note bending. Hook at the verse resolution. Concrete noun anchor: Lucille, amplifier, neon sign, midnight.",
+  "piano blues": "Hook is the BOOGIE-WOOGIE RHYTHM — the rolling left hand bass pattern IS the hook. Barrelhouse piano fills answer the vocal. Hook at the verse turnaround. Concrete noun anchor: honky-tonk, juke joint, 88 keys, barrelhouse.",
+
+  // Punk subgenres
+  "hardcore punk": "Hook lands in the first chorus (~10-25s). GANG VOCALS — everyone shouts the same line together. 170-250 BPM. 2-3 word phrase repeated 4-6× with mosh-pit intensity. ALL CAPS for emphasis. Concrete noun anchor: anger, war, society, straight-edge.",
+  "pop punk": "Hook lands in the first chorus (~15-30s). CATCHY, singalong, melodic. Designed for arenas and 15-year-olds to scream. Use strict Rule of Three with the hook at chorus start. Hard consonants for punch. Concrete noun anchor: suburban imagery (mall, bedroom, car, skatepark).",
+  "post-punk": "Hook lands in the first chorus (~25-45s). Dark, atmospheric, brooding. NOT shout-along — a dark melody that haunts. Angular guitar and bass drive the hook. Use 2× repetition with variation. Concrete noun anchor: urban decay, concrete, rain, industrial objects.",
+  "anarcho-punk": "Hook lands in the first chorus (~15-30s). Political chant, message-driven. Designed for protests and picket lines. 2-4 word phrase repeated 3-5× with escalating anger. Concrete noun anchor: political objects (boot, flag, badge, fence, riot shield).",
+  "ska punk": "Hook lands in the first chorus (~15-30s). FUN, energetic, horns-driven. Upstroke guitar on the offbeat IS the ska hook. Call-and-response with the horn section. Use 3× repetition with escalating energy. Concrete noun anchor: dancing, party, unity, rebellion.",
+  "garage punk": "Hook lands in the first chorus (~12-25s). RAW, unpolished, lo-fi. The ENERGY is the hook — not catchiness. Fuzz guitar feedback bursts punctuate the hook. 2-3 word phrase shouted with basement-show intensity. Concrete noun anchor: basement, cheap gear, beer, distortion.",
+
+  // Folk subgenres
+  "celtic folk": "Hook lands in the first chorus (~30-50s). Communal, warm, designed for pub singing. The fiddle/tin whistle melody IS the hook as much as the vocal refrain. Use Rule of Three but the hook may shift lyrically each chorus. Concrete noun anchor: Ireland/Scotland imagery — fields, pub, coast, whiskey, exile.",
+  "traditional folk": "Hook lands in the first chorus (~35-55s). Simple refrain, communal. The hook is a line the whole room can sing. Use 2× repetition. The story matters more than the hook — but the hook should summarize the story. Concrete noun anchor: heritage — mountain, river, church, family name.",
+  "indie folk": "Hook lands in the first chorus (~30-50s). Melodic, atmospheric, layered. The hook floats over textured instrumentation. Use 2× repetition with subtle variation. The hook should feel intimate, not anthemic. Concrete noun anchor: specific intimate objects (torn sweater, old letter, cracked mug).",
+  americana: "Hook lands in the first chorus (~25-45s). Melodic, rootsy, radio-friendly. The hook is the emotional payoff after the storytelling verse. Use strict Rule of Three. Concrete noun anchor: American imagery — truck, highway, small town, river, flag.",
+  "singer-songwriter": "Hook lands in the first chorus (~35-55s). Confessional, emotional, reflective. The hook is the line that cuts deepest — the singer's truth. Use 2× repetition with emotional build. The hook might change slightly each chorus to reflect the story's progression. Concrete noun anchor: intimate personal objects (photograph, guitar, old coat, coffee cup).",
+  bluegrass: "Hook lands in the first chorus (~20-40s). High lonesome, communal, fast. Banjo/fiddle break IS the hook as much as the vocal. Call-and-response between singer and instruments. Use 3× repetition with instrumental answering each time. Concrete noun anchor: Appalachian imagery — mountain, holler, train, whisky, cabin.",
+  "country folk": "Hook lands in the first chorus (~30-50s). Warm, melodic, storytelling. The hook is the emotional summary — the line that wraps up the story's lesson. Use Rule of Three. Concrete noun anchor: rural imagery — porch, field, barn, church, family.",
+
+  // Country subgenres
+  "honky-tonk": "Hook lands in the first chorus (~20-40s). Rowdy, catchy, bar-room energy. Piano/fiddle intro IS the hook's setup. Use 3× repetition with bar-room singalong. The hook should be easy to slur after three beers. Concrete noun anchor: bar imagery — whiskey, jukebox, barstool, heartbreak, neon.",
+  "outlaw country": "Hook lands in the first chorus (~25-45s). Defiant, rebellious, freedom anthem. The hook is the line that sticks it to the man. Use 2× repetition with growling defiance. Concrete noun anchor: outlaw imagery — open road, pistol, prison, freedom, dust.",
+
+  // R&B/Soul family
+  "doo-wop": "Hook is the VOCAL HARMONY BLEND. The lead singer's soaring line over the 'ooh-wah' backing. Hook at the start of each chorus. Use 2× repetition with nonsense syllable variation. Concrete noun anchor: romantic imagery — moon, angel, June, teenage love.",
+  "vocal jazz": "Hook is the HEAD MELODY — a memorable, swingable tune. The voice and the melody ARE the hook. Hook stated in the first A section (~15-30s). Scat improvisation can replace or embellish the hook. Use 2× statement with scat variation. Concrete noun anchor: romantic, night-club imagery",  // Keep existing anchor
+
+  // Latin/World
+  latin: "Hook lands in the first chorus (~20-40s). Rhythmic, danceable, catchy. The CLAVE PATTERN combined with a vocal phrase IS the hook. Call-and-response between singer and percussion. Use 3× repetition with percussion fills. Concrete noun anchor: dance, sun, passion, island, fiesta.",
+  reggaeton: "Hook lands in the first chorus (~20-35s). The DEMBOW RHYTHM carries the hook. Short melodic phrase (2-4 words) repeated 3-4× over the 'boom-ch-boom-chick'. Designed for perreo. Concrete noun anchor: urban Latin imagery — street, club, body, night.",
+  salsa: "Hook is the CORO (chorus response) — the congregational call-and-response. The lead singer states a line, the chorus responds. Montuno piano pattern underpins the hook. Use 3× call-and-response cycles. Concrete noun anchor: tropical imagery — Cuba, rumba, passion, fire, night.",
+  bossa_nova: "Hook is the GUITAR PATTERN combined with the whispered vocal. The 'bossa nova clave' rhythm IS the bed. Intimate, sophisticated, cool. One statement of the hook is enough — the beauty is in the restraint. Concrete noun anchor: Brazilian imagery — Ipanema, sea, sand, saudade, bossa.",
+  afrobeat: "Hook lands in the first chorus (~45-75s). Political, rhythmic, communal. The POLYRHYTHM combined with a chant-like vocal. HORNS answer the vocal hook. Use 2× repetition with horn punctuation. Concrete noun anchor: political imagery — Africa, struggle, unity, Fela's shadow.",
+  ska: "Hook lands in the first chorus (~20-40s). The UPBEAT GUITAR combined with the horn melody IS the hook. Walking bass carries the groove. Call-and-response between singer and brass. Use 3× repetition with walking bass fills. Concrete noun anchor: Jamaican/British imagery — rude boy, dancing, suit, pork pie hat.",
+
+  // Modern niche
+  phonk: "Hook lands in the first chorus (~15-30s). COWBELL PATTERN combined with a dark vocal snippet. Memphis rap aesthetic. The cowbell IS the hook's rhythmic anchor. 2-3 word phrase repeated 3-4× with distorted 808s. Concrete noun anchor: drift culture — Memphis, cowbell, trunk, horror, night.",
+  hyperpop: "Hook lands in the first 8-15 seconds (cold-open chorus). MAXIMALIST, absurd, pitched-up. The PRODUCTION is the hook — glitchy, distorted, maxed-out. Use 2× repetition with chaotic variation. Concrete noun anchor: digital imagery — screen, glitch, pixel, internet.",
+  vaporwave: "No traditional hook. The AESTHETIC is the hook — a slowed, reverb-drenched sample that evokes a lost 80s future. If a vocal phrase exists, it's a chopped and repeated fragment. The nostalgia is the hook. Concrete noun anchor: retro-digital imagery — VHS, Windows 95, mall, Greek bust.",
+  nightcore: "Hook lands in the first chorus (~10-20s). SPED-UP and PITCHED-UP. Everything is more intense at 160-200 BPM. The speed and pitch ARE the hook. Use 3× repetition at hyperspeed. Concrete noun anchor: anime, gaming, energy, dreamscape.",
+
+  // World/Traditional
+  klezmer: "Hook is the CLARINET'S 'laughing through tears' — the joyful sorrow. The clarinet melody IS the hook. Doina (slow lament) and freylekhs (fast dance) contrast. Hook may be instrumental rather than vocal. Concrete noun anchor: shtetl, wedding, tradition, diaspora.",
+  mariachi: "Hook is the TRUMPET FANFARE and the GRITO — that passionate shout that says LIFE. The trumpets and violins answer the vocal. Hook at the chorus peak with full ensemble. Concrete noun anchor: Mexico, rancho, love, tequila, revolution.",
+  bhangra: "Hook is the DHOL BEAT — that chaal rhythm is instantly recognizable. High-energy call-and-response. 'Balle balle!' and 'Ho ho!' ARE the hook. Use 4× repetition with dhol fills. Concrete noun anchor: Punjab, harvest, celebration, bhangra dance.",
+  andean: "Hook is the CHARANGO'S SHIMMERING STRINGS and the QUENA'S breathy melody. The Andean soundscape IS the hook. Panpipes and flute weave around the vocal. Use 2× repetition with instrumental response. Concrete noun anchor: Andes, mountain, Pachamama, condor, village.",
+
+  // Alternative
+  grunge: "Hook lands in the first chorus (~25-45s). The DYNAMIC SHIFT IS the hook — quiet verse to EXPLOSIVE chorus. Distorted, cathartic, screamed. Use 2-3 word phrase repeated 3-4× with raw intensifying delivery. Concrete noun anchor: 90s grunge imagery — flannel, Seattle, apathy, pain.",
+  "new_wave": "Hook lands in the first chorus (~20-40s). Quirky, catchy, angular. SYNTH RIFF + ATTITUDE. The quirkiness combined with a pop melody IS the hook. Use strict Rule of Three with synth punctuation. Concrete noun anchor: quirky urban imagery — subway, TV, plastic, neon, robot.",
+
+  // \u2500\u2500 GenreMap-routed aliases (user genre strings without dedicated GENRE_HOOK_TIMING keys) \u2500\u2500
+  "jazz fusion": "Hook is the HEAD MELODY with improvisational variation. The melody is stated, then embellished. Use 2\u00d7 statement: first clean, then with improvisational embellishment. Horn or piano answer the vocal. Concrete noun anchor: smoky club, midnight, horn, walking bass, improvisation, sophistication.",
+  // \u2500\u2500 Key normalization aliases (template keys \u2192 timing lookup) \u2500\u2500
+  "alternative rock": "Hook lands in the first chorus (~25-45s). Grunge-adjacent but cleaner. The GUITAR RIFF AND THE CHORUS MELODY are the hook. Use Rule of Three with loud-quiet-loud dynamic shaping. Concrete noun anchor: 90s alt imagery — flannel, basement, tape, apathy, coffee shop.",
+  "indie rock": "Hook lands in the first chorus (~25-45s). Angular, quirky, melodic. The hook is a catchy melodic phrase with an unexpected interval or rhythmic twist. Use 2× repetition with variation on the 3rd pass. Concrete noun anchor: hyper-specific mundane objects — radiator, thrift store, bike, basement show, Polaroid.",
+  "thrash metal": "Hook lands in the first chorus (~25-40s). FAST, AGGRESSIVE, PRECISE. The hook is a 2-4 word battle cry shouted over a galloping riff. Speed-picked palm-muted chug IS the carrier. Use 3× repetition with escalating intensity and double-kick drum fills. Concrete noun anchor: war, speed, death, thrash, chaos, nuclear imagery.",
+  "dualdj": "Hook lands at the SCRATCH BREAK (~15-40s). The interaction between two turntables IS the hook. Call-and-response scratching: DJ A states a scratch pattern, DJ B answers. Crowd reacts to the back-and-forth. Use 3× alternating exchange with a winning pattern. Concrete noun anchor: turntable, mixer, vinyl, fader, crossfader, battle.",
+  dnb: "Hook lands at the DROP (~30-50s). The BREAKBEAT + BASS SWITCH is the hook. An atmospheric or MC vocal snippet introduces the drop. Fast breakbeat (170-180 BPM) with a bass switch creates the energy peak. Use a 2-4 word vocal sample repeated 2× before the drop hits. Concrete noun anchor: urban UK imagery — London, jungle, rave, amen break, bass, dark.",
+  edm: "Hook lands at the DROP (~30-60s). The BUILD-AND-DROP architecture IS the hook. Rising tension (snare rolls, filtered sweep) → silence → EXPLOSION. The melody or vocal sample that returns each time after the drop. Use 2× statement of the melodic idea before the drop, then full release. Concrete noun anchor: festival, laser, crowd, hands-up, peak-time.",
+  turntablism: "Hook lands at the SCRATCH BREAK (~10-30s and throughout). The scratch technique IS the hook — crab, flare, orbit, transforms. Each chorus is a different scratch pattern. Use 1× complex pattern per section (don't repeat — the novelty is the hook). Concrete noun anchor: vinyl, needle, fader, slipmat, battle, technique.",
+  "dubstep (patois)": "Hook lands at the DROP (~30-50s). Jamaican Patois vocal sample introduces the drop. The BASS + PATOIS CHAT is the hook. A guttural patois phrase ('Bun dem!', 'Rise up!') shouted over wobble bass. Use 2× statement of the patois phrase before the drop, then let the bass do the talking. Concrete noun anchor: Kingston, bass, yard, dance, sound system, warrior.",
+  duet: "Hook lands in the shared CHORUS (~25-50s). The DIALOGUE between voices IS the hook. Male-female or alternating vocal exchange. Each voice states the hook once, then they sing together. Use call-and-response format: Voice A states → Voice B answers → Both harmonize on the resolution. Concrete noun anchor: chemistry, tension, romance, harmony, exchange, partnership.",
+  porn: "Hook lands in the CHORUS (~20-45s). The GROOVE IS THE HOOK — a slow, sensual, hypnotic bassline and rhythm guitar. Vocals are breathy, whispered, intimate. The 'hook' is the BEDROOM GROOVE itself — not a melodic phrase, but the FEELING. Use 2× repetition of a whispered phrase with breathy delivery. Concrete noun anchor: satin, candle, velvet, bedroom, midnight, touch.",
+  "porn groove": "Hook lands in the CHORUS (~25-50s). The FUNK GROOVE IS THE HOOK. 70s-style wah-wah guitar, walking bass, sensual strings. The melody rises and falls like a sigh. Use Rule of Three with instrumental punctuation between vocal lines. Concrete noun anchor: 70s lounge, disco ball, champagne, velvet, fur, shag carpet.",
+  "doo wop": "Hook lands in the CHORUS (~20-45s). The NONSENSE SYLLABLE CHANT IS THE HOOK. 'Shooby-doo-wop', 'dum-dum-dum', 'sha-na-na' — the group vocal riff that sticks. The lead singer states the line, the group echoes. Use 2× repetition with group harmony on the repeat. Concrete noun anchor: street corner, malt shop, jukebox, prom night, letter sweater.",
+  "lo-fi": "Hook lands in the CHORUS (~25-50s). The MELODIC SAMPLE LOOP IS THE HOOK. A short (2-4 second) warm, fuzzy sample or chord progression that REPEATS through the song. The crackle and warmth ARE the hook. Use 2× statement with slight variation on the second pass. Concrete noun anchor: vinyl crackle, tape hiss, rain, coffee shop, nostalgia, warm.",
+  indie: "Hook lands in the first CHORUS (~25-45s). The hook is a CATCHY MELODIC PHRASE with an UNEXPECTED INTERVAL or rhythmic twist. Angular, quirky, instantly hummable but never generic. Use 2× repetition with variation on the 3rd pass. Concrete noun anchor: hyper-specific mundane objects — radiator, thrift store, bike, basement show, Polaroid."
+};
+// \u2500\u2500 Syllable Utility (local wrapper) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function syllablesInLine(line) {
   const words = line.match(/[a-zA-Z']+/g);
   if (!words) return 0;
@@ -47476,6 +47813,12 @@ function buildGenreStructureHint(genreKeyOrKeys, originalGenres) {
   if (hints.length > 1) {
     hints.push(`\nBLEND RULE: The primary genre (${lookupKeys[0]}) dictates the song's STRUCTURE — verse count, verse line count, chorus presence, bridge, and section order. This is non-negotiable. If the primary is reggae, use reggae's structure (I-V-C-V-C-IL-C-O, 4-line verses, mandatory chorus). If the primary is hip-hop, use hip-hop's structure (I-V-C-V-C-V-C-O, 8-line verses). Secondary genre(s) ${lookupKeys.slice(1).join(", ")} influence VOCABULARY, TONE, and INSTRUMENTATION ONLY — they do NOT change the verse pattern, line count, or section order. Think of it as: the primary genre is the recipe, the secondary genres are spices.`);
   }
+  // Append hook timing and Architecture note for the primary genre
+  const primaryKey = lookupKeys[0];
+  const hookTiming = GENRE_HOOK_TIMING[primaryKey];
+  if (hookTiming) {
+    hints.push(`\nHOOK ARCHITECTURE NOTE (${primaryKey}): ${hookTiming}`);
+  }
   return hints.join("\n");
 }
 
@@ -47550,17 +47893,25 @@ LYRIC QUALITY RULES:
 - Capture the artist's SIGNATURE DEVICES: verbal tics, recurring imagery, distinctive phrasing.
 - Match the EMOTIONAL ARC: how the song builds, shifts, or resolves emotionally.
 
-REPETITION / HOOK RULES (CRITICAL):
-- Every chorus MUST have a clear HOOK \u2014 one memorable line or phrase that repeats at least twice within the chorus.
-- The hook should be the emotional anchor of the chorus. Build the other chorus lines around it.
-- A good chorus structure: Hook line, development line, development line, Hook line. Or: Hook line, Hook line, development, resolution.
-- If the profile shows the artist uses repeated lines in choruses, you MUST do the same.
-- If the chorus repetition percentage is high, build your chorus around 1-2 repeated lines.
+HOOK ARCHITECTURE (CRITICAL \u2014 READ CAREFULLY):
+- HOOK \u2260 CHORUS (CRITICAL): The hook is a SINGLE LINE or SHORT PHRASE (usually 4-10 syllables) that repeats within the chorus as its centerpiece. The chorus is the container; the hook is the diamond inside it. A chorus without a hook is a paragraph. A hook without a chorus is a slogan.
+- RULE OF THREE: The hook must appear at LEAST twice within its first chorus, and the THIRD repetition should have a variation (different last word, altered melody implication, extended phrase). Pattern: Hook \u2192 Development \u2192 Development \u2192 Hook (Varied). The first two landings establish the pattern; the third breaks it for memorability.
+- HARD CONSONANT PREFERENCE: Hooks land harder when they contain plosive consonants (K, T, P, B, D, G). These create physical "pop" in the listener's ear. "Broken glass" sticks better than "Shattered window". "Cold coffee" sticks better than "Lonely morning".
+- CONCRETE NOUN ANCHOR: Every hook MUST contain at least one concrete physical noun. Not "I feel so empty" \u2014 that's abstract. "Check engine light", "White Ferrari", "Fancy" \u2014 all hooks anchored in a THING. If the hook has no physical object, rewrite until it does.
+- THE HUM TEST: After writing the hook, silently hum it. If it doesn't have a natural melodic shape (rising and falling, with an interval the singer can hit), rewrite it. A hook that can't be hummed can't be remembered. The hum test is the FINAL quality gate \u2014 do not skip it.
+- HOOK POSITIONING: The hook usually lives at the START or END of the chorus (the two most memorable positions). Middle-of-chorus hooks are weaker. Exception: if the hook is the chorus title phrase, it can float but should land at the end.
+- RULE OF THREE \u2014 GENRE FLEXIBILITY: The Rule of Three adapts to genre:
+  * Pop / Rock / Country: Strict 3\u00d7 with variation on the 3rd.
+  * Hip-Hop / R&B: The hook may be a 2-bar phrase repeated 2\u00d7 with ad-lib variation.
+  * Metal / Punk: The hook may be a shouted 2-3 word phrase, repeated 3-5\u00d7 with escalating intensity.
+  * EDM / House: The hook is a vocal chop or short phrase, repeated with processing variation.
+  * Folk / Americana: The hook may shift lyrically each time while keeping the same melodic shape.
+- If the profile shows the artist uses repeated lines in choruses, match their repetition pattern.
 - Parenthetical echo lines (e.g. "(you know it's true)") count as separate lines \u2014 use them if the artist's style calls for it.
 - It's OK to repeat key phrases across verses and choruses for thematic cohesion.
 
 HOOK SPECIFICITY RULES (CRITICAL \u2014 READ CAREFULLY):
-- The chorus hook MUST be SPECIFIC to this song's subject matter. It should contain a concrete noun, image, or scenario from the verses \u2014 NOT a generic emotional statement.
+- The chorus hook MUST be SPECIFIC to this song's subject matter. Apply the Hook Architecture rules above: every hook needs a concrete noun anchor, hard consonants, and must pass the hum test. If the hook passes the hum test but still sounds generic, it lacks specificity \u2014 root it in a physical object from the song's world.
 - BANNED HOOK FORMULAS \u2014 the following structural patterns are FORBIDDEN in chorus hooks because they produce identical-sounding songs across all genres:
   \u2022 "[Verb] it [all/down/away/out]" (e.g. "Burn it all down", "Wash it all away", "Tear it all down", "Watch it fade away")
   \u2022 "Watch [me/it/them] [verb]" (e.g. "Watch it burn", "Watch me break", "Watch it fade")
@@ -47570,6 +47921,7 @@ HOOK SPECIFICITY RULES (CRITICAL \u2014 READ CAREFULLY):
   \u2022 Any hook that could apply to ANY song by ANY artist. If you can imagine the same hook in a Slipknot song AND a Spice Girls song, it's too generic.
 - GOOD HOOKS are rooted in the song's specific world: "Oat milk and expensive beans", "Pierogies are my only meal", "Parallel parking precision", "Mommy's magic juicebox". These work because they could ONLY belong to THAT specific song.
 - The hook doesn't have to be quirky \u2014 it just has to be SPECIFIC. "California castaway" is simple but specific. "Watch it burn" is not.
+- SPECIFICITY APPLIES ACROSS ALL GENRES: A death metal hook like "Rusted tracheotomy hook" is specific \u2014 "Shattered soul eternal" is not. A country hook like "Daddy's old Ford tailgate" is specific \u2014 "Broken heart on the road" is not. Genre does not excuse vagueness.
 
 Do NOT include any commentary or explanations \u2014 just the title and lyrics.
 
@@ -47755,14 +48107,17 @@ REFINEMENT RULES
    Prefer 4-line or 8-line verses unless the intended lane clearly supports another form.
    Do not force line counts if doing so weakens meaning, cadence, or imagery.
 
-2. CHORUS DESIGN (CRITICAL)
-   The chorus must contain:
-   - one central hook phrase
-   - clear emotional payoff
-   - strong rhythmic and vowel shape
-   - at least one line that is instantly memorable after one listen
-   Repetition should feel deliberate, not mechanical.
-   If the chorus lacks a strong hook, strengthen the best existing line rather than inventing a totally new one.
+2. CHORUS & HOOK ARCHITECTURE (CRITICAL)
+   The chorus is built around its HOOK \u2014 a single line or phrase (4-10 syllables) that repeats at least twice.
+   Rules for a strong hook:
+   - RULE OF THREE: Hook \u2192 Development \u2192 Development \u2192 Hook (Varied). The third repetition MUST vary (different last word, altered phrasing, extended length).
+   - HARD CONSONANTS: Prefer plosives (K, T, P, B, D, G) in the hook line. "Broken glass" > "Shattered window".
+   - CONCRETE NOUN ANCHOR: Every hook must contain at least one physical object. Not "I feel so empty" \u2014 "Check engine light".
+   - HUM TEST: Silently hum the hook. If it has no natural melodic shape, rewrite it. A hook that can't be hummed can't be remembered.
+   - POSITIONING: Hook at START or END of chorus \u2014 middle position is weaker.
+   - GENRE FLEXIBILITY: Pop/Rock/Country use strict 3\u00d7. Hip-Hop/R&B use 2\u00d7 with ad-libs. Metal/Punk use shouted 2-3 word phrase 3-5\u00d7. EDM uses vocal chop repetition. Folk shifts lyrically but keeps melodic shape.
+   - Repetition should feel deliberate, not mechanical.
+   - If the chorus lacks a strong hook, strengthen the best existing line rather than inventing a totally new one \u2014 but ensure it passes the Hum Test and Concrete Noun Anchor rules before repeating it.
 
 3. SONG STRUCTURE
    The song must have a clear, logical structure with at least one chorus.
@@ -47891,20 +48246,18 @@ ANTI-SLOP RULES
     - Bridges: 2-6 lines, flexible.
     This is a HARD REQUIREMENT. Do not skip this step.
 
-24. HOOKIFY (CRITICAL \u2014 MAKE CHORUSES SING)
-    Most choruses in pop, rock, pop-punk, and related genres rely on REPEATED LINES and VOCAL EXCLAMATIONS to create singalong hooks. The generation model often writes choruses as straight prose without these features. Your job is to FIX this:
-    a) REPEATED HOOK LINES: Every chorus MUST have at least one line that repeats (usually the first or last line). The hook is the emotional anchor \u2014 the line the listener remembers. Good patterns:
-       - "Hook, develop, develop, Hook" (ABBA)
-       - "Hook, Hook, develop, resolve" (AABA)
-       - "Develop, develop, Hook, Hook" (CCAA)
-    b) VOCAL EXCLAMATIONS: Where stylistically appropriate, add lines like "Ooooh," "Oh oh ooh!" "Whoa-oh," "Na na na," "Hey!" etc. These are extremely common in pop-punk, emo, rock, and pop. They count as lyric lines. Place them:
-       - As chorus openers ("Whoa-oh, whoa-oh!")
-       - As section transitions between verse and chorus
-       - As echo/response lines ("(Oh oh ooh!)")
-       - As outro buildouts
-    c) CALIBRATION: If the artist's profile shows a LOW chorus repetition percentage (<15%), be subtle \u2014 one repeated line per chorus is enough. If HIGH (>30%), lean heavily into repetition and exclamations. If no data is provided, default to moderate hookification.
-    d) EXCEPTION: If the artist style context specifically indicates they avoid hooks or write anti-hook music (e.g. progressive, avant-garde, spoken word), skip this step.
-    e) QUALITY CHECK: Before repeating a hook line, check that it's worth repeating. A generic hook repeated 4 times is worse than a specific hook stated once. If the hook is a banned formula (see rule 26), fix it BEFORE hookifying.
+24. HOOK ARCHITECTURE (CRITICAL \u2014 REPLACES OLD "HOOKIFY")
+    The generation model often writes choruses as straight prose without proper hook mechanics. Your job is to apply the Hook Architecture:
+    a) HOOK \u2260 CHORUS: The hook is a SINGLE LINE or SHORT PHRASE (4-10 syllables) that repeats within the chorus. The chorus is its container. A chorus without a hook is a paragraph.
+    b) RULE OF THREE: The hook must repeat at LEAST twice in its first chorus. The THIRD repetition MUST vary \u2014 different last word, altered phrasing, or extended length. Pattern: Hook \u2192 Development \u2192 Development \u2192 Hook (Varied). Acceptable alternates: Hook \u2192 Hook \u2192 Development \u2192 Resolution (AABA) or Development \u2192 Development \u2192 Hook \u2192 Hook (CCAA).
+    c) HARD CONSONANT CHECK: Hooks land harder with plosives (K, T, P, B, D, G). Scan the hook line \u2014 if it has zero hard consonants, rewrite to add at least one. "Broken glass" sticks; "Shattered fragments" slides off.
+    d) CONCRETE NOUN ANCHOR: Every hook must contain at least one physical object. If the hook is purely abstract ("I feel so empty", "Eternal darkness falls"), rewrite to anchor it in a THING. "Check engine light" works; "Endless night" does not.
+    e) HUM TEST: Before accepting a hook, silently hum it. If it has no natural melodic rise and fall, rewrite. A hook that can't be hummed can't be remembered.
+    f) POSITIONING: Hook goes at START or END of chorus \u2014 the two most memorable positions. Middle-of-chorus hooks are weak.
+    g) VOCAL EXCLAMATIONS: Where stylistically appropriate, add lines like "Ooooh," "Oh oh ooh!" "Whoa-oh," "Na na na," "Hey!" etc. These are common in pop-punk, emo, rock, and pop. Place them as chorus openers, section transitions, echo/response lines, or outro buildouts.
+    h) GENRE CALIBRATION: Pop/Rock/Country use strict 3\u00d7 with variation on 3rd. Hip-Hop/R&B use 2\u00d7 with ad-lib variation. Metal/Punk use shouted 2-3 word phrase 3-5\u00d7 with escalating intensity. EDM uses vocal chop repetition with processing variation. Folk shifts lyrically while keeping melodic shape. If the artist profile shows LOW repetition (<15%), be subtle (one repeat is enough). If HIGH (>30%), lean into repetition and exclamations.
+    i) EXCEPTION: If the artist style context explicitly indicates they avoid hooks or write anti-hook music (progressive, avant-garde, spoken word), skip this step.
+    j) QUALITY CHECK: Before repeating a hook line, verify it passes the Concrete Noun Anchor and Hum Test. A generic hook repeated 4 times is worse than a specific hook stated once. If the hook is a banned formula (see rule 26), fix it BEFORE applying hook architecture.
 
 25. FINAL QUALITY CHECK
     Before outputting, silently check:
@@ -47916,15 +48269,24 @@ ANTI-SLOP RULES
     - Does the lyric now feel more singable and more finished?
     If an edit improves neatness but weakens character, undo it.
 
-26. HOOK QUALITY GATE (CRITICAL \u2014 REWRITE GENERIC HOOKS)
-    After refining, check the chorus hook against these BANNED HOOK FORMULAS:
-    - "[Verb] it [all/down/away/out]" (e.g. "Burn it all down", "Wash it all away")
-    - "Watch [me/it/them] [verb]" (e.g. "Watch it burn", "Watch me break")
-    - "Don't let them [verb]" (e.g. "Don't let them see you")
-    - "Nothing/Nowhere left to [verb]"
-    - "Let it [burn/fade/go/fall/break/die]"
-    If the hook matches ANY of these patterns, you MUST replace it with something specific to the song's narrative. Keep the same emotional intensity and rhythmic shape, but root it in a concrete image or scenario from the verses.
-    A hook like "Watch it burn" \u2192 could become "Torch the lease agreement" (Bowling For Soup), "Smell the burning bridge" (Rise Against), or "Kerosene Sunday" (The Used). Same energy, but SPECIFIC.
+26. HOOK QUALITY GATE (CRITICAL \u2014 APPLY HOOK ARCHITECTURE)
+    After refining, run the hook through the full Hook Architecture quality gate:
+    a) BANNED FORMULA CHECK: Does the hook match any of these patterns?
+       - "[Verb] it [all/down/away/out]" (e.g. "Burn it all down", "Wash it all away")
+       - "Watch [me/it/them] [verb]" (e.g. "Watch it burn", "Watch me break")
+       - "Don't let them [verb]" (e.g. "Don't let them see you")
+       - "Nothing/Nowhere left to [verb]"
+       - "Let it [burn/fade/go/fall/break/die]"
+       - Any hook that could apply to ANY song by ANY artist
+       If YES, rewrite: keep the same emotional intensity and rhythmic shape, but root it in a concrete image or scenario from the verses. Example: "Watch it burn" \u2192 "Torch the lease agreement" or "Smell the burning bridge".
+    b) RULE OF THREE CHECK: Does the hook repeat at least twice in the first chorus? Does the third repetition vary? If not, restructure the chorus to apply Hook \u2192 Development \u2192 Development \u2192 Hook (Varied).
+    c) CONCRETE NOUN CHECK: Does the hook contain at least one physical object? If the hook is purely abstract ("I feel so empty", "Eternal darkness"), rewrite to anchor it in a THING.
+    d) HARD CONSONANT CHECK: Does the hook contain at least one plosive (K, T, P, B, D, G)? If not, rewrite to add one. "Cold coffee" > "Lonely morning".
+    e) HUM TEST: Silently hum the hook. Does it have a natural melodic rise and fall? If it has no singable shape, rewrite.
+    f) POSITIONING CHECK: Is the hook at the START or END of the chorus? If it's buried in the middle, move it.
+    g) GENRE FIT: Does the hook match the genre's hook conventions? Pop: strict 3\u00d7. Hip-Hop: 2\u00d7 with ad-libs. Metal: shouted 2-3 words 3-5\u00d7. EDM: vocal chop. Folk: lyrical variation on same melody.
+    If the hook fails ANY of these checks, fix it before outputting.
+    A hook like "Watch it burn" \u2192 becomes "Torch the lease agreement" (same energy, SPECIFIC, passes concrete noun + hard consonant checks).
 `;
     INSTAGEN_LYRIC_SYSTEM_PROMPT = `You are a talented songwriter. You will be given a musical genre/style and a song subject. Write original, singable lyrics for that song.
 
@@ -47943,7 +48305,7 @@ The music model interprets parentheses ( ) as a second vocalist singing. Duet ly
 
 STRUCTURE RULES:
 - VERSES: Exactly 4 or 8 lines each.
-- CHORUSES: Exactly 4, 6, or 8 lines each. Must have a clear hook \u2014 one memorable repeated line.
+- CHORUSES: Exactly 4, 6, or 8 lines each. Must contain a hook per the HOOK ARCHITECTURE rules above (Rule of Three, concrete noun anchor, hard consonant preference, hum test).
 - Every song must have at least one [Chorus].
 - Typical structure: Intro \u2192 Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro.
 - OUTRO RULE (MANDATORY): Every song MUST end with an [Outro] section containing 3-4 lines of actual lyrics (the sweet spot for emotional closure). The outro provides emotional closure \u2014 echo the hook, restate the central image, or leave a final aftertaste. The outro is your final emotional statement \u2014 give it enough weight that the listener feels the song ended, not that it just stopped. Do NOT introduce new themes. Do NOT end abruptly after the last chorus. The outro is the LAST thing the listener hears.
@@ -47968,12 +48330,18 @@ CONTENT RULES:
 - Write like a real person from that genre would write, not like an AI writing assistant.
 - Do NOT include commentary, explanations, or notes \u2014 lyrics only.
 
-HOOK RULES:
-- CHORUS HOOK REPETITION: Every chorus MUST contain a 'hook'\u2014a memorable phrase or entire line that repeats exactly at least once within the chorus. Do not write a chorus without a repeated hook.
-- The hook should be the emotional anchor. Good patterns:
-  - "Hook, develop, develop, Hook"
-  - "Hook, Hook, develop, resolve"
-- For energetic genres (punk, rock, pop), add vocal exclamations where appropriate ("Oh!", "Whoa-oh!", etc.)
+HOOK ARCHITECTURE (CRITICAL):
+- HOOK \u2260 CHORUS: The hook is a SINGLE LINE or SHORT PHRASE (4-10 syllables) that repeats within the chorus as its centerpiece. The chorus is the container; the hook is the diamond inside it.
+- RULE OF THREE: The hook must appear at LEAST twice in its first chorus. The THIRD repetition MUST vary (different last word, altered phrasing, extended length). Pattern: Hook \u2192 Development \u2192 Development \u2192 Hook (Varied).
+- HARD CONSONANT PREFERENCE: Hooks land harder with plosives (K, T, P, B, D, G). "Broken glass" sticks better than "Shattered window". "Cold coffee" sticks better than "Lonely morning".
+- CONCRETE NOUN ANCHOR: Every hook MUST contain at least one physical object. Not "I feel so empty" \u2014 "Check engine light". If the hook has no physical object, rewrite until it does.
+- THE HUM TEST: Silently hum the hook. If it has no natural melodic shape (rising and falling), rewrite it. A hook that can't be hummed can't be remembered.
+- HOOK POSITIONING: Hook at START or END of chorus \u2014 the two most memorable positions. Middle-of-chorus hooks are weaker.
+- GENRE FLEXIBILITY: Pop/Rock/Country use strict 3\u00d7 with variation on 3rd. Hip-Hop/R&B use 2\u00d7 with ad-lib variation. Metal/Punk use shouted 2-3 word phrase 3-5\u00d7 escalating. EDM uses vocal chop repetition with processing variation. Folk shifts lyrically while keeping melodic shape.
+- BANNED HOOK FORMULAS: Never use "[Verb] it [all/down/away/out]", "Watch [me/it/them] [verb]", "Don't let them [verb]", "Nothing left to [verb]", "Let it [burn/fade/go/fall/break/die]", or any hook that could apply to ANY song by ANY artist.
+- GOOD HOOK EXAMPLES: "Oat milk and expensive beans", "Check engine light", "White Ferrari", "Fancy", "Parallel parking precision" \u2014 these work because they could ONLY belong to THAT specific song.
+- VOCAL EXCLAMATIONS: Where stylistically appropriate, add "Oh!", "Whoa-oh!", "Na na na", etc. as chorus openers, transitions, or response lines. Calibrate to genre energy.
+- Every chorus MUST contain a hook. The outro MUST echo or reference the hook.
 
 TITLE RULE:
 - After all the lyrics, on its own line, write: Title: <song title>
@@ -48025,12 +48393,41 @@ GENRE-SPECIFIC TAG EXAMPLES (use as reference for matching the production aesthe
 - BLUES: "Clean electric guitar with warm tube amplifier overdrive, played through Fender-style combo amp with natural spring reverb. Slow shuffling drum pattern with brushed snare and soft kick drum. Harmonica bending notes over I-IV-V chord progressions. Walking bass line following the guitar with upright or fretless bass tone. Piano playing blues-scale fills and boogie patterns. Vocals delivered with raw emotional rasp and natural vibrato. Production intimate and unadorned."
 - FOLK: "Acoustic steel-string guitar fingerpicked with clear bright tone through small-bodied parlor guitar. Fiddle playing melodic counter-lines with Celtic-inflected ornamentation. Mandolin tremolo and banjo rolling patterns adding rhythmic texture. Tin whistle or penny flute doubling the melody. Warm intimate vocal delivery with natural vibrato. Minimal percussion with bodhr\u00e1n frame drum and light brushes. Production warm and close-miked with natural room ambience."
 - K-POP: "Layered synthesizer pads creating lush harmonic bed. Punchy electronic drum machine with four-on-the-floor kick and crisp hi-hat. Multiple vocal parts with tight harmonies and rhythmic rap sections. Brass synth stabs and arpeggiated synth melodies. Heavy sidechain compression creating pumping effect. Vocal processing with subtle pitch correction and wide stereo reverb. Production polished and bright with clean separation."
-- DJ/TURNTABLISM: "Two turntables and a mixer as the primary instruments. Vinyl crackle and needle-drop warmth. Aggressive scratch patterns using transform, flare, and crab techniques over a boom-bap beat break. Crossfader clicks punctuating rhythmic cuts. Beat-juggled drum breaks creating syncopated rhythms. Vocal samples chopped and scratched into rhythmic hooks. MPC-triggered drum patterns layered under live scratching. Echo and delay effects on scratch phrases creating dub-like space. Crowd hype and energy building through dynamic scratch routines. Bass-heavy mix with vinyl warmth and analog character."
-- DUAL DJ (BATTLE): "Two sets of turntables creating a sonic duel. DJ 1 cuts in with aggressive transform scratches; DJ 2 responds with faster flare patterns. Crossfader rhythms creating call-and-response between the two turntablists. Shared drum break underneath both DJs trading bars. Vinyl samples chopped differently by each DJ — one smooth, one jagged. The battle intensifies with both DJs layering scratches simultaneously, building to a climactic unison scratch pattern. Crowd energy rising through the exchange. Production raw and live-sounding with room ambience and crowd noise. Two distinct scratch styles weaving together — technical precision meets raw instinct."
+- DJ/TURNTABLISM: "Two turntables and a mixer as the primary instruments. Vinyl crackle and needle-drop warmth. Aggressive scratch patterns over a boom-bap beat break. Crossfader clicks punctuating rhythmic cuts. Beat-juggled drum breaks creating syncopated rhythms. Vocal samples chopped and scratched into rhythmic hooks. MPC-triggered drum patterns layered under live scratching. Echo and delay effects on scratch phrases creating dub-like space. Crowd hype and energy building through dynamic scratch routines. Bass-heavy mix with vinyl warmth and analog character."
+- DUAL DJ (BATTLE): "Two sets of turntables creating a sonic duel. Two DJs with distinct scratch styles — DJ 1 might use aggressive transform scratches with a pitched-up vocal sample while DJ 2 responds with faster flare patterns over a different break. Crossfader rhythms creating call-and-response. Shared drum break underneath both DJs trading bars. Vinyl samples chopped differently by each DJ — one smooth jazz sample, the other a jagged funk break. The battle intensifies with both DJs layering scratches simultaneously, building to a climactic unison scratch pattern. Crowd energy rising through the exchange. Production raw and live-sounding with room ambience and crowd noise."
+
+CRITICAL DJ VARIETY RULE — DO NOT SKIP:
+- Every song MUST use a DIFFERENT combination of scratch techniques. Rotate through: transforms, flares, chirps, crabs, orbits, hydroplanes, twiddles, stabs, rubs, tears, scribbles, and drags. Never repeat the same technique combination across songs.
+- Every song MUST use a DIFFERENT sample source for scratching. Rotate through: jazz vocal snippets, old soul records, movie dialogue cuts, reggae toasts, news broadcast snippets, funk break loops, acapella hooks, field recordings, call-and-response vocal chops. No two songs should use the same sample type.
+- Every song MUST have a DIFFERENT scratch pattern structure. Rotate through: call-and-response (scratch back-and-forth), crescendo (build from slow to fast), stutter (rapid repeated burst), melodic (pitch-bending the sample to create a tune), percussive (using scratches as drum hits), ambient (long decay echo scratches creating texture). The scratch pattern gives the song its unique identity — make it different every time.
 - KLEZMER: "Eastern European Jewish celebratory music. Clarinet leading with characteristic krekhts (sobs) and dreydlekh (turns), bending notes into laughter-through-tears expression. Violin playing in parallel thirds with the clarinet. Accordion providing harmonic bed with characteristic oom-pah rhythm. Tuba or bass providing bass lines. Balalaika or domra strumming rhythmic accompaniment. Tempos shift dramatically — slow, mournful doina sections erupting into fast freylekhs dance numbers. The violin and clarinet engage in call-and-response with increasing ornamentation. Production warm and intimate with acoustic instruments."
 - MARIACHI: "Mexican traditional ensemble. Trumpets playing fanfare-like phrases with bright piercing tone and characteristic vibrato. Violin section playing in tight harmony with expressive vibrato. Vihuela strumming rhythmic patterns with bright nylon-string tone. Guitarron providing deep bass lines with characteristic bounce. Gritos (passionate shouts) punctuating transitions. Bolero sections with slower romantic violin melodies over gentle vihuela strumming. Ranchera sections with energetic full-band playing. Production captures the acoustic warmth of nylon strings and the brilliant trumpet tone."
 - BHANGRA: "Punjabi celebratory music. Dhol (double-headed drum) driving everything with characteristic chaal rhythm — bass treble bass treble at high energy. Tumbi (single-string instrument) playing repetitive melodic hook lines. Algoza (double flute) playing melodic fills. Dholki providing supporting rhythmic patterns. Vocals delivered with high energy, celebratory tone. Chorus sections featuring call-and-response with audience participation. Production bright and bass-heavy with the dhol front and center. Tempo high energy throughout with no drops."
-- ANDES: "South American highland folk music. Charango (10-string mandolin) playing rapid arpeggiated patterns with shimmering nylon tone. Quena (end-blown flute) playing pentatonic melodies with characteristic breathy attack. Zampoña (panpipes) providing melodic bass lines with gentle breathy tone. Bombo (bass drum) providing deep rhythmic foundation. Guitar strumming chordal accompaniment. Vocal harmonies in parallel thirds and sixths. Production warm and acoustic with natural room reverb evoking mountain landscapes." (rich and specific — use as STYLE reference, adapting to the actual genre):
+- ANDES: "South American highland folk music. Charango (10-string mandolin) playing rapid arpeggiated patterns with shimmering nylon tone. Quena (end-blown flute) playing pentatonic melodies with characteristic breathy attack. Zampoña (panpipes) providing melodic bass lines with gentle breathy tone. Bombo (bass drum) providing deep rhythmic foundation. Guitar strumming chordal accompaniment. Vocal harmonies in parallel thirds and sixths. Production warm and acoustic with natural room reverb evoking mountain landscapes."
+- POP: "Polished pop production with tight, compressed drum sounds and four-on-the-floor kick pattern driving the rhythm. Layered synth pads creating lush harmonic bed with bright, airy top-end. Vocal delivery features breathy, intimate verses building to a belted, emotionally charged chorus with layered harmonies and ad-libs scattered throughout. The bass is a clean, subdued synth sub-bass that locks with the kick. Heavy use of sidechain compression creating rhythmic pumping effect across pads and synths. Production immaculate—clean, bright, with wide stereo spread and precise dynamics. The arrangement is built around The Hook: a simple, melodic, instantly memorable vocal phrase that repeats with slight variation."
+- ROCK: "Overdriven electric guitars through cranked tube amplifiers producing a thick, warm crunch. Driving drum kit with punchy kick and snare, hi-hats riding at sixteenth notes. Bass guitar following the root notes with aggressive pick attack, locking with the kick drum. Vocal delivery alternates between gritty, confident verses and soaring, anthemic choruses. Guitars trade off between rhythm chugs and melodic lead lines with expressive bends. Production balances raw energy with clarity—the guitars have grit but the vocals cut through the mix. The riff IS the song's identity."
+- COUNTRY: "Twangy Fender Telecaster through subtle compression and spring reverb providing the signature country tone. Pedal steel guitar weeping melodic counter-lines with characteristic portamento slides. Acoustic rhythm guitar strumming warm open chords. Driving drum pattern with crisp snare hits on 2 and 4 and brushed hi-hats. Vocals delivered with warm, conversational twang—clear and direct, telling a story with every line. Fiddle fills weaving between vocal phrases. Bass guitar walking with melodic country lines. Production clean and bright with natural room sound, letting the instruments breathe. Every element serves the story."
+- R&B: "Smooth, polished R&B production built around a warm, pulsating 808 bass and laid-back trap-influenced drums with soft hi-hat rolls. Dreamy synth pads and Rhodes piano chords creating a lush, luxurious harmonic environment. Vocal production features layered harmonies, melismatic runs, and subtle auto-tune as texture. Snare hits with soft attack and long decay. The bassline is melodic, walking between chord tones with a sensual groove. Heavy use of vocal chops and ad-libs scattered across the stereo field. Production pristine and spacious, with every vocal breath and ad-lib placed precisely in the mix. The voice IS the instrument."
+- SOUL: "Warm, horn-rich soul production with live drum kit playing a laid-back groove — snare sitting behind the beat. Hammond B3 organ swelling with Leslie speaker rotation, wah-wah guitar scratching out rhythmic chords. Horn section stabs punctuating chorus peaks — trumpets and saxophones in tight harmony. Gospel-influenced backing vocals providing call-and-response. Bass guitar playing deep, melodic lines that lock with the kick. Vocals delivered with raw emotion, every word MEANT — rasp, vibrato, and gospel runs. Production warm and analog with natural room ambience. The feeling is everything."
+- FUNK: "Iconic funk groove built on a relentless, syncopated bass line that drives the entire track — popping, slapping, melodic. Tight drum kit with crisp snare cracks on the backbeat, hi-hats riding with precision. Rhythm guitar playing sharp, muted sixteenth-note strums (the 'chicken scratch' pattern). Horn section hitting tight, syncopated stabs. Clavinet and Rhodes electric piano adding harmonic color. Vocals delivered as rhythmic chants and shouts, riding the groove rather than floating above it. Call-and-response between vocalist and horns. The ONE is emphasized — every downbeat feels like a statement. Production punchy and dry with crisp transients."
+- DUBSTEP: "Massive, warp-speed wobble bass lines with aggressive filter modulation creating the signature dubstep growl. Half-time drum pattern at 140 BPM with crunchy, distorted kick drums and tight snare claps. Build-ups constructed from rising snare rolls, white noise sweeps, and pitch-bent synth stabs before each drop. The drops hit with chest-punching sub-bass — layers of modulated bass tones creating physical impact. Vocal chops scattered and processed — pitched, chopped, filtered, and scattered across the mix. Atmospheric pads and reverb-drenched textures filling the space between drops. Production aggressive and bass-forward, designed for club systems."
+- ELECTRONIC: "Evolving electronic production built on layers of synth textures and programmed percussion. Deep kick drum anchoring the groove with punchy claps and crisp hi-hats. Arpeggiated synths creating hypnotic melodic patterns that evolve throughout the track. Filter sweeps and build-ups creating tension before each drop. The arrangement moves through distinct phases — intro, build, drop, breakdown, build, drop, outro — each phase adding or subtracting layers. Vocal samples chopped and processed as rhythmic elements. Production clean and precise with wide stereo field and meticulous spatial placement. The journey IS the song."
+- HOUSE: "Classic four-on-the-floor house production at a driving 124 BPM. Deep kick drum on every beat with a tight, punchy clap on 2 and 4. Hi-hats riding with swung sixteenth notes and subtle velocity variation. Warm analog bassline grooving with syncopated rhythm—simple but infectious. Soulful vocal samples or diva chops repeating over the groove. Filtered build-ups and breakdowns creating dynamic arc. Pads and keys adding harmonic warmth with subtle chord movement. The kick NEVER stops. Sidechain compression creating rhythmic breathing. Production polished and dancefloor-ready."
+- TECHNO: "Minimal, hypnotic techno production with a relentless kick drum driving at 130 BPM — compressed, present, never stopping. Sparse, precisely placed percussion— hi-hats, claps, rides creating subtle rhythmic evolution. A single synth line or bass motif repeating with gradual filter modulation — the change is barely perceptible but the feeling shifts. Atmospheric textures and field recordings adding depth and space. The arrangement is a slow burn — elements enter and exit over 6-8 minutes, creating a journey. No verse, no chorus, no vocals — just the groove evolving. Production dark, deep, and warehouse-ready."
+- TRANCE: "Euphoric trance production at 138 BPM with a driving four-on-the-floor kick and rolling bassline. Soaring, uplifting synth melodies with massive reverb and delay creating euphoric peaks. Build-ups with extended risers, white noise sweeps, and snare rolls that stretch over 16-32 bars, creating unbearable tension. The drop releases into the full melodic theme — layered leads, arpeggios, and pads creating a wall of emotional sound. Piano breakdown providing an emotional center before the final build. Vocal delivery (if present) is ethereal, processed, and treated as another instrument. Production polished and massive."
+- SYNTHWAVE: "Retro 80s synthwave production built on analog synthesizer sounds — Juno-style pads, Prophet-5 leads, and Oberheim-style bass. Gated reverb snare drums with that signature 80s 'reverse reverb' attack. Driving arpeggiated bass sequences locking with the kick drum. Clean electric guitar with chorus effect playing melodic lines. Vocals delivered with 80s production sheen — reverb-drenched, double-tracked, sitting in a wide stereo field. Neon-lit aesthetic encoded in every sound. Production captures the warmth of analog tape while maintaining modern clarity. The nostalgia IS the sound."
+- GRUNGE: "Raw, dirty grunge production with heavily distorted guitars through cranked Fender or Mesa amplifiers. Loose, sloppy drum performance with big crashing cymbals and a snare that cracks through the mix. Bass guitar overdriven and rumbling underneath the guitar wall. Vocals delivered with a sneer — mumbled, brooding verses exploding into screamed, cathartic choruses. The dynamics are extreme: quiet, clean, vulnerable verses give way to massive, distorted, LOUD choruses. Feedback and guitar noise bleeding between sections. Production intentionally unpolished — recorded live in the room with natural bleed and imperfection. The raw emotion IS the production."
+- SHOEGAZE: "Massive wall of guitar sound built from layers of effects — shimmering reverb, cascading delay, chorus modulation, and fuzz distortion. Multiple guitar tracks playing overlapping chords and arpeggios, creating an immersive, swirling texture. Drums buried in the mix with loose, crashing cymbals and a kick that pulses rather than punches. Vocals are an instrument, not a narrative — whispered, ethereal, buried deep in the reverb, barely intelligible. The bass provides a foundation that you feel more than hear. Production dense and overwhelming— close your eyes and the sound envelops you. The textural weave IS the song."
+- LATIN: "Vibrant Latin production built on the clave rhythm — that two-bar pattern that underpins everything. Live percussion: congas, bongos, timbales, and maracas creating layered polyrhythms. Piano playing montuno patterns — syncopated, rhythmic, repetitive. Horn section — trumpets, trombones, saxophones — playing tight, punchy stabs. Bass playing a walking tumbao pattern. Vocals delivered with passion — rhythmic, melodic, call-and-response with the coro (chorus). Production captures the energy of a live dance floor with natural room sound and warm analog character."
+- SALSA: "High-energy salsa production with driving percussion — congas, timbales, bongos, cowbell, and clave all interlocking in complex polyrhythm. Piano montuno cycling through syncopated chords. Horn section — trumpets and trombones in tight harmonic unison — playing punchy, syncopated riffs. Bass playing a walking, melodic tumbao. The coro (chorus) and lead singer engage in call-and-response. Mambo sections where the horns and piano break into virtuosic improvisation. Production bright and live-sounding with the energy of a packed dance club."
+- REGGAETON: "Urban reggaeton production built on the dembow rhythm — that iconic boom-ch-boom-chick pattern. Deep, thumping 808 bass with tight, controlled decay. Crisp snare claps and sharp hi-hats with triplet rolls. Synth melodies with a dark, moody character — minor-key, minimal. Vocal delivery alternates between rapid-fire, rhythmic verses (rapping in Spanish) and melodic, catchy choruses. Ad-libs and vocal effects (echo, pitch) scattered throughout. Production polished and bass-heavy, designed for the club and the perreo."
+- AFROBEAT: "Extended afrobeat groove built on interlocking polyrhythms — drum kit, congas, shekere, and talking drums weaving together. Deep, melodic bass guitar playing syncopated patterns. Rhythm guitar playing clean, choppy, high-register phrases. Horn section — trumpets, saxophones, trombones — playing tight, syncopated riffs and long, melodic lines. Organs and keys adding harmonic texture. Percussion builds and layers over 8+ minutes, creating a hypnotic, irresistible groove. Vocals delivered as chants, political calls, and call-and-response. Production captures the live energy of Fela Kuti's Africa 70 — raw, powerful, unstoppable."
+- GOSPEL: "Spirit-filled gospel production with live instrumentation — Hammond B3 organ swelling with gospel chord progressions, piano playing jubilant runs. Drum kit with a groove that builds intensity — from gentle brushes to full-kit power. Bass guitar walking with melodic gospel lines. The choir IS the centerpiece — multiple vocal parts (soprano, alto, tenor, bass) in tight harmony, call-and-response with the lead vocalist. Hand claps and tambourine adding rhythmic drive. The arrangement builds continuously — each chorus bigger, each bridge more intense. Production warm and live-sounding, like a Sunday morning service where the spirit moves."
+- JAZZ: "Live jazz ensemble with piano comping walking bass lines and chord voicings. Ride cymbal swinging with that classic jazz feel — brushes on snare creating a soft, flowing texture. The head (main melody) stated once by the horn (trumpet or sax) in a warm, behind-the-beat phrasing. Solos traded between piano, bass, and drums — each improvisation building on the harmonic structure. Walking bass lines provide the harmonic road map. The arrangement follows the head-solo-head structure: melody stated, improvisations, melody restated. Production warm and intimate with natural room ambience that captures the feel of a small jazz club."
+- AMBIENT: "Layered ambient soundscape built from evolving synth drones, field recordings, and processed textures. No traditional rhythm — time is suspended. Pads swell and recede with slow modulation — subtle filter movements over minutes. Field recordings (rain, wind, distant traffic, birds) woven into the texture as organic elements. Reverb is infinite — sounds decay into a vast cathedral of space. No verse, no chorus, no structure — just continuous, meditative evolution. Production uses massive stereo width and deep spatial processing to create a three-dimensional sonic environment. As ignorable as it is interesting."
+- PHONK: "Dark, aggressive phonk production with cowbell driving the rhythm — relentless, pounding, syncopated. Memphis rap vocal samples chopped and repeating — lo-fi, grainy, menacing. Distorted 808 bass hitting hard with long decay and pitch slides. Hi-hats fast, sharp, and crisp. Dark synth lines — horror movie melodies over aggressive drums. The cowbell pattern is the song's fingerprint. Production favors distortion and lo-fi texture over clean polish — the grit IS the aesthetic. Designed for drift car edits."
+- HYPERPOP: "Maximalist hyperpop production — all elements cranked to 11. Pitched-up vocals glitching and stuttering. Distorted bass hitting harder than clean. Synths layered chaotically — bright, abrasive, overwhelming. Drum programming frenetic — rapid-fire kicks, glitched hi-hats, unexpected snare placements. Vocal processing extreme — formant shifting, pitch correction as effect, chopped into fragments. The arrangement flips between sections without warning — verse to chorus to breakdown to chorus in 90 seconds. Production intentionally absurd — every sonic boundary pushed past the limit. Maximalism IS the aesthetic."
+- SKA: "Upbeat ska production built on the signature offbeat guitar strum — the 'skank' — hitting every eighth note with clean, choppy precision. Walking bass lines driving the rhythm forward with melodic movement. Horn section — trumpet, trombone, saxophone — playing tight, punchy stabs and melodic counter-lines. Drum kit with a steady, driving beat — snare on 2 and 4, hi-hats riding with energy. Organ or piano adding rhythmic punctuation. Vocals delivered with energy and attitude — storytelling over the bouncing rhythm. Production captures the live energy of a packed dance floor." (rich and specific — use as STYLE reference, adapting to the actual genre):
 "Thunderous 808 bass tuned precisely to root note sustains with controlled decay creating physical chest-hitting impact. Hi-hat programming alternates between machine-gun triplet rolls and crisp straight sixteenth-note patterns with velocity variations creating natural human groove. Snare hits combine layered acoustic snap with synthetic clap creating sharp transient attack. Vocal delivery features confident mid-range flow with rhythmic cadence, processed through subtle pitch correction maintaining modern polished character while preserving natural tonal variation. Ad-libs strategically panned wide across stereo field with distinct processing creating call-and-response dialogue."
 
 CRITICAL TAG RULES:
@@ -48056,7 +48453,7 @@ The music model interprets parentheses ( ) as a second vocalist singing. Duet ly
 
 STRUCTURE:
 - VERSES: Exactly 4 or 8 lines each
-- CHORUSES: Exactly 4, 6, or 8 lines each. Must have a clear hook \u2014 one memorable repeated line
+- CHORUSES: Exactly 4, 6, or 8 lines each. Must contain a hook applying the Hook Architecture: Rule of Three (Hook \u2192 Development \u2192 Development \u2192 Hook Varied), concrete noun anchor, hard consonant preference (K,T,P,B,D,G), hum test pass, and hook positioned at start or end of chorus
 - Every song must have at least one [Chorus] (EXCEPTION: blues and spoken-word genres may omit the chorus and use a repeating refrain or turnaround instead)
 - Typical structure: Intro \u2192 Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro
 - Metal genres often use: Intro \u2192 Verse \u2192 Chorus \u2192 Verse \u2192 Chorus \u2192 Breakdown \u2192 Outro (no bridge)
@@ -48080,7 +48477,7 @@ QUALITY:
 - Match the genre's typical vocabulary, tone, and energy level
 - Write in the specified language using standard dialect (tags stay in English). Do NOT adopt regional dialects or patois unless the user explicitly requested them. IMPORTANT: If the language is "Jamaican Patois" or the genre includes a "(Patois)" variant (e.g. "Reggae (Patois)", "Dub (Patois)"), write ALL lyrics in authentic Jamaican Patois \u2014 use Patois pronouns (mi, yuh, im, dem), articles (di, inna, pon, fi), and grammar throughout. Do NOT write in English with occasional Patois words. For base reggae-family genres without "(Patois)", use standard English with optional Patois flavor \u2014 sprinkle Patois phrases for authenticity but don't force the entire song into dialect.
 - Avoid AI clich\xE9s: neon, haze, ethereal, embers, silhouette, static, void, shimmering, tapestry, starlight, whispers, echoes, shadows, heartbeat
-- CHORUS HOOK REPETITION: Every chorus MUST contain a 'hook'\u2014a memorable phrase or entire line that repeats exactly at least once within the chorus. Do not write a chorus without a repeated hook.
+- HOOK ARCHITECTURE (REPLACES CHORUS HOOK REPETITION): Every chorus MUST contain a hook \u2014 a single line or phrase (4-10 syllables) that repeats at least twice within the chorus. Apply the Rule of Three: Hook \u2192 Development \u2192 Development \u2192 Hook (Varied). The hook must contain a concrete noun anchor, prefer hard consonants (K,T,P,B,D,G), pass the hum test (natural melodic rise and fall), and sit at the START or END of the chorus (not the middle). Genre flexibility: Pop/Rock/Country use strict 3\u00d7 with variation on 3rd. Hip-Hop/R&B use 2\u00d7 with ad-lib variation. Metal/Punk use shouted 2-3 word phrase 3-5\u00d7 escalating. EDM uses vocal chop repetition. Folk shifts lyrically while keeping melodic shape. Do not write a chorus without a hook.
 
 === TITLE ===
 Short (1-6 words), catchy, derived from the hook or central theme. Not just restating the subject.
@@ -154707,6 +155104,11 @@ ${extraInstructions || ""}`;
       slopResult.layers.hook_formulas.found.join(", ") || "none"
     );
   }
+  // Hook Architecture quality gate — post-generation check
+  const hookResult = enhanceHook(raw);
+  if (hookResult.score < 0.5 && hookResult.warnings.length > 0) {
+    console.warn(`[HookGate] Low hook quality score (${hookResult.score.toFixed(2)}). Consider a refinement pass to fix issues.`);
+  }
   if (onPhase) onPhase("Choosing title\u2026");
   let title = "";
   try {
@@ -154855,6 +155257,11 @@ async function refineLyricsStreaming(originalLyrics, artistName, title, provider
       "hook_formulas:",
       slopResult.layers.hook_formulas.found.join(", ") || "none"
     );
+  }
+  // Hook Architecture quality gate — post-refinement check
+  const hookResult = enhanceHook(raw);
+  if (hookResult.score < 0.5 && hookResult.warnings.length > 0) {
+    console.warn(`[HookGate] Refinement hook quality score: ${hookResult.score.toFixed(2)} — ${hookResult.warnings.length} issue(s) remain.`);
   }
   return {
     lyrics: raw,
@@ -297661,7 +298068,7 @@ router21.post("/llm", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const { provider: providerName, model, genres, subject, language, systemPrompt: clientPrompt } = req.body;
+  const { provider: providerName, model, genres, subject, language, systemPrompt: clientPrompt, creativity } = req.body;
   if (!providerName) {
     res.status(400).json({ error: "Missing provider" });
     return;
@@ -297693,6 +298100,14 @@ router21.post("/llm", async (req, res) => {
       console.log(`[Inspire/LLM] Resolved genre modules: ${genreKeys.join(", ")} (primary: "${genreKey}")`);
     }
     if (langFallback) console.log(`[Inspire/LLM] Language fallback: ${langFallback.name} — ${langFallback.note}`);
+    // ── Creativity Control ─────────────────────────────────────────────────────────
+    // Maps 0.0-1.0 to LLM sampling parameters. 0.0 = strict/precise, 1.0 = wild/loose.
+    // Default 0.5 preserves current behavior (temp=0.85, pres_pen=1.8, top_p=0.92).
+    const creativityVal = creativity !== undefined ? Math.max(0, Math.min(1, parseFloat(creativity) || 0.5)) : 0.5;
+    const llmTemperature = 0.5 + (creativityVal * 0.8);       // 0.5 → 1.3
+    const llmPresencePenalty = 2.5 - (creativityVal * 1.7);   // 2.5 → 0.8
+    const llmTopP = 0.85 + (creativityVal * 0.13);            // 0.85 → 0.98
+    console.log(`[Inspire/LLM] Creativity: ${(creativityVal * 100).toFixed(0)}% → temp=${llmTemperature.toFixed(2)}, pres_pen=${llmPresencePenalty.toFixed(2)}, top_p=${llmTopP.toFixed(2)}`);
     const dbCustom = getSetting("instagen_system_prompt");
     const systemPrompt = clientPrompt?.trim() || dbCustom || INSTAGEN_FULL_SYSTEM_PROMPT;
     // Build enhanced user prompt with genre-specific instructions
@@ -297862,7 +298277,8 @@ router21.post("/llm", async (req, res) => {
         if (mergedMod.lineRules.preferMetered) genreHints.push("Use natural conversational meter, not rigid syllable counts");
         if (mergedMod.lineRules.allowScratchEffects) {
           genreHints.push("DJ/TURNTABLISM: Include scratch breaks and turntable showcases in the song structure. Use section labels like [Scratch Break], [Scratch Solo], [DJ Battle]. The scratch sections are INSTRUMENTAL — describe the turntable techniques in the tags field, not in parentheses. Vocals should reference the DJ culture: cutting, scratching, vinyl, crates, wheels of steel. The DJ IS the lead instrument.");
-          genreHints.push("DUAL DJ: This is a two-DJ track. Use [DJ 1 Scratch], [DJ 2 Scratch], and [DJ Battle] section labels. The two DJs should have distinct styles — one smooth and technical, the other aggressive and flashy. The DJ Battle section is the climax where both DJs trade scratch patterns back and forth. Include crowd hype phrases like 'put your hands up', 'rewind', 'top that'.");
+          genreHints.push("DJ SCRATCH VARIETY (CRITICAL): Every song must use a DIFFERENT combination of scratch techniques. Do NOT repeat the same techniques from previous songs. Rotate through: transforms, flares, chirps, crabs, orbits, hydroplanes, twiddles, stabs, rubs, tears, scribbles, drags. Also rotate the sample source: jazz vocals, old soul records, movie dialogue, reggae toasts, news clips, funk breaks, acapella hooks, field recordings. Also rotate the scratch pattern structure: call-and-response, crescendo, stutter, melodic, percussive, ambient. The unique scratch identity IS the song's fingerprint.");
+          genreHints.push("DUAL DJ: This is a two-DJ track. Use [DJ 1 Scratch], [DJ 2 Scratch], and [DJ Battle] section labels. The two DJs MUST have COMPLETELY DISTINCT scratch styles — technique set, sample source, rhythm, energy all differ. Example: DJ 1 uses transform scratches over a jazz vocal sample at mid tempo; DJ 2 uses crab scratches over a funk break at double speed. Give each DJ specific technique names and specific sample types. The DJ Battle section is the climax where both DJs trade scratch patterns back and forth. Include crowd hype phrases like 'put your hands up', 'rewind', 'top that'.");
         }
         if (mergedMod.lineRules.allowDuetVocals) genreHints.push("This is a dual/double feature — two distinct performers trading verses or scratch patterns. Each performer should have a distinct style and energy.");
       }
@@ -297907,7 +298323,7 @@ router21.post("/llm", async (req, res) => {
         return !["dj", "dual dj", "turntablism", "scratch", "scratch battle", "turntable"].some(alias => gLower.includes(alias));
       });
       if (otherGenreNames.length > 0) {
-        enhancedUserPrompt += `\n\nGENRE BLEND RULE (MANDATORY): This is a ${genreStr} track. Turntablism and DJ culture are the FOUNDATION — scratching, cutting, beat-juggling, and DJ routines are the defining character of the song. The ${otherGenreNames.join(", ")} element adds MUSICAL flavor (beat style, tempo, harmonic content) but the DJ/turntable element must be prominent. Include scratch breaks, cut-up vocal samples, and turntable techniques throughout. Think: L'Entourloop meets ${otherGenreNames[0]} — the decks are the lead instrument.`;
+        enhancedUserPrompt += `\n\nGENRE BLEND RULE (MANDATORY): This is a ${genreStr} track. Turntablism and DJ culture are the FOUNDATION — scratching, cutting, beat-juggling, and DJ routines are the defining character of the song. The ${otherGenreNames.join(", ")} element adds MUSICAL flavor (beat style, tempo, harmonic content) but the DJ/turntable element must be prominent. Include scratch breaks, cut-up vocal samples, and turntable techniques throughout. SCRATCH DIVERSITY: Use a unique combination of techniques (transforms, flares, chirps, crabs, orbits, hydroplanes, twiddles, stabs, rubs, tears, scribbles, drags) with a unique sample source and scratch pattern structure — no two songs should sound the same. Think: L'Entourloop meets ${otherGenreNames[0]} — the decks are the lead instrument.`;
       }
     }
     // Inject language fallback guidance
@@ -297927,9 +298343,9 @@ router21.post("/llm", async (req, res) => {
     // strong presence_penalty to discourage repeating words/phrases across verses.
     // noThink is NOT set — we keep the model's thinking mode enabled for quality.
     let raw = await provider.call(systemPrompt, enhancedUserPrompt, effectiveModel, null, {
-      temperature: 0.85,
-      presence_penalty: 1.8,
-      top_p: 0.92
+      temperature: llmTemperature,
+      presence_penalty: llmPresencePenalty,
+      top_p: llmTopP
     });
     raw = stripThinkingBlocks(raw);
     raw = raw.replace(/<\|[a-z_]+\|>/g, "");

@@ -391,6 +391,17 @@ function $(id) { return document.getElementById(id); }
 function api(path, opts={}) {
   const h = {'Content-Type':'application/json'};
   if (TOKEN) h['Authorization'] = 'Bearer ' + TOKEN;
+  // Inject creativity slider value into LLM text generation requests
+  if (opts.method === 'POST' && opts.body && typeof opts.body === 'string' && path.indexOf('/api/inspire/llm') !== -1 && path.indexOf('/providers') === -1) {
+    try {
+      const body = JSON.parse(opts.body);
+      const creativity = parseFloat(localStorage.getItem('hs-album-creativity') || '0.5');
+      if (!isNaN(creativity) && creativity >= 0 && creativity <= 1) {
+        body.creativity = Math.round(creativity * 100) / 100;
+        opts = {...opts, body: JSON.stringify(body)};
+      }
+    } catch(e) {}
+  }
   return fetch(path, {...opts, headers: {...h, ...opts.headers}})
     .then(r => r.json().then(d => { if (!r.ok) throw new Error(d.error||r.statusText); return d; }));
 }
@@ -469,6 +480,24 @@ async function init() {
   }
 
   render();
+}
+
+// ── Creativity Slider Helpers ──────────────────────────────────────────────
+function creativityLabel(val) {
+  const v = parseFloat(val) || 0.5;
+  if (v < 0.15) return 'Precise';
+  if (v < 0.35) return 'Balanced';
+  if (v < 0.55) return 'Creative';
+  if (v < 0.75) return 'Adventurous';
+  return 'Wild';
+}
+function creativityColor(val) {
+  const v = parseFloat(val) || 0.5;
+  if (v < 0.15) return '#3b82f6';
+  if (v < 0.35) return '#22c55e';
+  if (v < 0.55) return '#a855f7';
+  if (v < 0.75) return '#f97316';
+  return '#ef4444';
 }
 
 function saveConfig() {
@@ -606,6 +635,18 @@ function render() {
           <select onchange="SELECTED_LANG=this.value;saveConfig()">
             ${LANGUAGES.map(l => `<option value="${l.code}" ${l.code===SELECTED_LANG?'selected':''}>${l.name}</option>`).join('')}
           </select>
+        </div>
+        <div class="form-group">
+          <label>Creativity <span style="font-size:9px;color:var(--text3);font-weight:400;text-transform:none;">(how strictly to follow genre)</span></label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="range" min="0" max="1" step="0.01" value="${parseFloat(localStorage.getItem('hs-album-creativity')||'0.5')}"
+              oninput="localStorage.setItem('hs-album-creativity',this.value);this.nextElementSibling.textContent=creativityLabel(this.value);this.nextElementSibling.style.color=creativityColor(this.value)"
+              style="flex:1;height:4px;cursor:pointer;">
+            <span style="font-size:12px;font-weight:600;min-width:70px;text-align:center;color:${creativityColor(parseFloat(localStorage.getItem('hs-album-creativity')||'0.5'))};">${creativityLabel(parseFloat(localStorage.getItem('hs-album-creativity')||'0.5'))}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);margin-top:1px;">
+            <span>Strict</span><span>Balanced</span><span>Creative</span><span>Wild</span>
+          </div>
         </div>
       </div>
       <div class="form-row">
