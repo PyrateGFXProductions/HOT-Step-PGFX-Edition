@@ -45718,10 +45718,10 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
   // Step 2b: Ensure [Outro] exists and has lyrics (safety net for LLM dropping the outro)
   {
     const lines = result.split("\n");
-    const lastNonEmptyIdx = lines.length - 1 - [...lines].reverse().findIndex(l => l.trim());
-    const lastNonEmpty = lines[lastNonEmptyIdx]?.trim() || "";
-    // UPDATED: Detect any tag starting with [Outro, allowing for descriptions like [Outro: Fade]
-    const hasOutroSection = /^\[Outro(\s*[:\-].*)?\]$/i.test(lastNonEmpty);
+    // UPDATED: Detect ANY [Outro] header anywhere in the song.
+    // NOTE: do NOT check only the last non-empty line — a valid outro has lyrics
+    // AFTER the header, so the last non-empty line is the lyrics, not "[Outro]".
+    const hasOutroSection = lines.some(l => /^\[Outro/i.test(l.trim()));
     const allOutroSections = lines.filter(l => /^\[Outro/i.test(l.trim()));
     // Check if ANY [Outro] section has adequate lyrics (not just the last one —
     // the LLM sometimes appends an empty [Outro] header after a valid outro)
@@ -45731,14 +45731,14 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
       if (/^\[Outro/i.test(lines[i].trim())) {
         lastOutroStart = i;
         const afterLines = lines.slice(i + 1).filter(l => l.trim() && !/^\[.+\]$/.test(l.trim()));
-        if (afterLines.length >= 2) hasValidOutro = true;
+        if (afterLines.length >= 1) hasValidOutro = true;
       }
     }
     // Check if the last [Outro] section is the empty trailing one
     let lastOutroIsEmpty = false;
     if (hasOutroSection && lastOutroStart >= 0) {
       const afterLines = lines.slice(lastOutroStart + 1).filter(l => l.trim() && !/^\[.+\]$/.test(l.trim()));
-      lastOutroIsEmpty = afterLines.length < 2;
+      lastOutroIsEmpty = afterLines.length < 1;
     }
     if (!hasOutroSection || !hasValidOutro) {
       // Extract the last chorus or verse lines to use as outro fodder
@@ -45777,7 +45777,7 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
         let skipEmptyOutro = false;
         for (let i = 0; i < lines.length; i++) {
           const l = lines[i].trim();
-          if (/^\[Outro\]$/i.test(l)) {
+          if (/^\[Outro(\s*[:\-].*)?\]$/i.test(l)) {
             // Check if next non-empty line is another section header or end of file
             let nextLyricIdx = i + 1;
             while (nextLyricIdx < lines.length && !lines[nextLyricIdx].trim()) nextLyricIdx++;
@@ -45787,7 +45787,7 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
               continue; // skip the empty outro header
             }
           }
-          if (skipEmptyOutro && /^\[.+\]$/.test(l) && !/^\[Outro\]/i.test(l)) {
+          if (skipEmptyOutro && /^\[.+\]$/.test(l) && !/^\[Outro/i.test(l)) {
             skipEmptyOutro = false;
           }
           if (!skipEmptyOutro) cleanedLines.push(lines[i]);
@@ -45797,9 +45797,27 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
         result = cleanedLines.join("\n").replace(/\n{3,}/g, "\n\n") + "\n" + outroSection.join("\n");
         console.log(`[OutroFix] Auto-inserted [Outro] with ${outroLines.length} lines (echoed from final chorus/verse)`);
       } else {
-        // No chorus lines available — add a minimal [Outro] header (instrumental fade)
-        result = result.replace(/\s*$/, "") + "\n\n[Outro]\n\n";
-        console.log(`[OutroFix] Added empty [Outro] section (no chorus lines available for echo)`);
+        // No chorus lines available — still clean empty outros first, then add a minimal [Outro] header
+        const cleanedLines = [];
+        let skipEmptyOutro = false;
+        for (let i = 0; i < lines.length; i++) {
+          const l = lines[i].trim();
+          if (/^\[Outro(\s*[:\-].*)?\]$/i.test(l)) {
+            let nextLyricIdx = i + 1;
+            while (nextLyricIdx < lines.length && !lines[nextLyricIdx].trim()) nextLyricIdx++;
+            const nextLine = lines[nextLyricIdx]?.trim() || "";
+            if (!nextLine || /^\[.+\]$/.test(nextLine)) {
+              skipEmptyOutro = true;
+              continue;
+            }
+          }
+          if (skipEmptyOutro && /^\[.+\]$/.test(l) && !/^\[Outro/i.test(l)) {
+            skipEmptyOutro = false;
+          }
+          if (!skipEmptyOutro) cleanedLines.push(lines[i]);
+        }
+        result = cleanedLines.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\s*$/, "") + "\n\n[Outro]\n\n";
+        console.log(`[OutroFix] Added minimal [Outro] section (no chorus lines — instrumental fade)`);
       }
     } else if (lastOutroIsEmpty) {
       // Valid outro exists elsewhere — just clean up the trailing empty [Outro] header
@@ -45807,7 +45825,7 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
       let skipEmptyOutro = false;
       for (let i = 0; i < lines.length; i++) {
         const l = lines[i].trim();
-        if (/^\[Outro\]$/i.test(l)) {
+        if (/^\[Outro(\s*[:\-].*)?\]$/i.test(l)) {
           let nextLyricIdx = i + 1;
           while (nextLyricIdx < lines.length && !lines[nextLyricIdx].trim()) nextLyricIdx++;
           const nextLine = lines[nextLyricIdx]?.trim() || "";
@@ -45816,7 +45834,7 @@ function processLyricsWithGenre(lyrics, genreKeyOrKeys, languageFallback, subjec
             continue;
           }
         }
-        if (skipEmptyOutro && /^\[.+\]$/.test(l) && !/^\[Outro\]/i.test(l)) {
+        if (skipEmptyOutro && /^\[.+\]$/.test(l) && !/^\[Outro/i.test(l)) {
           skipEmptyOutro = false;
         }
         if (!skipEmptyOutro) cleanedLines.push(lines[i]);
