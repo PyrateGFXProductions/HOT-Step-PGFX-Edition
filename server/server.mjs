@@ -44630,12 +44630,13 @@ var GENRE_VOCABULARY_MODULES = {
       "bass drop", "beat drop", "build", "drop", "silence", "pause", "breakdown",
       "live", "live set", "live mix", "impromptu", "spontaneous", "on the spot",
       "crowd", "crowd work", "hype", "hype man", "hype it up", "put your hands up",
-      "rewind again", "wheel and come again", "pull up", "pull it back"
+      "rewind again", "wheel and come again", "pull up", "pull it back",
+      "flip", "flipped", "flip the record", "sample flip", "vocal chop", "chopped up", "chop it up"
     ],
     blacklist: [
       "melody", "melodic", "singing", "vocalist", "choir", "opera", "ballad"
     ],
-    lineRules: { preferShortLines: true, allowCallAndResponse: true, allowScratchEffects: true },
+    lineRules: { preferShortLines: true, allowCallAndResponse: true, allowScratchEffects: true, allowSampleEffects: true },
     replacements: {
       "singer": "turntablist", "guitar": "turntable", "piano": "turntable", "melody": "scratch pattern",
       "singing": "scratching", "vocalist": "DJ", "guitar solo": "scratch solo"
@@ -44662,10 +44663,42 @@ var GENRE_VOCABULARY_MODULES = {
     blacklist: [
       "melody", "melodic", "singing", "vocalist", "choir", "opera", "ballad"
     ],
-    lineRules: { preferShortLines: true, allowCallAndResponse: true, allowScratchEffects: true, allowDuetVocals: true },
+    lineRules: { preferShortLines: true, allowCallAndResponse: true, allowScratchEffects: true, allowSampleEffects: true, allowDuetVocals: true },
     replacements: {
       "singer": "turntablist", "guitar": "turntable", "piano": "turntable", "melody": "scratch pattern",
       "singing": "scratching", "vocalist": "DJ", "guitar solo": "scratch battle"
+    }
+  },
+  sampledj: {
+    whitelist: [
+      "sample", "samples", "sampling", "sampled", "sampler", "sample flip", "sample the", "sampled the",
+      "chop", "chopped", "chopping", "chop it", "flip", "flipped", "flipping", "flip it", "flip the",
+      "slice", "sliced", "splice", "spliced", "cut and paste", "loop", "looped", "looping", "loop it",
+      "re-arrange", "rearrange", "re-arranged", "recontextualize", "borrowed", "found sound",
+      "break", "breakbeat", "drum break", "drum loop", "break loop", "funk break", "breakdown",
+      "crate", "crates", "crate digger", "crate digging", "digging in the crates", "dig for", "digging for",
+      "record store", "basement", "thrift store", "dollar bin", "dusty", "dusty wax", "dusty crates",
+      "old wax", "45", "B-side", "B side", "import", "rare groove", "deep cut", "white label",
+      "test press", "acetate", "soul 45", "jazz import", "gospel acapella", "movie dialogue",
+      "news reel", "field recording", "dubplate", "classical string", "children's record", "old tape",
+      "vinyl", "vinyl crackle", "wax", "needle drop", "turntable", "turntables", "wheels of steel",
+      "MPC", "SP-1200", "Akai", "drum machine", "keys", "secondhand", "vintage", "timeless",
+      "golden era", "boom bap", "sample collage", "audio collage", "mosaic", "patchwork",
+      "tape hiss", "wow and flutter", "room tone", "warmth", "analog", "worn out", "scratchy",
+      "warped", "mono", "played a thousand times", "hidden treasure", "buried treasure", "gold in the crates",
+      "break it down", "build it up", "stack it", "layer it", "layer the", "stacked", "layered",
+      "vocal chop", "wordless hook", "sang it back", "stutter", "stuttered", "slow it down",
+      "pitch it down", "pitch it up", "double it up", "time-stretch", "reverse it", "played it backwards",
+      "re-edit", "re-edit the", "flip the sample", "chop the sample", "loop the sample", "the sample IS the song"
+    ],
+    blacklist: [
+      "melody", "melodic", "singing", "vocalist", "choir", "opera", "ballad", "symphony", "orchestra"
+    ],
+    lineRules: { preferShortLines: true, allowCallAndResponse: true, allowScratchEffects: true, allowSampleEffects: true },
+    replacements: {
+      "singer": "sampled voice", "guitar": "sampled horn stab", "piano": "keyboard sample",
+      "melody": "sample flip", "singing": "chopped vocals", "vocalist": "sample vocalist",
+      "guitar solo": "sample collage solo"
     }
   },
   klezmer: {
@@ -46009,6 +46042,7 @@ function resolveGenreFromStyles(genres) {
     "porngroove": ["porn", "porn groove", "70s porn groove", "sensual lounge", "erotic funk", "sexy bedroom soul", "slow jam", "bedroom r&b", "sleazy funk", "nsfw porn", "adult lyrics"],
     "dj": ["dj", "turntablism", "turntablist", "turntable", "scratch", "scratching", "turntables", "deejay", "turntable battle", "scratch battle"],
     "dualdj": ["dual dj", "dual turntablist", "dj battle", "dj duel", "turntable duel", "dj crew", "dj collab", "dj tag team", "scratch battle crew", "dual scratching"],
+    "sampledj": ["sample dj", "sampling dj", "sampled dj", "sample-based", "sample based", "sample-based hip-hop", "sampling", "crate digger", "crate-digging", "record digger", "sample collage", "sample flip", "found sound", "dollar bin", "audio collage", "sampledelia"],
     "klezmer": ["klezmer", "eastern european jewish", "jewish folk", "clarinet folk", "wedding band eastern european", "romani folk"],
     "mariachi": ["mariachi", "mexican folk", "mexican traditional", "ranchera", "son jalisciense", "corrido", "huapango", "mexican band"],
     "bhangra": ["bhangra", "punjabi folk", "punjab folk", "indian folk dance", "punjabi music", "giddha"],
@@ -46148,6 +46182,23 @@ const GENRE_BPM_RANGES = {
   "dual dj": [85, 130],
   "dj battle": [85, 130],
   "dj duel": [85, 130],
+  // Sample DJ / Crate Digger — sample-based hip-hop tempo
+  "sample dj": [80, 100],
+  "sampling dj": [80, 100],
+  "sampled dj": [80, 100],
+  "sample-based": [80, 100],
+  "sample based": [80, 100],
+  "sample-based hip-hop": [80, 100],
+  "sampling": [80, 100],
+  "crate digger": [80, 100],
+  "crate-digging": [80, 100],
+  "record digger": [80, 100],
+  "sample collage": [80, 100],
+  "sample flip": [80, 100],
+  "found sound": [80, 100],
+  "dollar bin": [80, 100],
+  "audio collage": [80, 100],
+  "sampledelia": [80, 100],
   // Generic genres
   "pop": [100, 130],
   "rock": [110, 140],
@@ -46311,6 +46362,7 @@ function mergeGenreModules(genreKeys) {
         if (mod.lineRules.allowCallAndResponse) merged.lineRules.allowCallAndResponse = true;
         if (mod.lineRules.allowShouting) merged.lineRules.allowShouting = true;
         if (mod.lineRules.allowScratchEffects) merged.lineRules.allowScratchEffects = true;
+        if (mod.lineRules.allowSampleEffects) merged.lineRules.allowSampleEffects = true;
         if (mod.lineRules.allowDuetVocals) merged.lineRules.allowDuetVocals = true;
         if (mod.lineRules.allowRefrain) merged.lineRules.allowRefrain = true;
         if (mod.lineRules.allowSlang) merged.lineRules.allowSlang = true;
@@ -46561,6 +46613,14 @@ var GENRE_STRUCTURE_TEMPLATES = {
     chorusLines: "4 lines; both DJs scratch together in unison, or one scratches while the other cuts. The chorus is where both energies merge.",
     bridgeNotes: "DJ Battle is THE SECTION — the climax. Both DJs trade scratch patterns back and forth. Each round escalates. The crowd reacts. Short phrases like 'top that', 'follow that', 'your turn', 'my turn' can frame the battle. Use [DJ1] and [DJ2] markers if possible to indicate who's scratching.",
     hookStyle: "Dual scratch hook — both DJs scratching in unison, layered, complex. Think: two turntables weaving together into one massive scratch pattern. Crowd hype phrases: 'put your hands up', 'rewind', 'wheel and come again'."
+  },
+  sampledj: {
+    structure: "I-SampleFlip-V-C-SampleFlip-V-C-CrateDig-C-Outro",
+    description: "Sample DJ / Crate Digger: Intro (needle drops onto a dusty find — a chopped clip from a forgotten record, vinyl crackle, then the boom-bap beat locks in) → Sample Flip (the centerpiece — a 2-4 second clip from a DIFFERENT genre, chopped, looped, and recontextualized over the beat) → Verse (rapped or spoken over the flip) → Chorus (the hook is the sample itself — a vocal chop, a stuttered word, the flip's most recognizable bar) → Sample Flip (a NEW flip from a DIFFERENT source genre — never repeat the same record) → Verse → Chorus → Crate Dig (a collage section where the DJ digs live — stacking new finds, layering horn stabs over a vocal chop over a funk break, escalating) → Chorus → Outro (the winning sample plays out alone, vinyl crackle, the needle lifts). Think DJ Shadow (Endtroducing), RJD2, 9th Wonder, J Dilla, Madlib, The Avalanches, L'Entourloop. The SAMPLE IS THE SONG — the flip's recognizable fragment is the melodic identity. Lyrics should reference crate digging, dusty wax, dollar bins, flipping records, and the thrill of the find.",
+    verseLines: "4-8 lines; rhythmic, conversational, can be rapped or spoken. The flipped sample carries the melody — the vocal sits on top of the collage, doesn't fight it.",
+    chorusLines: "4 lines; the hook is the SAMPLE — a chopped 2-4 word vocal phrase, a stuttered syllable, or the flip's catchiest bar repeated with variation. The sample IS the singer.",
+    bridgeNotes: "Replaced by Crate Dig — a collage section where the DJ layers new finds in real time: a horn stab here, a vocal chop there, a break underneath. Each added layer escalates the energy. This is the producer's showcase.",
+    hookStyle: "The hook is the SAMPLE FLIP — a recognizable 2-4 second clip from a different genre, recontextualized. The flip's most recognizable fragment IS the chorus. Rotate the SOURCE GENRE and the CHOP TECHNIQUE every song — no two flips alike. Concrete noun anchors: crate, 45, dollar bin, wax, needle."
   },
   // ════════════════════════════════════════════════════════════════════════════════
   // DUET / PORNOGRAPHIC / PORNGROOVE — vocal-forward, sparse genres
@@ -47226,6 +47286,10 @@ var GENRE_HOOK_TIMING = {
   dj: "Hook is SCRATCH-BASED — a scratched vocal sample, cut-up phrase, or simple chant. The turntables ARE the voice. Hook lands in the first chorus after the opening scratch break (~30-60s). Rotate scratch techniques per generation. Concrete noun anchor: vinyl, wheels of steel, crates.",
   "dual dj": "Hook is DUAL SCRATCH — both DJs scratching in unison or call-and-response. Hook lands in the first chorus after both DJs have established their styles (~45-75s). Three-round battle structure with escalating techniques. No two songs should share the same technique combo. Concrete noun anchor: battle, crowd, duel.",
   turntablism: "Hook is the SCRATCH IDENTITY — the unique combination of technique + sample + pattern. Each scratch section is a different character. Hook timing varies: could be the first scratch break (~15-30s) or the first chorus (~30-60s). SCRATCH VARIETY IS THE HOOK.",
+  "sample dj": "Hook is the SAMPLE FLIP — a recognizable 2-4 second clip from a DIFFERENT genre, chopped and recontextualized. The flip's catchiest fragment IS the chorus. Hook lands at the first Sample Flip or first chorus (~30-60s). ROTATE THE SOURCE GENRE (soul 45, jazz import, funk break, gospel acapella, movie dialogue, classical strings, news reel, field recording) AND THE CHOP TECHNIQUE (loop, stutter, reverse, pitch-shift, chop-and-rearrange) every song — the flip is the song's fingerprint. Concrete noun anchors: crate, 45, dollar bin, wax, needle.",
+  sampling: "Hook is the CHOPPED SAMPLE — a stuttered word or 2-4 word vocal phrase cut up and repeated like percussion. The sample plays the singer's role. Hook lands in the first chorus (~30-60s). Rotate the sample source AND the chop pattern every generation — never the same combination twice. Concrete noun anchors: crate, 45, vinyl, tape, basement.",
+  "sample-based": "Hook is the LOOPED FRAGMENT — the sample's most recognizable bar, repeated with subtle variation. The loop IS the melody and the hook. Hook lands with the beat drop after the intro (~20-45s). No two songs should flip the same source genre the same way. Concrete noun anchors: wax, 45, crate, needle, dust.",
+  "crate digger": "Hook is THE FIND — the thrill of discovery encoded as a chopped sample. The hook lands when the found record's best moment loops in (~25-50s). Rotate the dig setting (basement, thrift store, dollar bin, estate sale, record fair) and the treasure (soul 45, obscure jazz import, weird B-side) each song. Concrete noun anchors: crate, basement, dollar bin, dust.",
 
   // Blues subgenres
   "delta blues": "Hook is the LAST LINE of each verse — the AAB resolution. The turnaround. 4-6 syllable phrase that delivers the emotional punch. The slide guitar 'answers' the vocal. Concrete noun anchor: crossroads, railroad, river, whiskey, shotgun.",
@@ -47331,7 +47395,8 @@ function analyzeLyricsQuality(lyrics, genreKeyOrKeys, bpm, subject) {
     "hiphop", "hip-hop", "rap", "trap", "drill", "grime", "boom bap", "conscious hip-hop", "gangsta rap", "mumble rap", "lo-fi hip-hop",
     "blues", "delta blues", "chicago blues", "texas blues", "blues rock", "piano blues", "acoustic blues", "electric blues",
     "punk", "punk rock", "pop punk", "post-punk", "hardcore punk", "ska punk", "anarcho-punk", "garage punk",
-    "dubstep", "dubstep_patois"
+    "dubstep", "dubstep_patois",
+    "sampledj", "sample dj", "sampling", "sample-based", "crate digger"
   ]);
   const NO_CHORUS_GENRES = new Set([
     "blues", "delta blues", "chicago blues", "texas blues", "blues rock", "piano blues", "acoustic blues", "electric blues",
@@ -48441,11 +48506,14 @@ GENRE-SPECIFIC TAG EXAMPLES (use as reference for matching the production aesthe
 - K-POP: "Layered synthesizer pads creating lush harmonic bed. Punchy electronic drum machine with four-on-the-floor kick and crisp hi-hat. Multiple vocal parts with tight harmonies and rhythmic rap sections. Brass synth stabs and arpeggiated synth melodies. Heavy sidechain compression creating pumping effect. Vocal processing with subtle pitch correction and wide stereo reverb. Production polished and bright with clean separation."
 - DJ/TURNTABLISM: "Two turntables and a mixer as the primary instruments. Vinyl crackle and needle-drop warmth. Aggressive scratch patterns over a boom-bap beat break. Crossfader clicks punctuating rhythmic cuts. Beat-juggled drum breaks creating syncopated rhythms. Vocal samples chopped and scratched into rhythmic hooks. MPC-triggered drum patterns layered under live scratching. Echo and delay effects on scratch phrases creating dub-like space. Crowd hype and energy building through dynamic scratch routines. Bass-heavy mix with vinyl warmth and analog character."
 - DUAL DJ (BATTLE): "Two sets of turntables creating a sonic duel. Two DJs with distinct scratch styles — DJ 1 might use aggressive transform scratches with a pitched-up vocal sample while DJ 2 responds with faster flare patterns over a different break. Crossfader rhythms creating call-and-response. Shared drum break underneath both DJs trading bars. Vinyl samples chopped differently by each DJ — one smooth jazz sample, the other a jagged funk break. The battle intensifies with both DJs layering scratches simultaneously, building to a climactic unison scratch pattern. Crowd energy rising through the exchange. Production raw and live-sounding with room ambience and crowd noise."
+- SAMPLE DJ (CRATE DIGGER): "Sample-based collage production — the song is built from FOUND SOUNDS, not written instruments. A dusty soul 45 from 1973 chopped into a stuttering vocal hook. A jazz import's horn stab flipped and pitched down into the melody. A funk break looped underneath as the backbone. Vinyl crackle, tape hiss, and wow-and-flutter as deliberate texture — the record's age is part of the sound. Movie dialogue or news-reel snippets woven between sections like ghost voices. The flip's most recognizable 2-4 second fragment IS the chorus. MPC and SP-1200 drum programming locked to the sample. Production warm, lo-fi, analog — sounds like a record dug out of a dollar bin and loved back to life. Think DJ Shadow's Endtroducing, RJD2, 9th Wonder, J Dilla, Madlib."
+- VOCAL CHOP (SAMPLE HOOK): "The hook is a 2-4 word vocal phrase chopped out of a vintage soul or gospel record, stuttered and repeated like percussion. Pitched up or down, time-stretched, layered over itself in a rhythmic collage. The chopped phrase interplays with the live vocalist in call-and-response. Vinyl crackle frames every edit point. The sample vocal is treated as an instrument — a melodic fragment that never sings a full line. Production sits it front and center, dry and close, with the beat built around its rhythm. The recognizability of the sample IS the magic — familiar, yet recontextualized into something new."
 
 CRITICAL DJ VARIETY RULE — DO NOT SKIP:
 - Every song MUST use a DIFFERENT combination of scratch techniques. Rotate through: transforms, flares, chirps, crabs, orbits, hydroplanes, twiddles, stabs, rubs, tears, scribbles, and drags. Never repeat the same technique combination across songs.
 - Every song MUST use a DIFFERENT sample source for scratching. Rotate through: jazz vocal snippets, old soul records, movie dialogue cuts, reggae toasts, news broadcast snippets, funk break loops, acapella hooks, field recordings, call-and-response vocal chops. No two songs should use the same sample type.
 - Every song MUST have a DIFFERENT scratch pattern structure. Rotate through: call-and-response (scratch back-and-forth), crescendo (build from slow to fast), stutter (rapid repeated burst), melodic (pitch-bending the sample to create a tune), percussive (using scratches as drum hits), ambient (long decay echo scratches creating texture). The scratch pattern gives the song its unique identity — make it different every time.
+- SAMPLE VARIETY RULE (for Sample DJ / sample-based tracks) — DO NOT SKIP: Every song MUST flip a DIFFERENT SOURCE GENRE. Rotate through: old soul 45s, jazz imports, funk breaks, gospel acapellas, movie dialogue, reggae dub plates, classical string recordings, news reels, children's records, field recordings, easy-listening elevator records, obscure B-sides. AND every song MUST apply a DIFFERENT CHOP TECHNIQUE to that source. Rotate through: straight loop, stutter edit, reversed playback, pitch-shift down, pitch-shift up, chop-and-rearrange (reordering the fragments), time-stretch, slow-mo (half speed), double-time, sliced into drum hits. The source genre + chop technique combination is the song's fingerprint — NEVER repeat the same pair across songs.
 - KLEZMER: "Eastern European Jewish celebratory music. Clarinet leading with characteristic krekhts (sobs) and dreydlekh (turns), bending notes into laughter-through-tears expression. Violin playing in parallel thirds with the clarinet. Accordion providing harmonic bed with characteristic oom-pah rhythm. Tuba or bass providing bass lines. Balalaika or domra strumming rhythmic accompaniment. Tempos shift dramatically — slow, mournful doina sections erupting into fast freylekhs dance numbers. The violin and clarinet engage in call-and-response with increasing ornamentation. Production warm and intimate with acoustic instruments."
 - MARIACHI: "Mexican traditional ensemble. Trumpets playing fanfare-like phrases with bright piercing tone and characteristic vibrato. Violin section playing in tight harmony with expressive vibrato. Vihuela strumming rhythmic patterns with bright nylon-string tone. Guitarron providing deep bass lines with characteristic bounce. Gritos (passionate shouts) punctuating transitions. Bolero sections with slower romantic violin melodies over gentle vihuela strumming. Ranchera sections with energetic full-band playing. Production captures the acoustic warmth of nylon strings and the brilliant trumpet tone."
 - BHANGRA: "Punjabi celebratory music. Dhol (double-headed drum) driving everything with characteristic chaal rhythm — bass treble bass treble at high energy. Tumbi (single-string instrument) playing repetitive melodic hook lines. Algoza (double flute) playing melodic fills. Dholki providing supporting rhythmic patterns. Vocals delivered with high energy, celebratory tone. Chorus sections featuring call-and-response with audience participation. Production bright and bass-heavy with the dhol front and center. Tempo high energy throughout with no drops."
@@ -48506,6 +48574,7 @@ STRUCTURE:
 - Punk genres often use: Intro \u2192 Verse \u2192 Chorus \u2192 Verse \u2192 Chorus \u2192 Verse \u2192 Chorus \u2192 Outro (no bridge)
 - DJ/Turntablism genres often use: Intro \u2192 Scratch Break \u2192 Verse \u2192 Chorus \u2192 Scratch Break \u2192 Verse \u2192 Chorus \u2192 Scratch Solo \u2192 Chorus \u2192 Outro. Use [Scratch Break] and [Scratch Solo] section labels for turntable showcases. The scratch sections are INSTRUMENTAL — no lyrics, just the turntable solo.
 - Dual DJ genres often use: Intro \u2192 DJ 1 Scratch \u2192 Verse 1 \u2192 Chorus \u2192 DJ 2 Scratch \u2192 Verse 2 \u2192 Chorus \u2192 DJ Battle \u2192 Chorus \u2192 Outro. Use [DJ 1 Scratch], [DJ 2 Scratch], and [DJ Battle] labels. The DJ Battle section is the climax \u2014 both DJs trading scratch patterns back and forth.
+- Sample DJ / Crate Digger genres often use: Intro \u2192 Sample Flip \u2192 Verse \u2192 Chorus \u2192 Sample Flip \u2192 Verse \u2192 Chorus \u2192 Crate Dig \u2192 Chorus \u2192 Outro. Use [Sample Flip], [Crate Dig], and [Vocal Chop] section labels. Sample sections are INSTRUMENTAL — describe the flipped source genre and chop technique in the tags field, not in parentheses. Every Sample Flip section MUST feature a different source genre and different chop technique than the one before.
 - Traditional/World genres (Klezmer, Mariachi, Bhangra, Andean): Structure is dictated by CULTURAL TRADITION, not Western pop conventions. Use the section labels and patterns appropriate to the genre. These genres may not have verses/choruses in the Western sense \u2014 use instrumental sections, call-and-response, cyclic patterns, or raga-based structures as appropriate. The dynamic structure hint will provide specific guidance for each traditional genre.
 - Add instrumental breaks between major sections where appropriate for the genre
 
@@ -154726,7 +154795,8 @@ function enforceLineCounts(text3, genreKeys) {
     "hiphop", "hip-hop", "rap", "trap", "drill", "grime", "boom bap", "conscious hip-hop", "gangsta rap", "mumble rap", "lo-fi hip-hop",
     "blues", "delta blues", "chicago blues", "texas blues", "blues rock", "piano blues", "acoustic blues", "electric blues",
     "punk", "punk rock", "pop punk", "post-punk", "hardcore punk", "ska punk", "anarcho-punk", "garage punk",
-    "dubstep", "dubstep_patois"
+    "dubstep", "dubstep_patois",
+    "sampledj", "sample dj", "sampling", "sample-based", "crate digger"
   ]);
   // Genres that legitimately use no chorus (refrain-based structure)
   // SYNCED with analyzeLyricsQuality NO_CHORUS_GENRES (2026-07-22)
@@ -298326,6 +298396,10 @@ router21.post("/llm", async (req, res) => {
           genreHints.push("DJ SCRATCH VARIETY (CRITICAL): Every song must use a DIFFERENT combination of scratch techniques. Do NOT repeat the same techniques from previous songs. Rotate through: transforms, flares, chirps, crabs, orbits, hydroplanes, twiddles, stabs, rubs, tears, scribbles, drags. Also rotate the sample source: jazz vocals, old soul records, movie dialogue, reggae toasts, news clips, funk breaks, acapella hooks, field recordings. Also rotate the scratch pattern structure: call-and-response, crescendo, stutter, melodic, percussive, ambient. The unique scratch identity IS the song's fingerprint.");
           genreHints.push("DUAL DJ: This is a two-DJ track. Use [DJ 1 Scratch], [DJ 2 Scratch], and [DJ Battle] section labels. The two DJs MUST have COMPLETELY DISTINCT scratch styles — technique set, sample source, rhythm, energy all differ. Example: DJ 1 uses transform scratches over a jazz vocal sample at mid tempo; DJ 2 uses crab scratches over a funk break at double speed. Give each DJ specific technique names and specific sample types. The DJ Battle section is the climax where both DJs trade scratch patterns back and forth. Include crowd hype phrases like 'put your hands up', 'rewind', 'top that'.");
         }
+        if (mergedMod.lineRules.allowSampleEffects) {
+          genreHints.push("SAMPLE DJ / CRATE DIGGER: The song is built from FOUND SOUNDS — chopped and flipped samples from OTHER genres, not written instruments. Use section labels like [Sample Flip], [Crate Dig], [Vocal Chop]. The sample sections are INSTRUMENTAL — describe the flipped source genre and chop technique in the tags field, not in parentheses. The flip's most recognizable 2-4 second fragment IS the chorus — the sample plays the singer's role. Lyrics should reference crate digging, dusty wax, dollar bins, flipping records, and the thrill of the find. The DJ IS the producer.");
+          genreHints.push("SAMPLE VARIETY (CRITICAL): Every song MUST flip a DIFFERENT SOURCE GENRE — rotate through: old soul 45s, jazz imports, funk breaks, gospel acapellas, movie dialogue, reggae dub plates, classical string recordings, news reels, children's records, field recordings, easy-listening records, obscure B-sides. AND apply a DIFFERENT CHOP TECHNIQUE — rotate through: straight loop, stutter edit, reversed playback, pitch-shift down, pitch-shift up, chop-and-rearrange, time-stretch, slow-mo, double-time, sliced into drum hits. The source genre + chop technique pair is the song's fingerprint — never repeat the same pair across songs.");
+        }
         if (mergedMod.lineRules.allowDuetVocals) genreHints.push("This is a dual/double feature — two distinct performers trading verses or scratch patterns. Each performer should have a distinct style and energy.");
       }
       if (genreHints.length) {
@@ -298363,13 +298437,13 @@ router21.post("/llm", async (req, res) => {
     // When DJ/turntablism is in the selection and other genres are also selected,
     // tell the LLM that turntablism is the FOUNDATION — scratch breaks, cuts,
     // and DJ routines are the defining character. Other genres add musical flavor.
-    if ((genreKeys.includes("dj") || genreKeys.includes("dualdj")) && genreKeys.length > 1) {
+    if ((genreKeys.includes("dj") || genreKeys.includes("dualdj") || genreKeys.includes("sampledj")) && genreKeys.length > 1) {
       const otherGenreNames = genres.filter(g => {
         const gLower = g.toLowerCase().trim();
-        return !["dj", "dual dj", "turntablism", "scratch", "scratch battle", "turntable"].some(alias => gLower.includes(alias));
+        return !["dj", "dual dj", "sample dj", "sampling", "sample-based", "crate digger", "turntablism", "scratch", "scratch battle", "turntable"].some(alias => gLower.includes(alias));
       });
       if (otherGenreNames.length > 0) {
-        enhancedUserPrompt += `\n\nGENRE BLEND RULE (MANDATORY): This is a ${genreStr} track. Turntablism and DJ culture are the FOUNDATION — scratching, cutting, beat-juggling, and DJ routines are the defining character of the song. The ${otherGenreNames.join(", ")} element adds MUSICAL flavor (beat style, tempo, harmonic content) but the DJ/turntable element must be prominent. Include scratch breaks, cut-up vocal samples, and turntable techniques throughout. SCRATCH DIVERSITY: Use a unique combination of techniques (transforms, flares, chirps, crabs, orbits, hydroplanes, twiddles, stabs, rubs, tears, scribbles, drags) with a unique sample source and scratch pattern structure — no two songs should sound the same. Think: L'Entourloop meets ${otherGenreNames[0]} — the decks are the lead instrument.`;
+        enhancedUserPrompt += `\n\nGENRE BLEND RULE (MANDATORY): This is a ${genreStr} track. DJ culture is the FOUNDATION — ${genreKeys.includes("sampledj") ? "sampling, crate digging, and sample flips" : "scratching, cutting, beat-juggling, and DJ routines"} are the defining character of the song. The ${otherGenreNames.join(", ")} element adds MUSICAL flavor (beat style, tempo, harmonic content) but the DJ/sampling element must be prominent. ${genreKeys.includes("sampledj") ? "Include Sample Flip and Crate Dig sections with a unique source genre + chop technique pair — no two songs should flip the same record the same way." : "Include scratch breaks, cut-up vocal samples, and turntable techniques throughout. SCRATCH DIVERSITY: Use a unique combination of techniques (transforms, flares, chirps, crabs, orbits, hydroplanes, twiddles, stabs, rubs, tears, scribbles, drags) with a unique sample source and scratch pattern structure — no two songs should sound the same."} Think: ${genreKeys.includes("sampledj") ? "DJ Shadow meets" : "L'Entourloop meets"} ${otherGenreNames[0]} — ${genreKeys.includes("sampledj") ? "the crate is the lead instrument" : "the decks are the lead instrument"}.`;
       }
     }
     // Inject language fallback guidance

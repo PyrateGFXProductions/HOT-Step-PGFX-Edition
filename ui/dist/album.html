@@ -215,6 +215,7 @@ let SELECTED_LANG = 'en';
 let TRACKS = [];
 let GENERATING = false;
 let CANCEL_FLAG = false;
+let RETRYING_SINGLE = false; // a per-track retry/regenerate is in flight
 
 // Hierarchical genre taxonomy — same as main page
 const GENRE_TAXONOMY = [
@@ -230,7 +231,7 @@ const GENRE_TAXONOMY = [
   { name: 'Folk', icon: '🪕', genres: ['Folk','Indie Folk','Contemporary Folk','Celtic','World Music','Flamenco','Acoustic','Singer-Songwriter','Neofolk','Freak Folk'] },
   { name: 'Blues', icon: '🎵', genres: ['Blues','Delta Blues','Chicago Blues','Electric Blues','Blues Rock','Jump Blues','Rhythm and Blues','Boogie-Woogie'] },
   { name: 'Reggae / Caribbean', icon: '🌴', genres: ['Reggae','Reggae (Patois)','Dancehall','Dancehall (Patois)','Ska','Dub','Dub (Patois)','Roots Reggae','Reggaeton','Soca','Calypso'] },
-  { name: 'DJ / Turntablism', icon: '🎧', genres: ['DJ','Dual DJ','Turntablism','Scratch Battle'] },
+  { name: 'DJ / Turntablism', icon: '🎧', genres: ['DJ','Dual DJ','Turntablism','Scratch Battle','Sample DJ','Crate Digger','Sampling'] },
   { name: 'Latin', icon: '💃', genres: ['Latin','Salsa','Bossa Nova','Bachata','Cumbia','Merengue','Tango','Latin Pop','Mariachi','Norteño'] },
   { name: 'Traditional / World', icon: '🌍', genres: ['Klezmer','Mariachi','Bhangra','Andean','Celtic','Nordic Folk','Balkan'] },
   { name: 'Soundtrack / Cinematic', icon: '🎬', genres: ['Film Score','Epic','Cinematic','Video Game Music','Orchestral Soundtrack','Trailer Music','Dark Ambient','Fantasy','Sci-Fi'] },
@@ -509,7 +510,7 @@ function saveConfig() {
       tracks: TRACKS.map(t => ({
         subject:t.subject,lyrics:t.lyrics,title:t.title,genreOverride:t.genreOverride,
         _bpm:t._bpm,_key:t._key,_duration:t._duration,_timeSignature:t._timeSignature,
-        _caption:t._caption
+        _caption:t._caption,_autoLyrics:t._autoLyrics
       }))
     }));
   } catch(e) {}
@@ -725,7 +726,22 @@ function renderTrack(t, i) {
         <pre style="font-size:11px;color:var(--text2);margin-top:6px;white-space:pre-wrap;font-family:inherit;background:var(--surface2);padding:8px;border-radius:4px;">${esc(t._lyrics)}</pre></details>`;
     }
   } else if (t._status === 'error') {
-    statusHtml = `<div class="track-status error">✗ ${esc(t._error||'Error')}</div>`;
+    statusHtml = `<div class="track-status error">✗ ${esc(t._error||'Error')}</div>
+      ${(!GENERATING && !RETRYING_SINGLE) ? `<div style="margin-top:6px;">
+        <button class="btn btn-secondary btn-sm" onclick="retryTrack(${i})" title="Retry lyric generation for this track only">↻ Retry Track</button>
+        <span style="font-size:10px;color:var(--text3);margin-left:6px;">Regenerates this track only — no need to redo the whole album.</span>
+      </div>` : ''}`;
+  }
+
+  // Regenerate button for LLM-generated lyrics (ready state, or loaded from saved config)
+  // — per-track reshuffle. Hidden while generating/queued/error.
+  const regenVisibleStatus = t._status === 'ready' || t._status === 'completed'
+    || (t._status === undefined && (t.lyrics || '').trim().length > 0);
+  const canRegen = t._autoLyrics && regenVisibleStatus && !GENERATING && !RETRYING_SINGLE;
+  if (canRegen) {
+    statusHtml += `<div style="margin-top:6px;">
+      <button class="btn btn-secondary btn-sm" onclick="reshuffleTrack(${i})" title="Regenerate lyrics for this track only">↻ Regenerate Lyrics</button>
+    </div>`;
   }
 
   // Filter out unsupported genres
@@ -772,7 +788,7 @@ function renderTrack(t, i) {
         <div class="form-group">
           <label>Custom Lyrics (optional — LLM generates if empty)</label>
           <textarea rows="4" placeholder="Leave empty to auto-generate lyrics based on subject. Paste your own lyrics here to use them instead."
-            oninput="TRACKS[${i}].lyrics=this.value;saveConfig()" ${GENERATING?'disabled':''}>${esc(t.lyrics||'')}</textarea>
+            oninput="TRACKS[${i}].lyrics=this.value;TRACKS[${i}]._autoLyrics=false;saveConfig()" ${GENERATING?'disabled':''}>${esc(t.lyrics||'')}</textarea>
         </div>
       </div>
       ${statusHtml}
@@ -1021,6 +1037,7 @@ Do NOT add any other text, explanations, or formatting. ONLY output the lines ab
       if (t.title) TRACKS[i].title = t.title;
       if (t.subject) TRACKS[i].subject = t.subject;
       TRACKS[i].lyrics = '';
+      TRACKS[i]._autoLyrics = false;
       TRACKS[i]._expanded = false;
     }
 
@@ -1119,6 +1136,7 @@ RULES:
       if (t.title) TRACKS[i].title = t.title;
       if (t.subject) TRACKS[i].subject = t.subject;
       TRACKS[i].lyrics = '';
+      TRACKS[i]._autoLyrics = false;
       TRACKS[i]._expanded = false;
     }
 
@@ -1135,11 +1153,178 @@ RULES:
   }
 }
 
+// ── Per-Track Lyrics Generation ─────────────────────────────────────────
+// Generates (or validates) lyrics for ONE track. Handles its own status
+// transitions ('generating' → 'ready'/'error') and returns true on success.
+// Used by both the full-album flow (generateAlbum) and the per-track
+// Retry/Regenerate buttons.
+async function generateTrackLyrics(i) {
+  const t = TRACKS[i];
+  if (!t) return false;
+  if (!SELECTED_PROVIDER) return false;
+
+  toggleTrack(i);
+
+  try {
+    // Generate lyrics via LLM if not already provided
+    if (!t.lyrics) {
+      t._status = 'generating';
+      t._stage = 'Generating lyrics via LLM...';
+      t._progress = 0;
+      render();
+      toggleTrack(i);
+
+      const genres = t.genreOverride ? [t.genreOverride] : (ALBUM_GENRES.length > 0 ? [...ALBUM_GENRES] : ['Rock']);
+      let subjectWithTheme = ALBUM_THEME
+        ? (t.subject ? `${t.subject} (Album theme: ${ALBUM_THEME})` : ALBUM_THEME)
+        : t.subject;
+      // Inject gender context into the subject so LLM writes correct pronouns
+      const genderBits = [];
+      if (VOCALIST_GENDER === 'male') genderBits.push('Sung by a MALE vocalist (use he/him for the speaker)');
+      else if (VOCALIST_GENDER === 'female') genderBits.push('Sung by a FEMALE vocalist (use she/her for the speaker)');
+      else if (VOCALIST_GENDER === 'duet') genderBits.push('MALE/FEMALE DUET — alternate male and female perspectives with correct pronouns');
+      if (ABOUT_GENDER === 'male') genderBits.push('About a MALE subject (use he/him when referring to the person being sung to/about)');
+      else if (ABOUT_GENDER === 'female') genderBits.push('About a FEMALE subject (use she/her when referring to the person being sung to/about)');
+      if (genderBits.length > 0) subjectWithTheme = `[${genderBits.join('; ')}] ${subjectWithTheme}`;
+
+      // Retry loop: try up to 3 times if LLM returns empty/poor lyrics
+      let llmResult = null;
+      let lyricsValid = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          llmResult = await api('/api/inspire/llm', {
+            method: 'POST',
+            body: JSON.stringify({
+              provider: SELECTED_PROVIDER,
+              model: SELECTED_MODEL || undefined,
+              genres: genres,
+              subject: subjectWithTheme,
+              language: SELECTED_LANG
+            })
+          });
+        } catch (llmErr) {
+          console.error(`Track ${i+1} LLM call failed (attempt ${attempt}):`, llmErr.message);
+          if (attempt < 3) {
+            t._stage = `LLM error, retrying... (${llmErr.message})`;
+            render();
+            toggleTrack(i);
+            await sleep(2000);
+            continue;
+          }
+          throw new Error(`LLM provider failed: ${llmErr.message}. Check your provider settings and model.`);
+        }
+
+        const rawLyrics = (llmResult.lyrics || '').trim();
+        const sectionCount = (rawLyrics.match(/\[[\w\s\d]+\]/gi) || []).length;
+        const lineCount = rawLyrics.split('\n').filter(l => l.trim() && !l.trim().match(/^\[[\w\s\d]+\]$/)).length;
+        const wordCount = rawLyrics.split(/\s+/).filter(w => w.length > 0).length;
+
+        if (rawLyrics.length > 50 && sectionCount >= 2 && lineCount >= 8 && wordCount >= 30) {
+          lyricsValid = true;
+          break;
+        }
+
+        console.warn(`Track ${i+1} lyrics too sparse (attempt ${attempt}): ${sectionCount} sections, ${lineCount} lines, ${wordCount} words`);
+        if (attempt < 3) {
+          t._stage = 'Lyrics too sparse, retrying...';
+          render();
+          toggleTrack(i);
+          await sleep(1000);
+        }
+      }
+
+      if (!lyricsValid || !llmResult) {
+        throw new Error('LLM returned empty or unreadable lyrics. Try a different provider/model, or write lyrics manually.');
+      }
+
+      t.lyrics = llmResult.lyrics || '';
+      t.title = t.title || llmResult.title || '';
+      t._caption = llmResult.caption || genres.join(', ');
+      t._bpm = llmResult.bpm;
+      t._key = llmResult.key;
+      t._duration = llmResult.duration;
+      t._timeSignature = llmResult.timeSignature;
+      t._autoLyrics = true;
+    }
+
+    // Validate lyrics quality (applies to both LLM-generated and user-provided)
+    const finalLyricCheck = (t.lyrics || '').trim();
+    if (finalLyricCheck.length < 30 || (finalLyricCheck.match(/\[[\w\s\d]+\]/gi) || []).length < 2) {
+      throw new Error('Lyrics are too short or missing section headers.');
+    }
+
+    t._status = 'ready';
+    t._stage = 'Lyrics ready';
+    t._progress = 100;
+    t._error = '';
+    render();
+    toggleTrack(i);
+    return true;
+
+  } catch(e) {
+    t._status = 'error';
+    t._error = e.message;
+    t._stage = 'Failed: ' + e.message;
+    render();
+    toggleTrack(i);
+    console.error(`Track ${i+1} failed:`, e);
+    return false;
+  }
+}
+
+// Retry a single failed track — regenerates lyrics for THIS track only.
+async function retryTrack(i) {
+  if (GENERATING || RETRYING_SINGLE) return alert('Album generation is in progress. Cancel it first or wait.');
+  if (!TRACKS[i]) return;
+  if (!SELECTED_PROVIDER) return alert('Select an LLM provider first.');
+  RETRYING_SINGLE = true;
+  try {
+    const ok = await generateTrackLyrics(i);
+    saveConfig();
+    updateOverall();
+    if (!ok) alert(`Track ${i+1} still failed. Check the error above, or paste lyrics manually.`);
+  } finally {
+    RETRYING_SINGLE = false;
+  }
+}
+
+// Reshuffle a single ready track — regenerates LLM lyrics for THIS track only.
+// Only offered for auto-generated lyrics (never touches user-written ones).
+async function reshuffleTrack(i) {
+  if (GENERATING || RETRYING_SINGLE) return alert('Album generation is in progress. Cancel it first or wait.');
+  const t = TRACKS[i];
+  if (!t) return;
+  if (!SELECTED_PROVIDER) return alert('Select an LLM provider first.');
+  const label = t.title || t.subject || `Track ${i+1}`;
+  if (!confirm(`Regenerate lyrics for "${label}"? The current generated lyrics will be replaced (audio is not affected).`)) return;
+  RETRYING_SINGLE = true;
+  try {
+    // Clear LLM-generated results only — keep user-entered subject/title
+    t.lyrics = '';
+    t._autoLyrics = false;
+    t._caption = undefined;
+    t._bpm = undefined;
+    t._key = undefined;
+    t._duration = undefined;
+    t._timeSignature = undefined;
+    t._audioUrl = undefined;
+    t._error = '';
+    t._status = undefined;
+    saveConfig();
+    const ok = await generateTrackLyrics(i);
+    saveConfig();
+    updateOverall();
+    if (!ok) alert(`Track ${i+1} regeneration failed. Check the error above.`);
+  } finally {
+    RETRYING_SINGLE = false;
+  }
+}
+
 // ── Generate Album ──────────────────────────────────────────────────────
 // Phase 1: Generate lyrics for all tracks (prompt management — this is the Album Creator's job)
 // Phase 2: Save completed track list and hand off to main page for audio generation
 async function generateAlbum() {
-  if (GENERATING) return;
+  if (GENERATING || RETRYING_SINGLE) return;
 
   // Validate
   const activeTracks = TRACKS.filter(t => t.subject || t.lyrics);
@@ -1161,110 +1346,8 @@ async function generateAlbum() {
     if (!t.subject && !t.lyrics) continue;
     if (CANCEL_FLAG) break;
 
-    toggleTrack(i);
-
-    try {
-      // Generate lyrics via LLM if not already provided
-      if (!t.lyrics) {
-        t._status = 'generating';
-        t._stage = 'Generating lyrics via LLM...';
-        t._progress = 0;
-        render();
-        toggleTrack(i);
-
-        const genres = t.genreOverride ? [t.genreOverride] : (ALBUM_GENRES.length > 0 ? [...ALBUM_GENRES] : ['Rock']);
-        let subjectWithTheme = ALBUM_THEME
-          ? (t.subject ? `${t.subject} (Album theme: ${ALBUM_THEME})` : ALBUM_THEME)
-          : t.subject;
-        // Inject gender context into the subject so LLM writes correct pronouns
-        const genderBits = [];
-        if (VOCALIST_GENDER === 'male') genderBits.push('Sung by a MALE vocalist (use he/him for the speaker)');
-        else if (VOCALIST_GENDER === 'female') genderBits.push('Sung by a FEMALE vocalist (use she/her for the speaker)');
-        else if (VOCALIST_GENDER === 'duet') genderBits.push('MALE/FEMALE DUET — alternate male and female perspectives with correct pronouns');
-        if (ABOUT_GENDER === 'male') genderBits.push('About a MALE subject (use he/him when referring to the person being sung to/about)');
-        else if (ABOUT_GENDER === 'female') genderBits.push('About a FEMALE subject (use she/her when referring to the person being sung to/about)');
-        if (genderBits.length > 0) subjectWithTheme = `[${genderBits.join('; ')}] ${subjectWithTheme}`;
-
-        // Retry loop: try up to 2 times if LLM returns empty/poor lyrics
-        let llmResult = null;
-        let lyricsValid = false;
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          try {
-            llmResult = await api('/api/inspire/llm', {
-              method: 'POST',
-              body: JSON.stringify({
-                provider: SELECTED_PROVIDER,
-                model: SELECTED_MODEL || undefined,
-                genres: genres,
-                subject: subjectWithTheme,
-                language: SELECTED_LANG
-              })
-            });
-          } catch (llmErr) {
-            console.error(`Track ${i+1} LLM call failed (attempt ${attempt}):`, llmErr.message);
-            if (attempt === 1) {
-              t._stage = `LLM error, retrying... (${llmErr.message})`;
-              render();
-              toggleTrack(i);
-              await sleep(2000);
-              continue;
-            }
-            throw new Error(`LLM provider failed: ${llmErr.message}. Check your provider settings and model.`);
-          }
-
-          const rawLyrics = (llmResult.lyrics || '').trim();
-          const sectionCount = (rawLyrics.match(/\[[\w\s\d]+\]/gi) || []).length;
-          const lineCount = rawLyrics.split('\n').filter(l => l.trim() && !l.trim().match(/^\[[\w\s\d]+\]$/)).length;
-          const wordCount = rawLyrics.split(/\s+/).filter(w => w.length > 0).length;
-
-          if (rawLyrics.length > 50 && sectionCount >= 2 && lineCount >= 8 && wordCount >= 30) {
-            lyricsValid = true;
-            break;
-          }
-
-          console.warn(`Track ${i+1} lyrics too sparse (attempt ${attempt}): ${sectionCount} sections, ${lineCount} lines, ${wordCount} words`);
-          if (attempt === 1) {
-            t._stage = 'Lyrics too sparse, retrying with simpler prompt...';
-            render();
-            toggleTrack(i);
-            await sleep(1000);
-          }
-        }
-
-        if (!lyricsValid || !llmResult) {
-          throw new Error('LLM returned empty or unreadable lyrics. Try a different provider/model, or write lyrics manually.');
-        }
-
-        t.lyrics = llmResult.lyrics || '';
-        t.title = t.title || llmResult.title || '';
-        t._caption = llmResult.caption || genres.join(', ');
-        t._bpm = llmResult.bpm;
-        t._key = llmResult.key;
-        t._duration = llmResult.duration;
-        t._timeSignature = llmResult.timeSignature;
-      }
-
-      // Validate lyrics quality
-      const finalLyricCheck = (t.lyrics || '').trim();
-      if (finalLyricCheck.length < 30 || (finalLyricCheck.match(/\[[\w\s\d]+\]/gi) || []).length < 2) {
-        throw new Error('Lyrics are too short or missing section headers.');
-      }
-
-      t._status = 'ready';
-      t._stage = 'Lyrics ready';
-      t._progress = 100;
-      render();
-      toggleTrack(i);
-
-    } catch(e) {
-      t._status = 'error';
-      t._error = e.message;
-      t._stage = 'Failed: ' + e.message;
-      render();
-      toggleTrack(i);
-      console.error(`Track ${i+1} failed:`, e);
-      lyricsFailed = true;
-    }
+    const ok = await generateTrackLyrics(i);
+    if (!ok) lyricsFailed = true;
   }
 
   if (CANCEL_FLAG || lyricsFailed) {
@@ -1274,7 +1357,7 @@ async function generateAlbum() {
     $('cancel-btn').style.display = 'none';
     $('add-track-btn').disabled = false;
     updateOverall();
-    if (lyricsFailed) alert('Some tracks failed lyric generation. Fix errors and try again.');
+    if (lyricsFailed) alert('Some tracks failed lyric generation. Use the per-track "Retry Track" button, or fix errors and try again.');
     return;
   }
 
@@ -1345,7 +1428,7 @@ function clearForm() {
 
 function updateOverall() {
   const total = TRACKS.filter(t => t.subject || t.lyrics).length;
-  const done = TRACKS.filter(t => t._status === 'completed').length;
+  const done = TRACKS.filter(t => t._status === 'ready' || t._status === 'completed').length;
   const err = TRACKS.filter(t => t._status === 'error').length;
   const active = TRACKS.filter(t => t._status === 'generating' || t._status === 'queued').length;
 
