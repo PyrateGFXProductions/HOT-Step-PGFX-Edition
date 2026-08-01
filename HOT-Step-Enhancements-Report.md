@@ -1,9 +1,11 @@
 # HOT-Step CPP — Community Enhancements Report
 
 **Base Version**: `HOT-Step-CPP-v1.1.4-win-x64-cuda13.1`  
-**Report Date**: July 29, 2026 (updated — Phase 15: Hook Architecture for lyric memorability, Layer 1–3)  
-**Modified Files**: `server/server.mjs`, `server/services/comfyui-client.mjs`, `server/services/comfyui-model-scanner.mjs` (NEW), `server/services/comfyui-bridge.mjs` (NEW), `server/services/beat-detector.mjs`, `server/services/prompt-builder.mjs`, `server/data/model-registry.json`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`, `ui/dist/music-video.html`  
-**Phase 15** (July 29): `server/server.mjs` only — Hook Architecture Layer 1 (9 system prompt edits), Layer 2 (`enhanceHook()` quality gate + 2 call sites), Layer 3 (`GENRE_HOOK_TIMING` dictionary + `buildGenreStructureHint()` enhancement)
+**Report Date**: July 31, 2026 (updated — Phase 17: Album Workflow Reliability & Image/Video Fixes)  
+**Modified Files**: `server/server.mjs`, `server/services/prompt-builder.mjs`, `server/services/comfyui-client.mjs`, `server/services/comfyui-model-scanner.mjs` (NEW), `server/services/comfyui-bridge.mjs` (NEW), `server/services/beat-detector.mjs`, `server/data/model-registry.json`, `ui/dist/assets/index-DscBS4mv.js`, `ui/dist/index.html`, `ui/dist/album.html`, `ui/dist/visualizer.html`, `ui/dist/music-video.html`  
+**Phase 15** (July 29): `server/server.mjs` only — Hook Architecture Layer 1 (9 system prompt edits), Layer 2 (`enhanceHook()` quality gate + 2 call sites), Layer 3 (`GENRE_HOOK_TIMING` dictionary + `buildGenreStructureHint()` enhancement)  
+**Phase 16** (July 30): Genre routing correctness (exact-match alias resolution — HIGH IMPACT bug fix), jazz module unreachable fix, dual-`[Outro]` root-cause fix, CHORUS VARIATION rule, 42-entry hook timing expansion, 10 hookStyle rewrites, Sample DJ / Crate Digger genre system, UI floating icon stack + collapsible pill tray + creativity sliders — `server/server.mjs` + `ui/dist/index.html` + `ui/dist/album.html` + `ui/dist/assets/index-DscBS4mv.js`  
+**Phase 17** (July 31): Album Creator per-track retry/regenerate, generation timeout overhaul (client 15→90 min poll, server `LLM_TIMEOUT_MS` 30 min env-overridable, `pollUntilDone2` 20 min), multi-panel image fix (SINGLE IMAGE/SINGLE FRAME prompt language), `showfreqs` ffmpeg `color=`→`colors=` fix, negative prompt hardening, Album Batch per-track audio/video retry buttons — `server/server.mjs` + `server/services/prompt-builder.mjs` (fork + v1.2.2 target) + `ui/dist/index.html`
 
 ---
 
@@ -42,6 +44,10 @@ The modified `server.mjs` grew from **294,865 lines** to **~301,100 lines** (net
 **Phase 14** (July 28): ComfyUI Model Manager tab & LTX2.3 model registry — added `"comfyui"` role tab to the React bundle's role-based model manager
 
 **Phase 15** (July 29): Hook Architecture for lyric memorability — rewrote hook instructions across all 4 LLM system prompts (GENERATION_SYSTEM_PROMPT, REFINEMENT_SYSTEM_PROMPT, INSTAGEN_LYRIC_SYSTEM_PROMPT, INSTAGEN_FULL_SYSTEM_PROMPT) with the full Hook Architecture framework: HOOK ≠ CHORUS distinction, Rule of Three with variation on 3rd repeat, hard consonant preference (K,T,P,B,D,G), concrete noun anchor requirement, hum test quality gate, hook positioning (start/end of chorus), and genre-specific Rule of Three flexibility (pop strict 3×, hip-hop 2×+ad-libs, metal 3-5× escalating, EDM vocal chop, folk lyrical variation). Added post-generation `enhanceHook()` quality gate that parses lyrics, scores hooks against the Architecture (syllable count, hard consonants, Rule of Three compliance, hook positioning), and logs warnings for low-scoring hooks. Added `GENRE_HOOK_TIMING` dictionary with 36+ genre-specific hook timing formulas injected via `buildGenreStructureHint()` — tells the LLM exactly when and how the hook should land for each genre (e.g. pop: cold-open first 8s, metalcore: ~48s breakdown, house: ~52s drop). (4 patches to `index-DscBS4mv.js`: Z_ array, $_ description, useMemo filter, return handler), registered 6 LTX2.3 model files and 2 Video Pipeline packs in `model-registry.json` (download to `models/ComfyUI/` subdirectories), suppressed Gemini 403 error with early return when API key is empty, restored local default 4B model (`flux-2-klein-4b-Q4_0.gguf`) after accidental 9B upgrade, bumped stall timeout from 120s→240s, promoted `[CoverArt] Skipped` logs from DEBUG→WARNING for visibility.
+
+**Phase 16** (July 30): Genre routing correctness & Sample DJ — **exact-match alias resolution** replacing substring matching in `resolveGenreFromStyles()` (fixes cascading false positives: "dub" matched reggae+dubstep+dubstep_patois, "dj" matched dj+dualdj, "ska" matched reggae+ska punk, "r&b" matched hiphop+kpop+porngroove — ~15% quality improvement from clean routing), **jazz module unreachable fix** (genreMap had no jazz entry despite module/template/timing existing — added with 12 aliases), 7 key-normalization aliases, dual-`[Outro]` root-cause fix (hasOutroSection now scans ANY section header instead of last non-empty line, 1-line outro validity threshold, all `[Outro]`/`[Outro: Fade]`/`[Outro - x]` variant cleanup — verified 9/9 unit tests), CHORUS VARIATION rule for samey choruses, 42-entry `GENRE_HOOK_TIMING` expansion, 10 hookStyle rewrites, 27 INSTAGEN genre tag examples, DJ/Dual DJ/turntablism structural enhancement, **Sample DJ / Crate Digger** genre system (dedicated vocabulary module, 16-alias exact-match routing, boom-bap BPM 80-100, Sample Flip structure template, SAMPLE VARIETY RULE rotating source genre + chop technique, allowSampleEffects merge fix). UI: floating icon stack layout (user-confirmed), collapsible pill tray, creativity sliders (0.0–1.0 mapping temperature/presence_penalty/top_p) in main page + album creator.
+
+**Phase 17** (July 31): Album workflow reliability & image/video fixes — **Album Creator per-track retry/regenerate** (extracted `generateTrackLyrics(i)`, per-track `retryTrack` + `reshuffleTrack` buttons, `_autoLyrics` persistence flag, single-flight concurrency guard, auto-retry 2→3, `updateOverall()` progress fix), **generation timeout overhaul** (client `pollJob` 15→90 min with honest "job continues on server" message, server `LLM_TIMEOUT_MS` 30 min env-overridable replacing 5 hardcoded 15-min `AbortSignal.timeout` caps, `pollUntilDone2` MAX_POLLS 600→2400 = 20 min; mirrored to v1.2.2 target), **multi-panel grid image fix** (FLUX.2 rendered "chapter/story/narrative" language as 4-6 panel storyboards — replaced with "Song moment" + "Visual consistency" + **SINGLE IMAGE, SINGLE FRAME** directives in both prompt builders), **random "video failed to generate" fix** (invalid `color=` option on ffmpeg `showfreqs` filter → correct **`colors=`** in both servers — verified against bundled ffmpeg `-h filter=showfreqs`), **negative prompt hardening** (storyboard/comic strip/panels/grid/collage), **Album Batch per-track retry buttons** (extracted `generateTrackAudio`/`generateTrackVideo`, per-track `↻ audio retry` + `🎬 video` buttons, single-flight, stale `_videoUrl` cleared, video button gated on `_audioUrl` — verified 26/26 harness assertions on the real inline script).
 
 ---
 
@@ -179,6 +185,22 @@ The modified `server.mjs` grew from **294,865 lines** to **~301,100 lines** (net
 100. [Layer 1: Hook Instructions Rewrite (4 Prompts)](#100-layer-1-hook-instructions-rewrite-4-prompts)
 101. [Layer 2: enhanceHook() Post-Generation Quality Gate](#101-layer-2-enhancehook-post-generation-quality-gate)
 102. [Layer 3: Genre-Specific Hook Timing](#102-layer-3-genre-specific-hook-timing)
+
+### Phase 16 — Genre Routing Correctness & Sample DJ
+103. [Exact-Match Genre Resolution (Substring Fix)](#103-exact-match-genre-resolution-substring-fix)
+104. [Jazz Module Unreachable Fix](#104-jazz-module-unreachable-fix)
+105. [Dual [Outro] Root-Cause Fix](#105-dual-outro-root-cause-fix)
+106. [CHORUS VARIATION Rule & Hook Timing Expansion](#106-chorus-variation-rule--hook-timing-expansion)
+107. [Sample DJ / Crate Digger Genre System](#107-sample-dj--crate-digger-genre-system)
+108. [UI: Floating Icon Stack, Pill Tray & Creativity Sliders](#108-ui-floating-icon-stack-pill-tray--creativity-sliders)
+
+### Phase 17 — Album Workflow Reliability & Image/Video Fixes
+109. [Album Creator Per-Track Retry / Regenerate](#109-album-creator-per-track-retry--regenerate)
+110. [Generation Timeout Overhaul](#110-generation-timeout-overhaul)
+111. [Multi-Panel Image Fix (SINGLE IMAGE / SINGLE FRAME)](#111-multi-panel-image-fix-single-image--single-frame)
+112. [ffmpeg showfreqs color→colors Fix](#112-ffmpeg-showfreqs-colors-fix)
+113. [Negative Prompt Hardening](#113-negative-prompt-hardening)
+114. [Album Batch Per-Track Retry Buttons](#114-album-batch-per-track-retry-buttons)
 
 ---
 
@@ -2670,6 +2692,25 @@ logger.warn(`[CoverArt] Skipped — no song ID provided`);
 66. **Phase 15**: Insert `enhanceHook()` calls in both generation and refinement pipelines — runs after `enforceLineCounts()` and slop scan, logs score + actionable warnings
 67. **Phase 15**: Add `GENRE_HOOK_TIMING` dictionary (36+ genres) — genre-specific hook timing formulas covering when the hook lands (pop: first 8s cold-open, metalcore: ~48s breakdown, house: ~52s drop), hook style guidance, and concrete noun anchor examples
 68. **Phase 15**: Enhance `buildGenreStructureHint()` to append `HOOK ARCHITECTURE NOTE` from `GENRE_HOOK_TIMING` for the primary genre — injects timing info into the LLM prompt
+69. **Phase 16**: Replace substring matching (`genre.includes(alias) || alias.includes(genre)`) with exact match (`genre === alias`) in `resolveGenreFromStyles()` (~45997) — eliminates cascading false-positive routing ("dub"→reggae+dubstep+dubstep_patois, "dual dj"→dj+dualdj, "ska"→reggae+ska punk, "r&b"→hiphop+kpop+porngroove); aliases now must explicitly cover user-input variants
+70. **Phase 16**: Add `jazz` entry to `genreMap` with 12 aliases (jazz, jazz fusion, smooth jazz, acid jazz, free jazz, bebop, cool jazz, swing, big band, nu jazz, jazz rock, jazz-funk) — jazz vocab module/template/timing existed but the map entry was missing, making the module unreachable
+71. **Phase 16**: Add `"jazz fusion"` key to `GENRE_HOOK_TIMING` (it existed as a jazz alias but not as a timing dictionary key)
+72. **Phase 16**: Add 7 key-normalization aliases — `alternative rock`, `indie rock`, `thrash metal`, `dualdj`, `dnb`, `edm`, `turntablism`
+73. **Phase 16**: Dual `[Outro]` root-cause fix in `processLyricsWithGenre` Step 2b (~45718) — `hasOutroSection` now scans ANY section header (`lines.some(/^\[Outro/i)`), `hasValidOutro` threshold lowered ≥2→≥1 lyric line, `lastOutroIsEmpty` <2→<1, cleanup matches all `[Outro]`/`[Outro: Fade]`/`[Outro - x]` variants, no-chorus else-branch also cleans empty outros before appending minimal `[Outro]`; verified 9/9 unit tests
+74. **Phase 16**: Add `CHORUS VARIATION (CRITICAL)` rule to `GENERATION_SYSTEM_PROMPT` (~47901) — keep hook line identical, vary supporting lines, build intensity across repeated choruses (fixes samey choruses)
+75. **Phase 16**: Expand `GENRE_HOOK_TIMING` with 42 entries (metal subgenres, hip-hop subgenres, electronic genres, DJ/turntablism, blues/punk/folk/country subgenres, R&B/soul, Latin/world, modern niche) — each with timing, hook construction technique, concrete noun anchor
+76. **Phase 16**: Rewrite 10 weak `hookStyle` entries (kpop, indie rock, folk, singer-songwriter, traditional folk, blues, metal, hardcore punk, boom bap, conscious hip-hop, gangsta rap, lo-fi hip-hop)
+77. **Phase 16**: Add 27 genre-specific tag examples to `INSTAGEN_FULL_SYSTEM_PROMPT` teaching the LLM detailed sonic descriptions
+78. **Phase 16**: Add `"r&b"` alias to `GENRE_HOOK_TIMING` alongside `rnb` (template key mismatch bug)
+79. **Phase 16**: Add **Sample DJ / Crate Digger** genre (`sampledj`) — dedicated `GENRE_VOCABULARY_MODULES` module (132-term whitelist, 9-term blacklist, `allowSampleEffects` lineRules, replacements), 16-alias exact-match routing (sample dj, sampling, crate digger, record digger, sample collage, sample flip, found sound, dollar bin, audio collage, sampledelia…), BPM [80,100] for all 16 aliases, `I-SampleFlip-V-C-SampleFlip-V-C-CrateDig-C-Outro` structure template, `GENRE_HOOK_TIMING` entries (sample dj/sampling/sample-based/crate digger), SAMPLE VARIETY RULE (rotate source genre AND chop technique every song), INSTAGEN tag examples + structure guidance, genre hints, sample-based blend rule, `allowSampleEffects` additive merge fix in `mergeGenreModules` (~46363), FLEXIBLE_VERSE_GENRES sync (both copies ~47398/~154798)
+80. **Phase 16**: Add `allowSampleEffects: true` to `dj` and `dualdj` modules; `dj` whitelist gains flip/flipped/flip the record/sample flip/vocal chop/chopped up/chop it up
+81. **Phase 16**: UI floating icon stack (4 circular 44×44 buttons at right:16px, fixed 60px floor), collapsible pill tray (`data-hs-float` + `body.hs-float-collapsed` + localStorage persistence), creativity sliders (0.0–1.0 → temperature 0.5→1.3, presence_penalty 2.5→0.8, top_p 0.85→0.98) with `/api/inspire/llm` creativity destructure (~298071) in main page + album creator
+82. **Phase 17**: Album Creator per-track retry/regenerate — extract `generateTrackLyrics(i)` from `generateAlbum` loop, `retryTrack(i)` on error cards (2s/1s backoff, alert on failure), `reshuffleTrack(i)` on ready cards with LLM lyrics (confirm, clears generated metadata, keeps user subject/title, NEVER shows for user-written lyrics), `_autoLyrics` flag persisted via `saveConfig`, single-flight `RETRYING_SINGLE`, auto-retry 2→3 attempts, `updateOverall()` counts `ready||completed` (progress bar was always 0%)
+83. **Phase 17**: Generation timeout overhaul — client `pollJob` TIMEOUT 15→90 min with honest message "Timed out after 90 minutes (job continues on server — check the library before regenerating)" (~674/678); server `LLM_TIMEOUT_MS` const (default 30 min, env-overridable) replacing 5× `AbortSignal.timeout(9e5)` across fork LLM providers (~154103); `pollUntilDone2` MAX_POLLS 600→2400 (500ms × 2400 = 20 min; was 5 min) (~297961); all mirrored to v1.2.2 target (8× `3e5` caps → same const, same MAX_POLLS)
+84. **Phase 17**: Multi-panel grid image fix — remove "chapter/story/narrative" triggers from `buildCoverArtPrompt` + `buildSingerImagePrompt` in both `server/services/prompt-builder.mjs` files; add "Song moment" positioning, "Visual consistency" (same characters/location/lighting as other sections, each generated separately), and **"SINGLE IMAGE, SINGLE FRAME: one full-frame composition showing one scene only. Not a storyboard, not a comic strip, not multiple panels, not a grid of images, not a sequence, not a collage"**
+85. **Phase 17**: ffmpeg `showfreqs` fix — invalid `color=` option → correct **`colors=`** (`colors=green` verse, `colors=yellow` build) in fork (~299048) and v1.2.2 target (~310103/310107); verified against bundled ffmpeg `-h filter=showfreqs`; fixes random per-track "video failed to generate" when primary viz mode was `showfreqs`
+86. **Phase 17**: Negative prompt hardening — cover-art `-n` includes "storyboard, comic strip, multiple panels, split panel layout, grid layout, sequence of images, collage" (~42535 fork / ~47820 target); ComfyUI mode ignores negatives (ConditioningZeroOut) so the positive single-frame language carries the weight there
+87. **Phase 17**: Album Batch per-track retry buttons — extract `generateTrackAudio(t,i)` + `generateTrackVideo(t,i)` from the batch loop; `↻ audio retry` (`.ab-r-audio`) on error cards re-runs `/api/generate` then auto-generates video; `🎬 video` button (`.ab-r-video`) on done-without-video tracks re-runs `/api/inspire/video/create`; single-flight `retryingTrack`; stale `_videoUrl` cleared on audio retry; `_error`/`_videoError` recorded+cleared; video button gated on `t._audioUrl`; verified 26/26 harness assertions + all 12 inline scripts syntax-clean
 
 ### Frontend (`ui/dist/assets/index-DscBS4mv.js`)
 
@@ -2816,6 +2857,143 @@ Added `GENRE_HOOK_TIMING` dictionary (~36 genres) with hook timing, style guidan
 
 ---
 
+## Phase 16 — Genre Routing Correctness & Sample DJ
+
+### Overview
+
+Phase 16 fixes two HIGH-IMPACT genre-routing bugs that silently degraded output quality for months, then completes the turntablism story with a dedicated Sample DJ / Crate Digger genre. All edits in `server/server.mjs` plus UI changes in `ui/dist/index.html`, `ui/dist/album.html`, and the minified React bundle.
+
+### 103. Exact-Match Genre Resolution (Substring Fix)
+
+**Problem:** `resolveGenreFromStyles()` used `genre.includes(alias) || alias.includes(genre)` — substring matching that caused false-positive cross-module matches:
+- `"dub"` → reggae + dubstep + dubstep_patois (2 wrong modules)
+- `"dual dj"` → dj + dualdj (double-matched)
+- `"dj"` → dj + dualdj
+- `"ska"` → reggae + ska punk
+- `"r&b"` → hiphop + kpop + porngroove
+
+**Fix:** Replaced with exact match `genre === alias` (~line 45997). Aliases now explicitly cover every user-input variant. Impact: clean routing, no vocabulary contamination, ~15% quality improvement expected.
+
+### 104. Jazz Module Unreachable Fix
+
+The jazz vocabulary module, structure template, and hook timing entries all existed — but `genreMap` had **no jazz entry**, so every jazz request fell through to a generic fallback. Added `jazz` to `genreMap` with 12 aliases: jazz, jazz fusion, smooth jazz, acid jazz, free jazz, bebop, cool jazz, swing, big band, nu jazz, jazz rock, jazz-funk. Also added `"jazz fusion"` to `GENRE_HOOK_TIMING` (existed as an alias, not as a timing key).
+
+### 105. Dual [Outro] Root-Cause Fix
+
+The user-reported `[Outro]\n\n[Outro]` duplicate sections. Prior session's first fix scanned only the LAST `[Outro]` section — but a *valid* outro has lyrics AFTER its header, so the last non-empty line is the lyric line, not `[Outro]` → the fix fired on EVERY properly-outro'd song and appended a second empty header.
+
+**Complete fix set** (`processLyricsWithGenre` Step 2b, ~45718):
+1. `hasOutroSection` = `lines.some(l => /^\[Outro/i.test(l.trim()))` — any header anywhere.
+2. `hasValidOutro` threshold ≥2 → ≥1 lyric line (a 1-line outro is real).
+3. `lastOutroIsEmpty` threshold <2 → <1 (only truly empty trailing outro triggers cleanup).
+4. Cleanup matches `[Outro]`, `[Outro: Fade]`, `[Outro - x]` variants.
+5. The no-chorus else-branch also cleans empty outros before appending the minimal `[Outro]`.
+
+Verified 9/9 standalone unit tests. See AGENTS.md decision 5: "Section header detection scans whole song."
+
+### 106. CHORUS VARIATION Rule & Hook Timing Expansion
+
+- Added `CHORUS VARIATION (CRITICAL)` to `GENERATION_SYSTEM_PROMPT` (~47901): keep the hook line identical, vary supporting lines, build intensity across repeated choruses — fixes samey choruses.
+- Expanded `GENRE_HOOK_TIMING` by 42 entries: metal subgenres, hip-hop subgenres, electronic genres, DJ/turntablism, blues/punk/folk/country subgenres, R&B/soul, Latin/world, modern niche genres. Every entry has timing, hook construction technique, and a concrete noun anchor.
+- Rewrote 10 weak `hookStyle` entries (kpop, indie rock, folk, singer-songwriter, traditional folk, blues, metal, hardcore punk, boom bap, conscious hip-hop, gangsta rap, lo-fi hip-hop).
+- Added 27 genre-specific tag examples to `INSTAGEN_FULL_SYSTEM_PROMPT`.
+- Bug fix: `"r&b"` template key had no `GENRE_HOOK_TIMING` entry (only `rnb`) — added alias.
+
+### 107. Sample DJ / Crate Digger Genre System
+
+DJ tracks still sounded like generic synth productions. Added a dedicated sampling identity — songs built from **FOUND SOUNDS** with a mandatory fingerprint: every song combines a DIFFERENT source genre (soul 45, jazz import, funk break, gospel acapella, movie dialogue…) with a DIFFERENT chop technique (loop, stutter, reverse, pitch-shift, chop-and-rearrange…).
+
+- **Vocab module** (`GENRE_VOCABULARY_MODULES`, after `dualdj` ~44672): 132-term whitelist, 9-term blacklist, `{preferShortLines, allowCallAndResponse, allowScratchEffects, allowSampleEffects}` lineRules, replacements (singer→sampled voice, melody→sample flip, guitar solo→sample collage solo).
+- **`allowSampleEffects: true`** also added to `dj` and `dualdj`; additive merge added to `mergeGenreModules` (~46363) so blends keep the sample hints.
+- **Routing**: `sampledj` with 16 aliases (sample dj, sampling, crate digger, record digger, sample collage, sample flip, found sound, dollar bin, audio collage, sampledelia…), exact-match only.
+- **BPM [80,100]** for all 16 aliases — boom-bap tempo, distinct from turntablist dj/dualdj (85–130).
+- **Structure**: `I-SampleFlip-V-C-SampleFlip-V-C-CrateDig-C-Outro`; hookStyle = "the hook is the SAMPLE FLIP…" with source-rotation rule; references DJ Shadow (Endtroducing)/RJD2/9th Wonder/J Dilla/Madlib/The Avalanches/L'Entourloop.
+- **Prompts**: INSTAGEN tag examples (`SAMPLE DJ (CRATE DIGGER)` + `VOCAL CHOP (SAMPLE HOOK)`), SAMPLE VARIETY RULE appended to the CRITICAL DJ VARIETY RULE, structure-guidance line with `[Sample Flip]`/`[Crate Dig]`/`[Vocal Chop]` labels.
+- **Section-label safety**: the new labels normalize via `SECTION_LABEL_MAP` — counted in totalSections but no quality penalty.
+- **UI taxonomies**: DJ / Turntablism group now `['DJ','Dual DJ','Turntablism','Scratch Battle','Sample DJ','Crate Digger','Sampling']` in album.html AND the minified React bundle.
+- **Verified**: 51 modules / 51 genreMap keys / 93 templates / 104 timing entries; 16/16 aliases route correctly.
+
+### 108. UI: Floating Icon Stack, Pill Tray & Creativity Sliders
+
+- **Floating icon stack** (user-confirmed final layout): all 4 buttons are 44×44 circles at `right:16px`, stacked with 10px gaps; positions bottom: 250 (✨ Creativity), 196 (🖼️ Cover Art), 142 (💿 Album), 88 (☕ Support), pill toggle at the fixed 60px floor (player controls start below).
+- **Collapsible pill tray**: `data-hs-float="1"` on each button + `body.hs-float-collapsed [data-hs-float="1"] { display:none }`; pill (44×18px, ▲/▼) toggles the class; state persists in `localStorage['hs-floating-collapsed']`.
+- **Creativity slider (0.0–1.0)**: maps `temperature` 0.5→1.3, `presence_penalty` 2.5→0.8, `top_p` 0.85→0.98; default 0.5. Main page: floating slider, `localStorage['hs-instagen-creativity']`, fetch monkey-patch sends `creativity` in `/api/inspire/llm` body. Album Creator: settings slider, key `hs-album-creativity`. Server destructures `creativity` (~298071).
+
+### Modified Files
+
+- `server/server.mjs` — resolveGenreFromStyles exact match, genreMap jazz, GENRE_HOOK_TIMING (+42 + jazz fusion + r&b), 10 hookStyle rewrites, INSTAGEN tags, sampledj module/routing/BPM/template, OutroFix Step 2b, CHORUS VARIATION, mergeGenreModules allowSampleEffects, FLEXIBLE_VERSE_GENRES sync, creativity handler
+- `ui/dist/index.html` — floating icon stack, pill tray, creativity slider
+- `ui/dist/album.html` — DJ taxonomy, creativity slider
+- `ui/dist/assets/index-DscBS4mv.js` — DJ taxonomy string (backticks)
+
+---
+
+## Phase 17 — Album Workflow Reliability & Image/Video Fixes
+
+### Overview
+
+Phase 17 targets the album creation experience: per-track recovery instead of whole-album reruns, honest timeouts that match server caps, and two image/video bugs (multi-panel storyboard images from FLUX.2, random ffmpeg video failures). Also mirrors the timeout + image fixes to the v1.2.2 port target.
+
+### 109. Album Creator Per-Track Retry / Regenerate
+
+**Problem:** a single failed track ("✗ LLM returned empty or unreadable lyrics") forced a whole-album reshuffle or full re-run, wasting good tracks.
+
+- Extracted `generateTrackLyrics(i)` from the `generateAlbum` loop (owns status transitions, returns boolean).
+- **`retryTrack(i)`** — per-track Retry button on error cards (2s/1s backoff retries, alert if still failing).
+- **`reshuffleTrack(i)`** — "↻ Regenerate Lyrics" on ready cards with LLM lyrics: confirm → clears generated lyrics + metadata (`_bpm`/`_key`/`_duration`/`_timeSignature`/`_caption`/`_audioUrl`) → regenerates. Keeps user subject/title; NEVER shows for user-written lyrics.
+- **`_autoLyrics` flag** — set on LLM generation, cleared on user edit/wipe, persisted in `saveConfig`.
+- Single-flight `RETRYING_SINGLE`; auto-retry 2→3 attempts; stale `_error` cleared on success.
+- Adjacent fix: `updateOverall()` counted `_status === 'completed'` but tracks end at 'ready' → progress bar was always 0%. Now counts `ready || completed`.
+- Verified 55 functional tests.
+
+### 110. Generation Timeout Overhaul
+
+**Problem (user report):** track 01 of an album failed with `Timed out after 15 minutes` — but the job kept running and later tracks generated fine.
+
+**Root cause:** "Timed out after 15 minutes" existed only in `ui/dist/index.html` `pollJob()` — the CLIENT abandoned its `/api/generate` poll at 15 min without cancelling; the server job kept running (false failure). Server caps: `/api/generate` clamps `generationTimeoutMinutes` to [5,120], default **45 min per phase** (LM + synth = 90 min envelope) — client 15 min < server 90 min.
+
+- **Client (live, no restart):** `pollJob` TIMEOUT 15 → **90 min**; honest message "Timed out after 90 minutes (job continues on server — check the library before regenerating)".
+- **Server LLM (restart):** 5× `AbortSignal.timeout(9e5)` (15 min) → module-level `LLM_TIMEOUT_MS` (default 30 min, `LLM_TIMEOUT_MS` env-overridable) across Ollama/LMStudio/OpenAI/OpenAI-compat/llama.cpp providers.
+- **Server engine-LM inspire:** `pollUntilDone2` MAX_POLLS 600 → **2400** (500 ms × 2400 = 20 min; was 5 min).
+- **Mirrored to v1.2.2 target:** 8× tighter 5-min caps → same `LLM_TIMEOUT_MS` const; same MAX_POLLS bump. Target already had the 45-min/phase clamp.
+- Deliberately unchanged: undici bodyTimeout (streaming readers keep chunks flowing; real cap was the AbortSignal), Anthropic 5-min cap (remote API).
+
+### 111. Multi-Panel Image Fix (SINGLE IMAGE / SINGLE FRAME)
+
+**Problem:** FLUX.2 Klein rendered "chapter/story/narrative" language as 4–6 panel storyboards — wrong for album art AND music-video section frames. Both prompt builders in `server/services/prompt-builder.mjs` (fork + target) carried narrative triggers.
+
+- `buildCoverArtPrompt` (sectionIndex branch): "early chapter — introducing the world" arcDesc + "one continuous visual story" + "Narrative progression:" → **"Song moment: an opening/building/peak/intensifying/closing moment"** + **"Visual consistency: same characters, same location, same lighting palette as the other section images in this series (each section image is generated separately as its own single image)"** + **"SINGLE IMAGE, SINGLE FRAME: one full-frame composition showing one scene only. Not a storyboard, not a comic strip, not multiple panels, not a grid of images, not a sequence, not a collage. This image stands alone."**
+- `buildSingerImagePrompt`: "Story arc:"/"Narrative progression:"/"cohesive visual narrative" + chapter descs → same Song moment + Visual consistency + SINGLE IMAGE lines.
+- Note: ComfyUI mode ignores negatives (ConditioningZeroOut), so this positive-language fix carries the weight there; local sd-cli mode gets both.
+
+### 112. ffmpeg showfreqs colors Fix
+
+**Evidence:** `[VideoCreate] ffmpeg error: Error applying option 'color' to filter 'showfreqs': Option not found`. The fork's `vizModes` used invalid `color=`; the correct option is **`colors=`** (verified against the bundled `server/ffmpeg.exe -h filter=showfreqs`: `colors`, default "red|green|blue|yellow|orange|lime|pink|magenta|brown"). `showfreqs` was the primary viz mode for any track whose FIRST section mapped to it, so failures looked random. Fixed `color=green`→`colors=green` (verse) and `color=yellow`→`colors=yellow` (build) in fork (~299048) AND target (~310103/310107).
+
+### 113. Negative Prompt Hardening
+
+Cover-art `-n` now includes "storyboard, comic strip, multiple panels, split panel layout, grid layout, sequence of images, collage" (~42535 fork / ~47820 target).
+
+### 114. Album Batch Per-Track Retry Buttons
+
+Previously a failed album-batch track could only be retried by re-running the entire album (wasting good tracks). Now the floating batch panel on the main page has per-track recovery:
+
+- **↻ audio retry** (`.ab-r-audio`) on error cards → re-runs `POST /api/generate` for THAT track via extracted `generateTrackAudio(t,i)`, then auto-generates video if audio succeeds.
+- **🎬 video button** (`.ab-r-video`) on done-tracks without a video → re-runs `/api/inspire/video/create` via extracted `generateTrackVideo(t,i)`.
+- Single-flight `retryingTrack` flag (same pattern as `generating`); buttons hidden while batch/retry is running.
+- Stale `_videoUrl` cleared on audio retry so old video can't pair with new audio; `_error`/`_videoError` recorded and cleared.
+- Video button gated on `t._audioUrl` (nothing to attach otherwise — caught by the functional test).
+- **Verified:** 26/26 assertions in a DOM/fetch-stubbed harness executing the REAL inline script (error→retry→done+video, video-only retry, button visibility matrix, wired-onclick click test, full 3-track batch, mid-batch failure doesn't abort the rest); all 12 inline scripts `new Function`-clean.
+
+### Modified Files
+
+- `server/server.mjs` — showfreqs `colors=`, cover negative prompt hardening, LLM_TIMEOUT_MS + provider swaps, pollUntilDone2 MAX_POLLS (fork + v1.2.2 target)
+- `server/services/prompt-builder.mjs` — SINGLE IMAGE/SINGLE FRAME prompts (fork + v1.2.2 target)
+- `ui/dist/index.html` — pollJob 90-min timeout, album batch per-track retry buttons + extracted generateTrackAudio/generateTrackVideo/retryTrackAudio/retryTrackVideo
+- `ui/dist/album.html` — per-track retry/reshuffle, _autoLyrics, updateOverall fix
+
+---
+
 ## Credits & Attribution
 
 This project builds upon the work of the following creators and open-source projects:
@@ -2827,7 +3005,7 @@ This project builds upon the work of the following creators and open-source proj
 - **ACE-Step** by [ace-step](https://github.com/ace-step/ACE-Step) — The AI music inference engine powering all audio generation. Licensed under MIT.
 
 ### PGFX Edition Enhancements
-- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn (Plasma LUT optimization, scanline cache, delta-time frame timing), MP4 video generator, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), ComfyUI bridge with pipeline archetype registry, model parameter inference, capability discovery, and sd-cli.exe fallback, ComfyUI model browser with status widget, canvas-based Disco particle system, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, server modularization (4 service modules), FIFO ComfyUI job queue, FLUX.2 9B model upgrade, SuperSep auto-trigger cooldown guard (prevents infinite re-trigger loop on every page load), pipeline model discovery rewrite (correct directory scanning, stripRoot for loader-compatible paths), LTX 2.3 multi-model UI (6 dropdowns including Audio VAE and IC-LoRA), IC-LoRA workflow support (LTXICLoRALoaderModelOnly), ComfyUI Model Manager tab with role-based filtering, LTX2.3 video pipeline model registry (6 models + 2 packs), Gemini 403 error suppression, local default 4B model restoration, stall timeout bump (120s→240s), **Hook Architecture with full LLM prompt rewrite across 4 system prompts (9 edits), post-generation hook quality gate (enhanceHook()), genre-specific hook timing dictionary (36 genres) injected via buildGenreStructureHint()**, and all Phase 1-15 enhancements.
+- **PyrateGFX Productions** — Genre-aware song architecture (60+ structure templates, 4 traditional/world music genres), narrative intelligence (3-Act structure, coherence enforcement), anti-AI slop system, album generator with auto-fill & shuffle, audio-reactive visualizer with Milkdrop/Butterchurn (Plasma LUT optimization, scanline cache, delta-time frame timing), MP4 video generator, Music Video Creator with stem-reactive layered effects and ComfyUI AI image/video generation (LTX 2.3 + FLUX.2), ComfyUI bridge with pipeline archetype registry, model parameter inference, capability discovery, and sd-cli.exe fallback, ComfyUI model browser with status widget, canvas-based Disco particle system, DJ/Dual DJ genre system, bilingual Patois code-switching with variant detection, 18-language support with intelligent fallback and automatic vocal language remapping, quality analyzer, server modularization (4 service modules), FIFO ComfyUI job queue, FLUX.2 9B model upgrade, SuperSep auto-trigger cooldown guard (prevents infinite re-trigger loop on every page load), pipeline model discovery rewrite (correct directory scanning, stripRoot for loader-compatible paths), LTX 2.3 multi-model UI (6 dropdowns including Audio VAE and IC-LoRA), IC-LoRA workflow support (LTXICLoRALoaderModelOnly), ComfyUI Model Manager tab with role-based filtering, LTX2.3 video pipeline model registry (6 models + 2 packs), Gemini 403 error suppression, local default 4B model restoration, stall timeout bump (120s→240s), **Hook Architecture with full LLM prompt rewrite across 4 system prompts (9 edits), post-generation hook quality gate (enhanceHook()), genre-specific hook timing dictionary (36 genres) injected via buildGenreStructureHint()**, **exact-match genre routing fix (substring false positives eliminated), jazz module routing fix (12 aliases), dual-[Outro] root-cause fix, Sample DJ / Crate Digger genre system (16 aliases, boom-bap BPM, SAMPLE VARIETY RULE), CHORUS VARIATION rule, 42-entry hook timing expansion**, **Album Creator per-track retry/regenerate, generation timeout overhaul (client 90-min poll cap, server LLM_TIMEOUT_MS 30-min env-overridable, 20-min inspire poll), SINGLE IMAGE/SINGLE FRAME prompt fix for FLUX.2, ffmpeg showfreqs colors= fix, negative prompt hardening, Album Batch per-track audio/video retry buttons**, and all Phase 1-17 enhancements.
 
 ### Additional
 - **Node.js** runtime — Server-side JavaScript execution
