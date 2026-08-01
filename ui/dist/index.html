@@ -604,7 +604,7 @@
             if (!generating && !retryingTrack) {
               if (t._status === 'error') {
                 html += '<button class="ab-r-audio" data-i="' + i + '" title="Retry audio — regenerate this track" style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid rgba(239,68,68,0.4);background:rgba(239,68,68,0.15);color:#fca5a5;cursor:pointer;">\u21BB</button>';
-              } else if (t._status === 'done' && !t._videoUrl && (t.lyrics || '').length > 50) {
+              } else if (t._status === 'done' && !t._videoUrl && t._audioUrl && (t.lyrics || '').length > 50) {
                 html += '<button class="ab-r-video" data-i="' + i + '" title="Generate video for this track" style="font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid rgba(168,85,247,0.4);background:rgba(168,85,247,0.15);color:#d8b4fe;cursor:pointer;">\uD83C\uDFA5</button>';
               }
             }
