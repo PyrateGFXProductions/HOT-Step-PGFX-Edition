@@ -1532,13 +1532,8 @@ async function openAlbumLibrary() {
       dlBtn.style.cssText = 'width:32px;height:32px;border-radius:8px;border:none;background:rgba(168,85,247,0.15);color:#a78bfa;font-size:14px;cursor:pointer;';
       dlBtn.onclick = function(e) {
         e.stopPropagation();
-        /* Trigger ZIP download */
-        fetch('/api/inspire/album/download-zip', {
-          method: 'POST', headers: Object.assign({'Content-Type':'application/json'}, headers),
-          body: JSON.stringify({ albumName: album.name })
-        }).then(function(r) { return r.json(); }).then(function(d) {
-          if (d.zipUrl) window.open(d.zipUrl, '_blank');
-        }).catch(function() {});
+        /* Stream the album ZIP directly from the server */
+        window.open('/api/download/album-zip?album=' + encodeURIComponent(album.name), '_blank');
       };
       row.appendChild(cover); row.appendChild(info); row.appendChild(dlBtn);
       card.appendChild(row);

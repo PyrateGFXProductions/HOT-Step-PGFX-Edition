@@ -116652,7 +116652,10 @@ function postprocessLyrics(text6) {
       continue;
     }
     if (/^\[.+\]$/.test(stripped)) {
-      resultLines.push(stripped);
+      // Sanitize bracketed lines: remap musical-direction labels to
+      // [Instrumental] and strip ": annotation" prose from section labels so
+      // the engine never sings them verbatim.
+      resultLines.push(sanitizeDirectionLines(stripped));
       continue;
     }
     if (stripped && !PUNCTUATION_ENDINGS.has(stripped[stripped.length - 1])) {
@@ -116662,6 +116665,91 @@ function postprocessLyrics(text6) {
     }
   }
   return resultLines.join("\n");
+}
+// ===== sanitizeDirectionLines =================================================
+// LLMs sometimes emit bracketed MUSICAL DIRECTION lines as if they were lyric
+// sections, e.g. "[Sample Flip: Vocal Chop from a 1972 Soul Record – 'You Got
+// to Move!' chopped into stuttering 3-second loops...]" or "[DJ 1 Scratch:
+// Crab scratches over a jazz vocal sample...]". ACE-Step has NO label parser
+// for these (its binary contains only the literal "[Instrumental"), so such
+// lines are SUNG VERBATIM. This sanitizer:
+//   1. Remaps known DIRECTION labels (sample flip, crate dig, straight loop,
+//      dj scratch, dj battle, vocal chop, instrumental break, etc.) to
+//      [Instrumental] — those sections ARE instrumental by nature, so the
+//      engine plays music there and sings nothing.
+//   2. Strips annotations from standard section labels, e.g.
+//      "[Verse 1: Spoken over dusty riddim]" → "[Verse 1]" — the annotation is
+//      a production direction, not lyrics.
+//   3. For any OTHER bracketed line, keeps only a short bare label (annotation
+//      dropped) so it can never be read as singable prose.
+function sanitizeDirectionLines(text7) {
+  if (!text7) return text7;
+  const DIRECTION_LABELS = new Set([
+    "sample flip", "sampleflip", "flip", "crate dig", "cratedig", "crate-digging",
+    "straight loop", "straightloop", "loop", "vocal chop", "vocalchop", "chop",
+    "dj 1 scratch", "dj 2 scratch", "dj 3 scratch", "dj scratch", "scratch",
+    "scratch battle", "dj battle", "turntablism", "turntable", "instrumental break",
+    "dub break", "beat juggle", "beat juggling", "beat switch", "rewind",
+    "drum fill", "drum solo", "bass drop", "drop", "build", "breakdown", "fill"
+  ]);
+  // Labels the server/engine understand as real sections (annotation allowed but stripped).
+  const STANDARD_LABELS = new Set([
+    "intro", "verse", "pre-chorus", "pre chorus", "prechorus", "chorus",
+    "post-chorus", "post chorus", "postchorus", "hook", "refrain", "bridge",
+    "interlude", "outro", "instrumental", "solo", "break", "x"
+  ]);
+  const lines3 = text7.split("\n");
+  const out = [];
+  let remapped = 0;
+  let stripped = 0;
+  for (const line of lines3) {
+    const t = line.trim();
+    const m3 = t.match(/^\[(.+)\]$/);
+    if (!m3) { out.push(line); continue; }
+    const inner = m3[1].trim();
+    // Split label from annotation at ':' or ' - ' (e.g. "Verse 1: Spoken..." or "Chorus - High Energy")
+    let labelPart = inner;
+    let annotation = "";
+    const colonIdx = inner.indexOf(":");
+    const dashIdx = inner.indexOf(" - ");
+    if (colonIdx >= 0 && (dashIdx < 0 || colonIdx < dashIdx)) {
+      labelPart = inner.slice(0, colonIdx).trim();
+      annotation = inner.slice(colonIdx + 1).trim();
+    } else if (dashIdx >= 0) {
+      labelPart = inner.slice(0, dashIdx).trim();
+      annotation = inner.slice(dashIdx + 3).trim();
+    }
+    // Normalize for lookup: lowercase, collapse spaces, strip trailing number
+    const labelKey = labelPart.toLowerCase().replace(/\s+/g, " ").trim();
+    const labelBase = labelKey.replace(/\s+\d+$/, "").trim();
+    if (DIRECTION_LABELS.has(labelBase) || DIRECTION_LABELS.has(labelKey)) {
+      out.push("[Instrumental]");
+      remapped++;
+      continue;
+    }
+    if (STANDARD_LABELS.has(labelBase)) {
+      // Standard section — rebuild as clean "[Label]" / "[Label N]"
+      const numMatch = labelPart.match(/(\d+)\s*$/);
+      const labelClean = labelPart.replace(/\s+\d+$/, "").trim();
+      const display = labelClean.charAt(0).toUpperCase() + labelClean.slice(1);
+      out.push(numMatch ? `[${display} ${numMatch[1]}]` : `[${display}]`);
+      if (annotation) stripped++;
+      continue;
+    }
+    // Unknown bracket — keep only a short bare label (never the annotation prose)
+    if (annotation) {
+      const numMatch = labelPart.match(/(\d+)\s*$/);
+      const labelClean = labelPart.replace(/\s+\d+$/, "").trim();
+      const display = labelClean.charAt(0).toUpperCase() + labelClean.slice(1);
+      out.push(numMatch ? `[${display} ${numMatch[1]}]` : `[${display}]`);
+      stripped++;
+      continue;
+    }
+    out.push(line);
+  }
+  if (remapped > 0) console.log(`[DirStrip] Remapped ${remapped} direction line(s) to [Instrumental] (was: ${text7.split("\n").filter(l => /^\[Sample Flip|^\[DJ|^\[Crate Dig|^\[Straight Loop|^\[Instrumental Break|^\[Vocal Chop|^\[Scratch/i.test(l.trim())).length} direction line(s) total)`);
+  if (stripped > 0) console.log(`[DirStrip] Stripped annotation(s) from ${stripped} bracketed section line(s)`);
+  return out.join("\n");
 }
 // ===== stripParentheticalInstructions =========================================
 // ACE-Step treats ( ) as second-vocalist lines and SINGS them.
@@ -164191,6 +164279,49 @@ router3.get("/recent", (req, res) => {
   });
   res.json({ songs: result });
 });
+/* PGFX: Album Creator — group songs into albums by generation_params.album / metadata_overrides.album */
+router3.get("/albums", (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const songs = getDb().prepare("SELECT * FROM songs WHERE user_id = ? ORDER BY created_at DESC").all(userId);
+    const albumMap = {};
+    for (const song of songs) {
+      let album = "";
+      let artist = "";
+      try {
+        const gp = typeof song.generation_params === "string" ? JSON.parse(song.generation_params || "{}") : song.generation_params || {};
+        album = gp.album || "";
+        artist = gp.artist || gp.artistName || "";
+        if (!album && song.metadata_overrides) {
+          const ov = typeof song.metadata_overrides === "string" ? JSON.parse(song.metadata_overrides || "{}") : song.metadata_overrides || {};
+          if (ov.album) album = ov.album;
+        }
+      } catch {}
+      if (album && album.trim()) {
+        const key = album.trim().toLowerCase();
+        if (!albumMap[key]) {
+          albumMap[key] = { name: album.trim(), artist: artist || "", songs: [], coverUrl: song.cover_url || "" };
+        }
+        albumMap[key].songs.push({
+          id: song.id, title: song.title, audio_url: song.audio_url, cover_url: song.cover_url,
+          mastered_audio_url: song.mastered_audio_url, duration: song.duration, bpm: song.bpm,
+          key_scale: song.key_scale, time_signature: song.time_signature, caption: song.caption,
+          created_at: song.created_at
+        });
+        if (!albumMap[key].coverUrl && song.cover_url) albumMap[key].coverUrl = song.cover_url;
+      }
+    }
+    const albums = Object.values(albumMap).sort((a, b) => b.songs.length - a.songs.length);
+    res.json({ albums });
+  } catch (err) {
+    console.error("[Albums] Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 router3.get("/:id", (req, res) => {
   const song = getDb().prepare("SELECT * FROM songs WHERE id = ?").get(req.params.id);
   if (!song) {
@@ -165348,7 +165479,9 @@ function translateParams(params) {
   if (params.instrumental) {
     req.lyrics = "[Instrumental]";
   } else if (params.lyrics) {
-    req.lyrics = params.lyrics;
+    // Final engine gate: strip bracketed direction lines / annotations so the
+    // engine never sings them verbatim, regardless of which path produced them.
+    req.lyrics = sanitizeDirectionLines(params.lyrics);
   }
   if (params.bpm) req.bpm = params.bpm;
   if (params.duration) {
@@ -169741,6 +169874,93 @@ var mimeTypes2 = {
   flac: "audio/flac",
   opus: "audio/ogg"
 };
+/* PGFX: Album Creator — stream a whole album as a ZIP (tracks grouped by generation_params.album) */
+router10.get("/album-zip", async (req, res) => {
+  try {
+    const albumName = req.query.album;
+    const format = (req.query.format || "wav").toLowerCase();
+    const bitrate = parseInt(req.query.bitrate) || 192;
+    if (!albumName) {
+      res.status(400).json({ error: "Missing ?album= query parameter" });
+      return;
+    }
+    if (!["wav", "mp3", "flac", "opus"].includes(format)) {
+      res.status(400).json({ error: `Invalid format: ${format}` });
+      return;
+    }
+    const userId = getUserId(req);
+    const allSongs = getDb().prepare("SELECT * FROM songs WHERE user_id = ? ORDER BY created_at ASC").all(userId);
+    const albumSongs = allSongs.filter((s) => {
+      try {
+        const gp = typeof s.generation_params === "string" ? JSON.parse(s.generation_params || "{}") : s.generation_params || {};
+        const alb = (gp.album || "").trim().toLowerCase();
+        if (!alb && s.metadata_overrides) {
+          const ov = typeof s.metadata_overrides === "string" ? JSON.parse(s.metadata_overrides || "{}") : s.metadata_overrides || {};
+          if (ov.album) return ov.album.trim().toLowerCase() === albumName.trim().toLowerCase();
+        }
+        return alb === albumName.trim().toLowerCase();
+      } catch {
+        return false;
+      }
+    });
+    if (albumSongs.length === 0) {
+      res.status(404).json({ error: `No songs found for album: ${albumName}` });
+      return;
+    }
+    const cleanAlbum = albumName.replace(/[^a-zA-Z0-9 _()\-]/g, "").trim() || "Album";
+    let artistName = "";
+    try {
+      const gp0 = typeof albumSongs[0].generation_params === "string" ? JSON.parse(albumSongs[0].generation_params || "{}") : albumSongs[0].generation_params || {};
+      artistName = gp0.artist || gp0.artistName || "";
+    } catch {}
+    const archiverLib = require_archiver();
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${artistName ? artistName + " - " : ""}${cleanAlbum}.${format}.zip"`);
+    const archive = archiverLib("zip", { zlib: { level: 3 } });
+    archive.pipe(res);
+    let trackNum = 0;
+    for (const song of albumSongs) {
+      trackNum++;
+      const padded = String(trackNum).padStart(2, "0");
+      const songTitle = (song.title || "track").replace(/[^a-zA-Z0-9 _()\-]/g, "").trim() || "track";
+      const filename = `${padded} - ${songTitle}.${format}`;
+      const audioSource = song.mastered_audio_url || song.audio_url;
+      if (!audioSource) continue;
+      const audioFilename = path40.basename(audioSource);
+      const sourcePath = path40.join(config.data.audioDir, audioFilename);
+      if (!fs46.existsSync(sourcePath)) continue;
+      if (format === "wav" && sourcePath.endsWith(".wav")) {
+        archive.file(sourcePath, { name: filename });
+      } else {
+        const tempDir = path40.join(config.data.dir, "download_temp");
+        fs46.mkdirSync(tempDir, { recursive: true });
+        const tempFile = path40.join(tempDir, `album_${Date.now().toString(36)}_${trackNum}.${format}`);
+        try {
+          const meta = gatherSongMetadata(song);
+          await convertAudio(sourcePath, format, bitrate, tempFile, meta);
+          archive.file(tempFile, { name: filename });
+        } catch (convErr) {
+          console.error(`[AlbumZIP] Conversion failed for ${songTitle}:`, convErr.message);
+        }
+      }
+    }
+    archive.finalize();
+    archive.on("end", () => {
+      setTimeout(() => {
+        try {
+          const tempDir = path40.join(config.data.dir, "download_temp");
+          const tmpFiles = fs46.readdirSync(tempDir).filter((f) => f.startsWith("album_"));
+          for (const f of tmpFiles) {
+            try { fs46.unlinkSync(path40.join(tempDir, f)); } catch {}
+          }
+        } catch {}
+      }, 5000);
+    });
+  } catch (err) {
+    console.error("[AlbumZIP] Error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 router10.get("/:id", async (req, res) => {
   const { id } = req.params;
   const format = (req.query.format || "wav").toLowerCase();
@@ -307766,6 +307986,26 @@ import { randomUUID as randomUUID6 } from "crypto";
 import { fileURLToPath as fileURLToPath2 } from "url";
 var registryPath = PORTABLE_MODE ? path46.join(PROJECT_ROOT, "server", "data", "model-registry.json") : path46.join(path46.dirname(fileURLToPath2(import.meta.url)), "..", "data", "model-registry.json");
 var registry = JSON.parse(fs52.readFileSync(registryPath, "utf-8"));
+/* PGFX: synchronously locate the ComfyUI installation (mirrors comfyui-model-scanner.mjs) —
+ * used to detect/install comfyui-role models (LTX video pipeline) in ComfyUI itself. */
+function findComfyUIDirSync() {
+  const candidates = [
+    process.env.COMFYUI_DIR,
+    "E:\\ComfyUI-Easy-Install_torch-2.9.1+cu130\\ComfyUI-Easy-Install\\ComfyUI",
+    path46.join(process.env.LOCALAPPDATA || "", "ComfyUI"),
+    path46.join(process.env.USERPROFILE || "", "ComfyUI"),
+    "C:\\ComfyUI",
+    "D:\\ComfyUI"
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      if (fs52.existsSync(path46.join(candidate, "models"))) return candidate;
+    } catch {
+    }
+  }
+  return null;
+}
 function detectEngineVariant() {
   try {
     const variantFile = path46.join(path46.dirname(config.aceServer.exe), ".variant");
@@ -307804,6 +308044,10 @@ var ModelDownloadService = class _ModelDownloadService extends EventEmitter {
   getTargetDir(file) {
     if (file.role === "runtime") {
       return this.engineDir;
+    }
+    if (file.role === "comfyui") {
+      const comfyDir = findComfyUIDirSync();
+      if (comfyDir) return file.subdir ? path46.join(comfyDir, "models", file.subdir) : path46.join(comfyDir, "models");
     }
     return file.subdir ? path46.join(this.modelsDir, file.subdir) : this.modelsDir;
   }
@@ -307878,6 +308122,28 @@ var ModelDownloadService = class _ModelDownloadService extends EventEmitter {
       for (const f of fs52.readdirSync(engDir)) {
         if (f.endsWith(".dll")) files.add(f);
       }
+    }
+    /* PGFX: comfyui-role models (LTX video pipeline etc.) live inside the ComfyUI
+     * installation's models dir — include them so the Model Manager's
+     * "ComfyUI Models" tab reflects what is actually installed there. */
+    const comfyDir = findComfyUIDirSync();
+    if (comfyDir) {
+      const comfyModelsDir = path46.join(comfyDir, "models");
+      const scanComfyDir = (dir) => {
+        let entries;
+        try {
+          entries = fs52.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        for (const entry of entries) {
+          if (entry.name.startsWith(".")) continue;
+          const fullPath = path46.join(dir, entry.name);
+          if (entry.isDirectory()) scanComfyDir(fullPath);
+          else if (/\.(gguf|safetensors|ckpt|bin|pt|pth|onnx)$/i.test(entry.name)) files.add(entry.name);
+        }
+      };
+      scanComfyDir(comfyModelsDir);
     }
     return files;
   }
@@ -309203,7 +309469,7 @@ router21.post("/llm", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const { provider: providerName, model, genres, subject, language, systemPrompt: clientPrompt, creativity } = req.body;
+  const { provider: providerName, model, genres, subject, language, systemPrompt: clientPrompt, creativity, caption } = req.body;
   if (!providerName) {
     res.status(400).json({ error: "Missing provider" });
     return;
@@ -309266,6 +309532,19 @@ router21.post("/llm", async (req, res) => {
       "",
       "Generate the complete song now:"
     ].join("\n");
+    // ── CLIENT CAPTION / DESCRIPTION INJECTION ────────────────────────────────────
+    // The instaGen UI has a "caption" field that users fill with vibe/arrangement
+    // notes ("female vocals, melancholic, reverb-heavy guitar"). It previously
+    // never reached the LLM — only the short subject did. Inject it as an explicit
+    // Description line right under the Subject so the lyric writer honors it.
+    const captionText = typeof caption === "string" ? caption.trim() : "";
+    if (captionText) {
+      enhancedUserPrompt = enhancedUserPrompt.replace(
+        /^Subject:.*$/m,
+        `$&\nDescription/Vibe: ${captionText}`
+      );
+      console.log(`[Inspire/LLM] Caption/description injected into prompt (${captionText.length} chars)`);
+    }
     // ── REGGAE PATOIS / CULTURAL AUTHENTICITY ─────────────────────────────────────
     // When ANY reggae-family genre is in the selection (primary or secondary):
     //   - If user selected a "(Patois)" variant → FORCE Patois as the language (MANDATORY)
@@ -309477,6 +309756,7 @@ router21.post("/llm", async (req, res) => {
     }
     console.log(`[Inspire/LLM] Generating song via ${providerName}/${effectiveModel}`);
     console.log(`[Inspire/LLM] Genre: ${genreStr}, Subject: ${subject}, Language: ${langName}`);
+    console.log(`[Inspire/LLM] Caption: ${captionText ? `${captionText.slice(0, 120)}${captionText.length > 120 ? "…" : ""}` : "(none)"}`);
     console.log(`[Inspire/LLM] Prompt source: ${clientPrompt ? "client override" : dbCustom ? "DB custom" : "default"}`);
     // Pass explicit generation options: higher temperature for creative variety,
     // strong presence_penalty to discourage repeating words/phrases across verses.
@@ -310895,6 +311175,326 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
   }
 });
 
+/* ═══════════════════════════════════════════════════════════════════════
+   NLE Compose — Multi-Track Timeline Compositor (DaVinci-style)
+   POST /api/inspire/comfyui/compose-nle
+   Accepts a full NLE timeline: array of tracks, each with positioned clips:
+     tracks: [
+       { type:'aroll', clips:[{start,end,videoUrl,imageUrl}] },   // main video
+       { type:'broll', clips:[{start,end,imageUrl,zoomDir}] },    // Ken Burns images
+       { type:'viz',   clips:[{start,end,stem,effect,color,blend,opacity,beatSensitivity,muted}] }
+     ]
+   Renders all clips onto one timeline (bottom→top = array order) with
+   per-clip `overlay enable='between(t,start,end)'` + PTS-shift positioning,
+   muxes song audio, exports MP4 into data/mvc/. Job status tracked in exportJobs.
+   ═══════════════════════════════════════════════════════════════════════ */
+function nleResolveLocalPath(url) {
+  if (!url) return null;
+  if (url.startsWith("/data/mvc/")) return path9.join(process.cwd(), "data", "mvc", path9.basename(url));
+  if (url.startsWith("/data/")) return path9.join(process.cwd(), "data", path9.basename(url));
+  if (url.startsWith("/audio/")) return path9.join(config.data.audioDir, path9.basename(url));
+  if (url.startsWith("/api/stem-studio/")) {
+    /* /api/stem-studio/<jobId>/stem/<safeName> → data/stems/<jobId>/<safeName>.wav */
+    const m = url.match(/^\/api\/stem-studio\/([^/]+)\/stem\/([^/]+)/);
+    if (m) {
+      const direct = path47.join(stemsBaseDir, m[1], `${m[2]}.wav`);
+      if (fs53.existsSync(direct)) return direct;
+      /* case-insensitive fallback (Windows-safe when casing differs) */
+      const jobDir = path47.join(stemsBaseDir, m[1]);
+      if (fs53.existsSync(jobDir)) {
+        const entries = fs53.readdirSync(jobDir);
+        const hit = entries.find((e) => e.toLowerCase() === `${m[2]}.wav`.toLowerCase());
+        if (hit) return path47.join(jobDir, hit);
+      }
+    }
+    return null;
+  }
+  if (url.startsWith("/references/")) return path47.join(config.data.dir, "references", path47.basename(url));
+  if (path9.isAbsolute(url)) return url;
+  return path9.join(process.cwd(), url.replace(/^\//, ""));
+}
+
+function nleEscapeFilter(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/'/g, "'\\''").replace(/:/g, "\\:");
+}
+
+function nleVizFilter(effect, W, H, fps, color, beatSensitivity) {
+  const c = (color || "#58a6ff").replace(/^#/, "");
+  const rgb = c.length === 3 ? c.split("").map((x) => x + x).join("") : c;
+  const rate = fps || 30;
+  const sens = beatSensitivity && beatSensitivity > 0 ? beatSensitivity : 1;
+  switch (effect) {
+    case "wave":
+      return `showwaves=s=${W}x${H}:mode=cline:colors=${rgb}@0.8:rate=${rate}`;
+    case "spectrum":
+      return `showspectrum=s=${W}x${H}:mode=combined:color=intensity:fscale=lin:saturation=${Math.min(8, 1 + sens * 2)}:rate=${rate}`;
+    case "plasma":
+      return `showspectrum=s=${W}x${H}:mode=combined:color=channel:fscale=log:saturation=${Math.min(8, 1 + sens * 3)}:rate=${rate}`;
+    case "circular":
+    case "rings":
+    case "circular-bars":
+      return `showfreqs=s=${W}x${H}:mode=bar:fscale=lin:ascale=sqrt:colors=${rgb}:win_size=1024:rate=${rate}`;
+    case "particles":
+    case "starfield":
+    case "galaxy":
+      return `showfreqs=s=${W}x${H}:mode=line:fscale=log:ascale=sqrt:colors=${rgb}:win_size=2048:rate=${rate}`;
+    case "tunnel":
+    case "liquid":
+      return `showfreqs=s=${W}x${H}:mode=bar:fscale=log:ascale=log:colors=${rgb}:win_size=1024:rate=${rate}`;
+    default: /* bars & everything else */
+      return `showfreqs=s=${W}x${H}:mode=line:fscale=lin:ascale=sqrt:colors=${rgb}:rate=${rate}`;
+  }
+}
+
+function nleBlendMode(b) {
+  switch (b) {
+    case "lighter": return "addition";
+    case "screen": return "screen";
+    case "multiply": return "multiply";
+    case "overlay": return "overlay";
+    case "soft-light": return "softlight";
+    default: return null; /* source-over → overlay filter */
+  }
+}
+
+router21.post("/comfyui/compose-nle", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const { songId, width, height, fps, audioSource, duration, tracks } = req.body;
+    if (!tracks || !tracks.length) return res.status(400).json({ error: "tracks required" });
+
+    const jobId = uuid9();
+    exportJobs[jobId] = { status: "queued", progress: 0, outputPath: null, error: null, type: "nle" };
+    res.json({ jobId, status: "queued", type: "nle" });
+
+    (async () => {
+      try {
+        exportJobs[jobId].status = "running";
+        const outDir = path9.join(process.cwd(), "data", "mvc");
+        if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
+        const outName = `nle_${jobId.substring(0,8)}.mp4`;
+        const outPath = path9.join(outDir, outName);
+        const ffmpegPath = getFFmpegPath() || path9.join(process.cwd(), "ffmpeg.exe");
+
+        const totalW = width || 1920;
+        const totalH = height || Math.round(totalW * 9 / 16);
+        const totalFps = fps || 30;
+        const totalDur = duration || 180;
+
+        /* Resolve master audio */
+        let audioPath = null;
+        if (songId) {
+          const songData = getDb().prepare("SELECT audio_url, mastered_audio_url FROM songs WHERE id = ? AND user_id = ?").get(songId, userId);
+          if (songData) {
+            const rawUrl = songData.mastered_audio_url || songData.audio_url || "";
+            if (rawUrl.startsWith("/")) {
+              /* URL-style path: try data/audio, then cwd-relative */
+              const candidate = path9.join(config.data.audioDir, path9.basename(rawUrl));
+              if (fs9.existsSync(candidate)) audioPath = candidate;
+              else audioPath = path9.join(process.cwd(), rawUrl.replace(/^\//, ""));
+            } else if (rawUrl) {
+              audioPath = path9.join(config.data.audioDir, path9.basename(rawUrl));
+            }
+          }
+        }
+        if (!audioPath && audioSource) audioPath = nleResolveLocalPath(audioSource);
+        if (audioPath && !fs9.existsSync(audioPath)) audioPath = null;
+
+        /* Collect all clips in Z-order (array order = bottom→top) */
+        const clips = [];
+        for (const track of tracks || []) {
+          for (const clip of track.clips || []) {
+            clips.push({ trackType: track.type, ...clip });
+          }
+        }
+        if (!clips.length) throw new Error("No clips in timeline");
+
+        /* Unique input assets */
+        const videoInputs = [];   /* { path, fileIndex } */
+        const imageInputs = [];   /* { path, fileIndex } */
+        const stemInputs = [];    /* { path, fileIndex } */
+        const videoPathToIdx = {};
+        const imagePathToIdx = {};
+        const stemPathToIdx = {};
+
+        function regAsset(list, map, p) {
+          if (!p) return -1;
+          const key = p.toLowerCase();
+          if (key in map) return map[key];
+          const idx = list.length;
+          list.push(p);
+          map[key] = idx;
+          return idx;
+        }
+
+        for (const clip of clips) {
+          if (clip.trackType === "aroll") {
+            const vp = nleResolveLocalPath(clip.videoUrl || clip.imageUrl);
+            if (vp && fs9.existsSync(vp)) regAsset(videoInputs, videoPathToIdx, vp);
+          } else if (clip.trackType === "broll") {
+            const ip = nleResolveLocalPath(clip.imageUrl);
+            if (ip && fs9.existsSync(ip)) regAsset(imageInputs, imagePathToIdx, ip);
+          } else if (clip.trackType === "viz") {
+            if (clip.stem && !clip.muted) {
+              const sp = clip.stem.startsWith("/api/stem-studio/") ? nleResolveLocalPath(clip.stem)
+                : (clip.stem.startsWith("/") || clip.stem.includes(".") ? nleResolveLocalPath(clip.stem) : null);
+              if (sp && fs9.existsSync(sp)) regAsset(stemInputs, stemPathToIdx, sp);
+            }
+          }
+        }
+
+        /* Build ffmpeg inputs + filter graph */
+        const inputs = [];
+        const filterParts = [];
+        const labels = [];
+        /* stem audio inputs first so they can drive viz; master audio last */
+        const masterAudioIdx = 0;
+
+        for (let i = 0; i < stemInputs.length; i++) inputs.push("-i", stemInputs[i]);
+        for (let i = 0; i < videoInputs.length; i++) inputs.push("-i", videoInputs[i]);
+        for (let i = 0; i < imageInputs.length; i++) inputs.push("-i", imageInputs[i]);
+        if (audioPath) inputs.push("-i", audioPath);
+
+        const stemBase = 0;
+        const videoBase = stemInputs.length;
+        const imageBase = stemInputs.length + videoInputs.length;
+        const masterIdx = stemInputs.length + videoInputs.length + imageInputs.length;
+
+        /* Base canvas */
+        const baseLabel = "base";
+        filterParts.push(`color=c=black:s=${totalW}x${totalH}:r=${totalFps}:d=${totalDur}[${baseLabel}]`);
+
+        let prevLabel = baseLabel;
+        let clipIdx = 0;
+        let progressStep = 60 / Math.max(1, clips.length);
+
+        for (const clip of clips) {
+          const start = Math.max(0, Number(clip.start) || 0);
+          const end = Math.min(totalDur, Number(clip.end) || totalDur);
+          if (end <= start) continue;
+          const dur = end - start;
+          const clipLabel = `c${clipIdx}`;
+          const srcLabel = `s${clipIdx}`;
+
+          if (clip.trackType === "aroll") {
+            const vp = nleResolveLocalPath(clip.videoUrl || clip.imageUrl);
+            const vi = vp && fs9.existsSync(vp) ? (videoPathToIdx[vp.toLowerCase()] ?? -1) : -1;
+            if (vi < 0) { clipIdx++; continue; }
+            const inIdx = videoBase + vi;
+            filterParts.push(
+              `[${inIdx}:v]trim=start=0:end=${dur},setpts=PTS-STARTPTS,` +
+              `scale=${totalW}:${totalH}:force_original_aspect_ratio=decrease,pad=${totalW}:${totalH}:(ow-iw)/2:(oh-ih)/2,` +
+              `format=yuv420p,fps=${totalFps},setpts=PTS+${start}/TB[${srcLabel}]`
+            );
+            filterParts.push(
+              `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
+            );
+          } else if (clip.trackType === "broll") {
+            const ip = nleResolveLocalPath(clip.imageUrl);
+            const ii = ip && fs9.existsSync(ip) ? (imagePathToIdx[ip.toLowerCase()] ?? -1) : -1;
+            if (ii < 0) { clipIdx++; continue; }
+            const inIdx = imageBase + ii;
+            const zoomDir = Number(clip.zoomDir) || 0;
+            const frames = Math.max(1, Math.round(dur * totalFps));
+            let zp;
+            switch (zoomDir % 6) {
+              case 0: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              case 1: zp = `zoompan=z='if(lte(zoom,1.0),1.15,max(zoom-0.0005,1.0))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              case 2: zp = `zoompan=z='min(zoom+0.0004,1.12)':x='0':y='ih/2-(ih/zoom/2)':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              case 3: zp = `zoompan=z='min(zoom+0.0004,1.12)':x='iw-iw/zoom':y='ih/2-(ih/zoom/2)':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              case 4: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='0':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+              default: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih-ih/zoom':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
+            }
+            filterParts.push(
+              `[${inIdx}:v]loop=loop=1:size=${frames},scale=${totalW*2}:${totalH*2},${zp},format=yuv420p,fps=${totalFps},setpts=PTS+${start}/TB[${srcLabel}]`
+            );
+            filterParts.push(
+              `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
+            );
+          } else if (clip.trackType === "viz") {
+            if (clip.muted) { clipIdx++; continue; }
+            /* audio source: stem if provided & found, else master */
+            let audioInIdx = -1;
+            if (clip.stem) {
+              const sp = clip.stem.startsWith("/api/stem-studio/") ? nleResolveLocalPath(clip.stem)
+                : (clip.stem.startsWith("/") || clip.stem.includes(".") ? nleResolveLocalPath(clip.stem) : null);
+              if (sp && fs9.existsSync(sp)) audioInIdx = stemBase + (stemPathToIdx[sp.toLowerCase()] ?? 0);
+            }
+            if (audioInIdx < 0 && audioPath) audioInIdx = masterIdx;
+
+            const vizFilter = nleVizFilter(clip.effect, totalW, totalH, totalFps, clip.color, clip.beatSensitivity);
+            const blendMode = nleBlendMode(clip.blend);
+            const opacity = Math.min(1, Math.max(0, Number(clip.opacity) ?? 1));
+
+            if (blendMode) {
+              filterParts.push(
+                `[${audioInIdx}:a]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,` +
+                `${vizFilter},format=rgba,fps=${totalFps},setpts=PTS+${start}/TB[${srcLabel}]`
+              );
+              filterParts.push(
+                `[${prevLabel}][${srcLabel}]blend=all_mode=${blendMode}:all_opacity=${opacity}:enable='between(t,${start},${end})'[${clipLabel}]`
+              );
+            } else {
+              filterParts.push(
+                `[${audioInIdx}:a]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,` +
+                `${vizFilter},format=rgba,colorchannelmixer=aa=${opacity.toFixed(3)},fps=${totalFps},setpts=PTS+${start}/TB[${srcLabel}]`
+              );
+              filterParts.push(
+                `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
+              );
+            }
+          } else {
+            clipIdx++; continue;
+          }
+
+          prevLabel = clipLabel;
+          clipIdx++;
+          exportJobs[jobId].progress = Math.min(60, 5 + clipIdx * progressStep);
+        }
+
+        if (prevLabel === baseLabel) throw new Error("No renderable clips in timeline");
+
+        const mapOut = prevLabel;
+        const args = ["-y", ...inputs, "-filter_complex", filterParts.join(";"), "-map", `[${mapOut}]`];
+        if (audioPath) args.push("-map", `${masterIdx}:a`);
+        args.push("-c:v", "libx264", "-preset", "fast", "-crf", "20");
+        if (audioPath) args.push("-c:a", "aac", "-b:a", "192k", "-shortest");
+        args.push("-movflags", "+faststart", outPath);
+
+        exportJobs[jobId].progress = 65;
+
+        await new Promise((resolve, reject) => {
+          const child = require("child_process").execFile(ffmpegPath, args, { timeout: 600000, maxBuffer: 8 * 1024 * 1024 }, (err) => {
+            if (err) reject(new Error(`FFmpeg NLE compose failed: ${err.message}`));
+            else resolve();
+          });
+          child.stderr.on("data", (d) => {
+            const m = String(d).match(/time=(\d+:\d+:\d+\.\d+)/);
+            if (m) {
+              const parts = m[1].split(":").map(Number);
+              const secs = parts[0] * 3600 + parts[1] * 60 + parts[2];
+              exportJobs[jobId].progress = Math.min(95, 65 + (secs / Math.max(1, totalDur)) * 30);
+            }
+          });
+        });
+
+        exportJobs[jobId].status = "completed";
+        exportJobs[jobId].progress = 100;
+        exportJobs[jobId].videoUrl = `/data/mvc/${outName}`;
+        exportJobs[jobId].outputPath = `/data/mvc/${outName}`;
+        console.log(`[NLE Compose] Complete: ${outName} (${(fs9.statSync(outPath).size/1024/1024).toFixed(1)} MB)`);
+      } catch (err) {
+        console.error("[NLE Compose] Failed:", err.message);
+        exportJobs[jobId].status = "failed";
+        exportJobs[jobId].error = err.message;
+      }
+    })();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* Poll export status */
 router21.get("/comfyui/export-status/:jobId", async (req, res) => {
   const userId = getUserId(req);
@@ -311451,6 +312051,40 @@ router22.get("/status", (_req, res) => {
       overallProgress: downloadStatus.overallProgress
     }
   });
+});
+/* PGFX: ComfyUI bridge — scan ComfyUI's model dirs for cover-art compatible UNet/VAE/CLIP models */
+router22.get("/comfyui-models", async (req, res) => {
+  try {
+    const { detectComfyUI: detectComfyUI3, findComfyUIDir: findComfyUIDir2, scanDirForModels: scanDirForModels2 } = await import("./services/comfyui-model-scanner.mjs");
+    const { connected, systemInfo } = await detectComfyUI3(true);
+    if (!connected) {
+      res.json({ connected: false, models: { unet: [], vae: [], clip: [] }, systemInfo: null });
+      return;
+    }
+    const comfyDir = findComfyUIDir2();
+    const modelsDir = comfyDir ? path49.join(comfyDir, "models") : null;
+    let unetModels = [];
+    let vaeModels = [];
+    let clipModels = [];
+    if (modelsDir) {
+      unetModels = scanDirForModels2(path49.join(modelsDir, "diffusion_models"), [".gguf", ".safetensors", ".ckpt", ".bin", ".pt"])
+        .concat(scanDirForModels2(path49.join(modelsDir, "unet"), [".gguf", ".safetensors", ".ckpt", ".bin", ".pt"]))
+        .concat(scanDirForModels2(path49.join(modelsDir, "checkpoints"), [".safetensors", ".ckpt"]))
+        .filter(m => /flux|klien|klein|ltx|sd3|sdxl|sd/i.test(m.name))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      vaeModels = scanDirForModels2(path49.join(modelsDir, "vae"), [".safetensors", ".ckpt", ".bin", ".pt", ".pth"])
+        .concat(scanDirForModels2(path49.join(modelsDir, "vae_approx"), [".safetensors", ".ckpt", ".bin", ".pt", ".pth"]))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      clipModels = scanDirForModels2(path49.join(modelsDir, "clip"), [".safetensors",".gguf",".bin",".pt",".pth"])
+        .concat(scanDirForModels2(path49.join(modelsDir, "text_encoder"), [".safetensors",".gguf",".bin",".pt",".pth"]))
+        .concat(scanDirForModels2(path49.join(modelsDir, "text_encoders"), [".safetensors",".gguf",".bin",".pt",".pth"]))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    res.json({ connected: true, systemInfo, models: { unet: unetModels, vae: vaeModels, clip: clipModels } });
+  } catch (err) {
+    console.error("[CoverArt] ComfyUI models query failed:", err.message);
+    res.status(500).json({ connected: false, error: err.message, models: { unet: [], vae: [], clip: [] } });
+  }
 });
 router22.post("/download", (req, res) => {
   const userId = getUserId(req);

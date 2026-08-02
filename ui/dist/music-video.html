@@ -176,6 +176,41 @@ input,select,textarea{font-family:inherit}
 .model-select-row label{display:block;font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px}
 .model-select-row select{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 6px;color:var(--text);font-size:10px;outline:none;cursor:pointer}
 .model-select-row select:focus{border-color:var(--accent)}
+
+/* ── NLE Timeline Editor ─────────────────────── */
+.nle-panel{flex-shrink:0;background:var(--panel);border-top:1px solid var(--border);display:flex;flex-direction:column}
+.nle-toolbar{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.nle-toolbar label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;display:flex;align-items:center;gap:3px}
+.nle-toolbar input[type=number]{width:52px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 4px;color:var(--text);font-size:11px;outline:none}
+.nle-toolbar input[type=range]{width:64px;accent-color:var(--accent)}
+.nle-toolbar .btn{padding:3px 8px;font-size:10px}
+.nle-status{font-size:10px;color:var(--text3);flex:1;min-width:60px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nle-title{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-right:4px}
+.nle-ruler{height:14px;position:relative;margin-left:56px;overflow:hidden}
+.nle-ruler-label{position:absolute;top:1px;font-size:8px;color:var(--text3);transform:translateX(-50%);pointer-events:none}
+.nle-racks{position:relative;height:118px;display:flex;flex-direction:column;gap:2px;padding:0 0 6px 56px}
+.nle-lane{flex:1;position:relative;background:rgba(0,0,0,0.25);border-radius:4px;overflow:hidden}
+.nle-lane.viz{background:rgba(88,166,255,0.06)}
+.nle-lane.broll{background:rgba(63,185,80,0.06)}
+.nle-lane.aroll{background:rgba(247,129,102,0.06)}
+.nle-lane-label{position:absolute;left:-52px;top:50%;transform:translateY(-50%);font-size:8px;font-weight:700;color:var(--text3);z-index:3;text-transform:uppercase;letter-spacing:.3px;width:48px;text-align:right;padding-right:4px;pointer-events:none}
+.nle-lane-body{position:absolute;top:0;left:0;right:0;bottom:0;cursor:crosshair}
+.nle-beatline{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,0.07);pointer-events:none}
+.nle-beatline.major{background:rgba(255,255,255,0.14)}
+.nle-clip{position:absolute;top:3px;bottom:3px;border-radius:4px;z-index:2;cursor:grab;overflow:hidden;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;padding:0 12px;font-size:8px;font-weight:600;color:#fff;white-space:nowrap;text-overflow:ellipsis;user-select:none}
+.nle-clip.selected{outline:2px solid var(--accent)}
+.nle-clip.viz{background:linear-gradient(135deg,rgba(88,166,255,0.7),rgba(88,166,255,0.35))}
+.nle-clip.broll{background:linear-gradient(135deg,rgba(63,185,80,0.7),rgba(63,185,80,0.35))}
+.nle-clip.aroll{background:linear-gradient(135deg,rgba(247,129,102,0.7),rgba(247,129,102,0.35))}
+.nle-clip.muted{opacity:.35}
+.nle-clip .handle{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:3;background:rgba(255,255,255,0.15);opacity:0}
+.nle-clip:hover .handle,.nle-clip.selected .handle{opacity:1}
+.nle-clip .handle.left{left:0;border-radius:4px 0 0 4px}
+.nle-clip .handle.right{right:0;border-radius:0 4px 4px 0}
+.nle-playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--red);z-index:5;pointer-events:none;left:0}
+.nle-panel.collapsed .nle-racks,.nle-panel.collapsed .nle-ruler{display:none}
+.nle-progress{height:3px;background:var(--bg);border-radius:2px;overflow:hidden;margin:2px 8px 4px}
+.nle-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));transition:width .3s;width:0}
 </style>
 </head>
 <body>
@@ -304,6 +339,61 @@ input,select,textarea{font-family:inherit}
   </div>
 </div>
 
+<!-- NLE Timeline Editor -->
+<div class="nle-panel" id="nle-panel">
+  <div class="nle-toolbar">
+    <span class="nle-title">NLE Timeline</span>
+    <label>BPM</label><input type="number" id="nle-bpm" min="30" max="300" step="1" value="120">
+    <label><input type="checkbox" id="nle-snap" checked> Snap</label>
+    <label>Zoom</label><input type="range" id="nle-zoom" min="0.5" max="8" step="0.1" value="1">
+    <button class="btn btn-sm" id="nle-add-viz" title="Add visualizer clip at playhead">+ Viz</button>
+    <button class="btn btn-sm" id="nle-add-broll" title="Add B-Roll image clip at playhead">+ B-Roll</button>
+    <button class="btn btn-sm" id="nle-add-aroll" title="Add A-Roll video clip at playhead">+ A-Roll</button>
+    <button class="btn btn-sm" id="nle-seed" title="Auto-layout clips from sections &amp; layers">Auto-Layout</button>
+    <button class="btn btn-sm btn-green" id="nle-render" title="Compose NLE timeline to MP4 via server ffmpeg">Render NLE</button>
+    <button class="btn btn-sm" id="nle-collapse" title="Collapse / expand NLE panel">&#9650;</button>
+  </div>
+  <div class="nle-ruler" id="nle-ruler"></div>
+  <div class="nle-racks" id="nle-racks">
+    <div class="nle-lane viz" data-track="viz">
+      <div class="nle-lane-label">Visualizers</div>
+      <div class="nle-lane-body" data-track="viz"></div>
+    </div>
+    <div class="nle-lane broll" data-track="broll">
+      <div class="nle-lane-label">B-Roll</div>
+      <div class="nle-lane-body" data-track="broll"></div>
+    </div>
+    <div class="nle-lane aroll" data-track="aroll">
+      <div class="nle-lane-label">A-Roll</div>
+      <div class="nle-lane-body" data-track="aroll"></div>
+    </div>
+    <div class="nle-playhead" id="nle-playhead" style="left:0"></div>
+  </div>
+  <div class="nle-progress"><div class="nle-progress-fill" id="nle-progress-fill"></div></div>
+  <div class="nle-status" id="nle-status" style="padding:0 10px 4px"></div>
+</div>
+
+<!-- NLE Clip Editor Modal -->
+<div class="modal-overlay" id="nle-edit-modal">
+  <div class="modal-box">
+    <h3 id="nle-edit-title">Clip</h3>
+    <div class="gen-field" id="nle-edit-asset"><label>Source</label><select id="nle-edit-asset-sel"></select></div>
+    <div class="gen-field" id="nle-edit-zoom"><label>Ken Burns</label><select id="nle-edit-zoom-sel">
+      <option value="0">Zoom In (center)</option><option value="1">Zoom Out</option>
+      <option value="2">Pan Left</option><option value="3">Pan Right</option>
+      <option value="4">Pan Up</option><option value="5">Pan Down</option>
+    </select></div>
+    <div class="gen-field"><label>Start (sec)</label><input type="number" id="nle-edit-start" step="0.01" min="0"></div>
+    <div class="gen-field"><label>End (sec)</label><input type="number" id="nle-edit-end" step="0.01" min="0"></div>
+    <div class="gen-field"><label style="display:flex;align-items:center;gap:6px;text-transform:none"><input type="checkbox" id="nle-edit-muted" style="width:auto"> Muted</label></div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn btn-sm" id="nle-edit-delete">Delete</button>
+      <button class="btn" id="nle-edit-close">Cancel</button>
+      <button class="btn btn-green" id="nle-edit-save">Apply</button>
+    </div>
+  </div>
+</div>
+
 </div>
 
 <!-- Stem Loading Overlay -->
@@ -364,7 +454,7 @@ const EFFECTS = [
   {id:'galaxy',name:'Galaxy',color:'#a855f7'}
 ];
 
-const STEMS = ['Kick','Snare','Toms','HiHat','Ride','Crash','Lead Vocals','Backing Vocals','Bass','Guitar','Piano','Other'];
+const STEMS = ['Kick','Snare','Toms','Hi-Hat','Ride','Crash','Lead Vocals','Backing Vocals','Bass','Guitar','Piano','Other'];
 const LAYER_TYPES = [...STEMS,'Image','Video'];
 const BLEND_MODES = ['source-over','lighter','screen','multiply','overlay','soft-light'];
 const BLEND_LABELS = ['Normal','Add','Screen','Multiply','Overlay','Soft Light'];
@@ -378,7 +468,7 @@ const SECTION_COLORS = [
 const DEFAULT_LAYER_CONFIGS = [
   {name:'Kick',stem:'Kick',effect:'bars',blend:0,color:'#58a6ff'},
   {name:'Snare',stem:'Snare',effect:'wave',blend:0,color:'#3fb950'},
-  {name:'HiHat',stem:'HiHat',effect:'particles',blend:1,color:'#f78166'},
+  {name:'HiHat',stem:'Hi-Hat',effect:'particles',blend:1,color:'#f78166'},
   {name:'Lead Vocals',stem:'Lead Vocals',effect:'circular',blend:0,color:'#bc8cff'},
   {name:'Bass',stem:'Bass',effect:'liquid',blend:2,color:'#3b82f6'},
   {name:'Backing Vocals',stem:'Backing Vocals',effect:'rings',blend:1,color:'#ec4899'}
@@ -409,6 +499,7 @@ let masterFreqData, masterTimeData;
 let stemAnalyserMap = {};
 let stemAudioEls = {};
 let stemSourceNodes = {};
+let stemUrlForName = {}; /* display track name → /api/stem-studio/<job>/stem/<raw> */
 
 const layers = [];
 let nextLayerId = 1;
@@ -443,7 +534,10 @@ function resizeCanvas() {
   H = canvas.height = wrap.clientHeight;
 }
 resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
+window.addEventListener('resize', function() {
+  resizeCanvas();
+  if (nleRacksEl) setTimeout(renderNle, 50);
+});
 
 /* ═══════════════════════════════════════════════════════════════════════
    AUDIO INITIALIZATION
@@ -481,6 +575,7 @@ function loadAudio(url, title) {
     S.songDuration = audioEl.duration;
     updateTimeDisplay();
     buildTimeline();
+    initNle();
   });
   audioEl.addEventListener('ended', function() {
     S.playing = false;
@@ -522,6 +617,7 @@ function updateTimeDisplay() {
 
 function updatePlayhead(pct) {
   $('playhead').style.left = (pct * 100) + '%';
+  if (nlePlayheadEl) updateNlePlayhead(pct);
 }
 
 function togglePlay() {
@@ -1720,7 +1816,7 @@ async function loadStemsForSong(songId) {
       body: JSON.stringify({
         sourceAudioUrl: audioUrl || '/audio/' + encodeURIComponent(songId) + '.wav',
         sourceFileName: S.songTitle + '.wav',
-        level: 'htdemucs'
+        level: 2
       })
     });
     var sepData = await sepResp.json();
@@ -1760,7 +1856,7 @@ async function loadStemsForSong(songId) {
     });
 
     var stemNameMap = {
-      'drums': ['Kick', 'Snare', 'HiHat', 'Toms', 'Ride', 'Crash'],
+      'drums': ['Kick', 'Snare', 'Hi-Hat', 'Toms', 'Ride', 'Crash'],
       'bass': ['Bass'],
       'other': ['Guitar', 'Piano', 'Other'],
       'vocals': ['Lead Vocals', 'Backing Vocals']
@@ -1773,6 +1869,7 @@ async function loadStemsForSong(songId) {
 
       for (var m = 0; m < mappedNames.length; m++) {
         var trackName = mappedNames[m];
+        stemUrlForName[trackName] = stemUrl;
         try {
           var stemAudio = new Audio();
           stemAudio.crossOrigin = 'anonymous';
@@ -1887,6 +1984,7 @@ async function generateImage(sectionName) {
     $('img-progress-fill').style.width = '100%';
     $('img-status').textContent = 'Image generated for ' + section.name;
     renderImageThumbs();
+    nleUpsertFromSections();
 
   } catch (e) {
     $('img-status').textContent = 'Failed: ' + e.message;
@@ -1989,6 +2087,7 @@ async function generateVideoClip(sectionName) {
     $('vid-progress-fill').style.width = '100%';
     $('vid-status').textContent = 'Video clip generated for ' + section.name;
     renderVideoThumbs();
+    nleUpsertFromSections();
 
   } catch (e) {
     $('vid-status').textContent = 'Failed: ' + e.message;
@@ -2116,6 +2215,533 @@ async function startExport() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   NLE TIMELINE EDITOR (DaVinci-style)
+   Tracks: aroll (bottom) → broll → viz (top). Clips positioned by seconds.
+   ═══════════════════════════════════════════════════════════════════════ */
+var NLE = {
+  tracks: { aroll: [], broll: [], viz: [] }, /* each clip: {id,start,end, ...typeData} */
+  bpm: 120,
+  snap: true,
+  zoom: 1,
+  seq: 1,
+  selected: null,   /* {track, id} */
+  drag: null,       /* {mode:'move'|'left'|'right', track, id, startX, origStart, origEnd} */
+  editing: null,    /* {track, id} */
+  _imgCache: {},
+  _vidCache: {}
+};
+var nlePaneEl = null, nleRacksEl = null, nleRulerEl = null, nlePlayheadEl = null;
+
+function nleLaneWidth() {
+  var body = document.querySelector('.nle-lane-body');
+  return body ? body.clientWidth : 600;
+}
+function nlePxPerSec() {
+  return (nleLaneWidth() / Math.max(1, S.songDuration)) * NLE.zoom;
+}
+function nleTimeToX(t) { return t * nlePxPerSec(); }
+function nleXToTime(x) { return x / nlePxPerSec(); }
+function nleSnapTime(t) {
+  if (!NLE.snap || !NLE.bpm || NLE.bpm <= 0) return t;
+  var beat = 60 / NLE.bpm;
+  return Math.max(0, Math.round(t / beat) * beat);
+}
+
+function initNle() {
+  nlePaneEl = $('nle-panel');
+  nleRacksEl = $('nle-racks');
+  nleRulerEl = $('nle-ruler');
+  nlePlayheadEl = $('nle-playhead');
+  if (bpm > 0) NLE.bpm = bpm;
+  $('nle-bpm').value = NLE.bpm;
+  seedNle();
+  renderNle();
+  updateNlePlayhead(0);
+  wireNleEvents();
+  /* Collapse state */
+  try { NLE.collapsed = localStorage.getItem('hs-nle-collapsed') === '1'; } catch(e){}
+  if (NLE.collapsed) nlePaneEl.classList.add('collapsed');
+}
+
+/* Auto-layout: seed clips from sections + layers */
+function seedNle() {
+  NLE.tracks = { aroll: [], broll: [], viz: [] };
+  NLE.seq = 1;
+  var dur = S.songDuration || 60;
+
+  /* A-Roll: section videos */
+  (S.sections || []).forEach(function(sec) {
+    if (sec.videoUrl) {
+      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: sec.startTime, end: sec.endTime, videoUrl: sec.videoUrl, name: sec.name });
+    }
+  });
+
+  /* B-Roll: section images */
+  (S.sections || []).forEach(function(sec) {
+    if (sec.imageUrl) {
+      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: sec.startTime, end: sec.endTime, imageUrl: sec.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: sec.name });
+    }
+  });
+
+  /* Viz: one clip per non-muted stem layer spanning the song */
+  layers.forEach(function(layer) {
+    if (layer.type === 'stem' && !layer.muted) {
+      NLE.tracks.viz.push({
+        id: 'v' + NLE.seq++, start: 0, end: dur,
+        layerName: layer.name, stem: layer.stem, effectId: layer.effectId,
+        blendMode: layer.blendMode, opacity: layer.opacity, color: layer.color,
+        beatSensitivity: layer.beatSensitivity, muted: false
+      });
+    }
+  });
+  NLE.selected = null;
+}
+
+/* Sync new section assets into NLE without clobbering user edits */
+function nleUpsertFromSections() {
+  if (!S.songDuration || S.songDuration <= 0) return;
+  (S.sections || []).forEach(function(sec) {
+    if (sec.videoUrl && !(NLE.tracks.aroll || []).some(function(c) { return c.name === sec.name; })) {
+      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: sec.startTime, end: sec.endTime, videoUrl: sec.videoUrl, name: sec.name });
+    }
+    if (sec.imageUrl && !(NLE.tracks.broll || []).some(function(c) { return c.name === sec.name; })) {
+      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: sec.startTime, end: sec.endTime, imageUrl: sec.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: sec.name });
+    }
+  });
+  renderNle();
+}
+
+/* Render ruler, beat grid, and all clips */
+function renderNle() {
+  if (!nleRacksEl || !nlePlayheadEl) return;
+  var dur = S.songDuration || 60;
+  var px = nlePxPerSec();
+  var width = nleLaneWidth();
+
+  /* Ruler */
+  if (nleRulerEl) {
+    nleRulerEl.innerHTML = '';
+    var step = NLE.bpm > 0 ? 60 / NLE.bpm : 1;
+    if (step * px < 40) step *= Math.ceil(40 / (step * px));
+    for (var t = 0; t <= dur + step; t += step) {
+      var rl = document.createElement('div');
+      rl.className = 'nle-ruler-label';
+      rl.style.left = nleTimeToX(t) + 'px';
+      rl.textContent = formatTime(t);
+      nleRulerEl.appendChild(rl);
+    }
+  }
+
+  /* Beat grid per lane */
+  var lanes = document.querySelectorAll('.nle-lane');
+  lanes.forEach(function(lane) {
+    var body = lane.querySelector('.nle-lane-body');
+    body.innerHTML = '';
+    /* beat lines */
+    var bStep = NLE.bpm > 0 ? 60 / NLE.bpm : 1;
+    for (var t = 0; t <= dur; t += bStep) {
+      var bl = document.createElement('div');
+      bl.className = 'nle-beatline' + ((Math.round(t / bStep) % 4 === 0) ? ' major' : '');
+      bl.style.left = nleTimeToX(t) + 'px';
+      body.appendChild(bl);
+    }
+    /* clips */
+    var type = lane.getAttribute('data-track');
+    (NLE.tracks[type] || []).forEach(function(clip) {
+      renderNleClip(body, type, clip);
+    });
+  });
+
+  var ph = $('nle-playhead');
+  if (ph && audioEl) updateNlePlayhead(audioEl.currentTime / dur);
+}
+
+function renderNleClip(body, type, clip) {
+  var dur = S.songDuration || 60;
+  var px = nlePxPerSec();
+  var el = document.createElement('div');
+  el.className = 'nle-clip ' + type + (NLE.selected && NLE.selected.id === clip.id ? ' selected' : '') + (clip.muted ? ' muted' : '');
+  el.dataset.id = clip.id;
+  el.dataset.track = type;
+  el.style.left = nleTimeToX(clip.start) + 'px';
+  el.style.width = Math.max(6, (clip.end - clip.start) * px) + 'px';
+
+  var label = '';
+  if (type === 'aroll') label = '🎬 ' + (clip.name || 'Clip');
+  else if (type === 'broll') label = '🖼 ' + (clip.name || 'Clip');
+  else label = '✨ ' + (clip.layerName || clip.stem || 'Viz');
+  el.textContent = label;
+
+  /* resize handles */
+  var hl = document.createElement('div');
+  hl.className = 'handle left';
+  var hr = document.createElement('div');
+  hr.className = 'handle right';
+  el.appendChild(hl); el.appendChild(hr);
+
+  el.addEventListener('mousedown', function(e) {
+    if (e.target.classList.contains('handle')) return; /* handled separately */
+    startNleDrag(e, type, clip, 'move');
+  });
+  hl.addEventListener('mousedown', function(e) { e.stopPropagation(); startNleDrag(e, type, clip, 'left'); });
+  hr.addEventListener('mousedown', function(e) { e.stopPropagation(); startNleDrag(e, type, clip, 'right'); });
+  el.addEventListener('dblclick', function(e) {
+    e.stopPropagation();
+    openNleClipEditor(type, clip.id);
+  });
+  body.appendChild(el);
+}
+
+function startNleDrag(e, type, clip, mode) {
+  e.preventDefault();
+  e.stopPropagation();
+  NLE.selected = { track: type, id: clip.id };
+  NLE.drag = { mode: mode, track: type, id: clip.id, startX: e.clientX, origStart: clip.start, origEnd: clip.end };
+  renderNle();
+  document.body.style.cursor = 'ew-resize';
+  document.addEventListener('mousemove', onNleDragMove);
+  document.addEventListener('mouseup', onNleDragEnd);
+}
+
+function onNleDragMove(e) {
+  if (!NLE.drag) return;
+  var d = NLE.drag;
+  var clip = (NLE.tracks[d.track] || []).find(function(c) { return c.id === d.id; });
+  if (!clip) return;
+  var dt = nleXToTime(e.clientX - d.startX);
+  if (d.mode === 'move') {
+    var len = d.origEnd - d.origStart;
+    var ns = nleSnapTime(d.origStart + dt);
+    clip.start = Math.max(0, ns);
+    clip.end = Math.min(S.songDuration || 60, ns + len);
+  } else if (d.mode === 'left') {
+    var s = nleSnapTime(d.origStart + dt);
+    clip.start = Math.min(Math.max(0, s), clip.end - 0.1);
+  } else if (d.mode === 'right') {
+    var en = nleSnapTime(d.origEnd + dt);
+    clip.end = Math.max(Math.min(S.songDuration || 60, en), clip.start + 0.1);
+  }
+  renderNle();
+}
+
+function onNleDragEnd() {
+  document.body.style.cursor = '';
+  document.removeEventListener('mousemove', onNleDragMove);
+  document.removeEventListener('mouseup', onNleDragEnd);
+  NLE.drag = null;
+}
+
+function updateNlePlayhead(pct) {
+  if (!nlePlayheadEl) return;
+  var gutter = 56; /* label gutter — must match .nle-racks padding-left */
+  var w = (nleRacksEl ? nleRacksEl.clientWidth - gutter : 600);
+  nlePlayheadEl.style.left = (gutter + pct * w) + 'px';
+  nlePlayheadEl.style.display = pct >= 0 ? '' : 'none';
+}
+
+/* ── Clip editor modal ───────────────────────── */
+function openNleClipEditor(type, id) {
+  var clip = (NLE.tracks[type] || []).find(function(c) { return c.id === id; });
+  if (!clip) return;
+  NLE.editing = { track: type, id: id };
+  $('nle-edit-title').textContent = 'Edit ' + type.toUpperCase() + ' Clip';
+
+  /* asset selector */
+  var assetWrap = $('nle-edit-asset');
+  var sel = $('nle-edit-asset-sel');
+  sel.innerHTML = '';
+  if (type === 'aroll') {
+    assetWrap.style.display = '';
+    (S.sections || []).forEach(function(sec, i) {
+      if (!sec.videoUrl) return;
+      var opt = document.createElement('option');
+      opt.value = sec.videoUrl;
+      opt.textContent = sec.name + ' (video)';
+      if (sec.videoUrl === clip.videoUrl) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } else if (type === 'broll') {
+    assetWrap.style.display = '';
+    (S.sections || []).forEach(function(sec, i) {
+      if (!sec.imageUrl) return;
+      var opt = document.createElement('option');
+      opt.value = sec.imageUrl;
+      opt.textContent = sec.name + ' (image)';
+      if (sec.imageUrl === clip.imageUrl) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } else {
+    assetWrap.style.display = 'none';
+  }
+
+  /* Ken Burns only for broll */
+  $('nle-edit-zoom').style.display = type === 'broll' ? '' : 'none';
+  $('nle-edit-zoom-sel').value = String(clip.zoomDir || 0);
+  $('nle-edit-start').value = clip.start.toFixed(2);
+  $('nle-edit-end').value = clip.end.toFixed(2);
+  $('nle-edit-muted').checked = !!clip.muted;
+  $('nle-edit-modal').classList.add('open');
+}
+
+function saveNleClipEditor() {
+  if (!NLE.editing) return;
+  var t = NLE.editing.track, id = NLE.editing.id;
+  var clip = (NLE.tracks[t] || []).find(function(c) { return c.id === id; });
+  if (!clip) return;
+  var s = parseFloat($('nle-edit-start').value), e = parseFloat($('nle-edit-end').value);
+  if (!isFinite(s)) s = clip.start;
+  if (!isFinite(e)) e = clip.end;
+  clip.start = Math.max(0, Math.min(s, e - 0.1));
+  clip.end = Math.max(clip.start + 0.1, e);
+  clip.muted = $('nle-edit-muted').checked;
+  if (t === 'aroll' && $('nle-edit-asset-sel').value) clip.videoUrl = $('nle-edit-asset-sel').value;
+  if (t === 'broll') {
+    if ($('nle-edit-asset-sel').value) clip.imageUrl = $('nle-edit-asset-sel').value;
+    clip.zoomDir = parseInt($('nle-edit-zoom-sel').value) || 0;
+  }
+  NLE.editing = null;
+  $('nle-edit-modal').classList.remove('open');
+  renderNle();
+}
+
+function deleteNleClipEditor() {
+  if (!NLE.editing) return;
+  var t = NLE.editing.track, id = NLE.editing.id;
+  NLE.tracks[t] = (NLE.tracks[t] || []).filter(function(c) { return c.id !== id; });
+  NLE.editing = null;
+  if (NLE.selected && NLE.selected.id === id) NLE.selected = null;
+  $('nle-edit-modal').classList.remove('open');
+  renderNle();
+}
+
+function addNleClip(type) {
+  if (!S.songDuration || S.songDuration <= 0) return;
+  var ct = audioEl ? audioEl.currentTime : 0;
+  var bStep = NLE.bpm > 0 ? 60 / NLE.bpm : 1;
+  var start = NLE.snap ? Math.round(ct / bStep) * bStep : ct;
+  var dur = Math.max(bStep * 4, 4);
+  if (start + dur > S.songDuration) start = Math.max(0, S.songDuration - dur);
+  var clip = { id: (type[0] + NLE.seq++), start: start, end: Math.min(S.songDuration, start + dur), name: 'Clip' };
+  if (type === 'aroll') {
+    var vsec = (S.sections || []).find(function(s) { return s.videoUrl; });
+    if (!vsec) { $('nle-status').textContent = 'Generate a section video first (A-Roll source).'; return; }
+    clip.videoUrl = vsec.videoUrl;
+  } else if (type === 'broll') {
+    var isec = (S.sections || []).find(function(s) { return s.imageUrl; });
+    if (!isec) { $('nle-status').textContent = 'Generate a section image first (B-Roll source).'; return; }
+    clip.imageUrl = isec.imageUrl; clip.zoomDir = 0;
+  } else {
+    var layer = layers[S.selectedLayerIndex] && layers[S.selectedLayerIndex].type === 'stem'
+      ? layers[S.selectedLayerIndex]
+      : (layers.find(function(l) { return l.type === 'stem'; }) || layers[0]);
+    if (!layer) { $('nle-status').textContent = 'Add a stem layer first.'; return; }
+    clip.layerName = layer.name; clip.stem = layer.stem; clip.effectId = layer.effectId;
+    clip.blendMode = layer.blendMode; clip.opacity = layer.opacity; clip.color = layer.color;
+    clip.beatSensitivity = layer.beatSensitivity; clip.muted = false;
+  }
+  NLE.tracks[type].push(clip);
+  NLE.selected = { track: type, id: clip.id };
+  renderNle();
+}
+
+/* ── Compose NLE → server ────────────────────── */
+function buildNleTracks() {
+  var tracks = [];
+  ['aroll', 'broll', 'viz'].forEach(function(type) {
+    var clips = (NLE.tracks[type] || []).filter(function(c) {
+      return !c.muted && c.end > c.start;
+    }).map(function(c) {
+      var o = { start: Math.round(c.start * 1000) / 1000, end: Math.round(c.end * 1000) / 1000 };
+      if (type === 'aroll') o.videoUrl = c.videoUrl;
+      else if (type === 'broll') { o.imageUrl = c.imageUrl; o.zoomDir = c.zoomDir || 0; }
+      else {
+        o.stem = stemUrlForName[c.stem] || null;
+        o.effect = c.effectId || 'bars';
+        o.color = c.color || '#58a6ff';
+        o.blend = c.blendMode || 'source-over';
+        o.opacity = c.opacity !== undefined ? c.opacity : 1;
+        o.beatSensitivity = c.beatSensitivity !== undefined ? c.beatSensitivity : 1;
+      }
+      return o;
+    });
+    tracks.push({ type: type, clips: clips });
+  });
+  return tracks;
+}
+
+async function renderNleTimeline() {
+  if (!S.songId) { $('nle-status').textContent = 'No song loaded.'; return; }
+  var tracks = buildNleTracks();
+  var totalClips = tracks.reduce(function(a, t) { return a + t.clips.length; }, 0);
+  if (!totalClips) { $('nle-status').textContent = 'Timeline is empty — add or auto-layout clips.'; return; }
+
+  $('nle-status').textContent = 'Composing NLE timeline...';
+  $('nle-progress-fill').style.width = '4%';
+  $('nle-render').disabled = true;
+
+  var h = authHeaders();
+  try {
+    var resp = await fetch('/api/inspire/comfyui/compose-nle', {
+      method: 'POST',
+      headers: h,
+      body: JSON.stringify({
+        songId: S.songId,
+        width: 1920, height: 1080, fps: 30,
+        audioSource: 'mix',
+        duration: S.songDuration,
+        tracks: tracks
+      })
+    });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'HTTP ' + resp.status);
+    var jobId = data.jobId;
+    if (!jobId) throw new Error('No job ID returned');
+
+    var done = false;
+    while (!done) {
+      await new Promise(function(r) { setTimeout(r, 3000); });
+      var pr = await fetch('/api/inspire/comfyui/export-status/' + encodeURIComponent(jobId), { headers: h });
+      var pd = await pr.json();
+      $('nle-progress-fill').style.width = (pd.progress || 10) + '%';
+      $('nle-status').textContent = 'Composing... ' + Math.round(pd.progress || 0) + '%';
+      if (pd.status === 'completed' || pd.status === 'done') {
+        $('nle-progress-fill').style.width = '100%';
+        $('nle-status').innerHTML = 'Done! <a href="' + (pd.outputPath || pd.videoUrl) + '" target="_blank" style="color:var(--green)">Download NLE MP4</a>';
+        done = true;
+      } else if (pd.status === 'failed') {
+        throw new Error(pd.error || 'Compose failed');
+      }
+    }
+  } catch (e) {
+    $('nle-status').textContent = 'Compose failed: ' + e.message;
+    $('nle-progress-fill').style.width = '0%';
+  }
+  $('nle-render').disabled = false;
+}
+
+function wireNleEvents() {
+  $('nle-bpm').addEventListener('change', function() {
+    NLE.bpm = Math.max(30, Math.min(300, parseInt(this.value) || 120));
+    renderNle();
+  });
+  $('nle-snap').addEventListener('change', function() { NLE.snap = this.checked; });
+  $('nle-zoom').addEventListener('input', function() {
+    NLE.zoom = parseFloat(this.value) || 1;
+    renderNle();
+  });
+  $('nle-add-viz').addEventListener('click', function() { addNleClip('viz'); });
+  $('nle-add-broll').addEventListener('click', function() { addNleClip('broll'); });
+  $('nle-add-aroll').addEventListener('click', function() { addNleClip('aroll'); });
+  $('nle-seed').addEventListener('click', function() { seedNle(); renderNle(); });
+  $('nle-render').addEventListener('click', renderNleTimeline);
+  $('nle-collapse').addEventListener('click', function() {
+    NLE.collapsed = !NLE.collapsed;
+    nlePaneEl.classList.toggle('collapsed', NLE.collapsed);
+    try { localStorage.setItem('hs-nle-collapsed', NLE.collapsed ? '1' : '0'); } catch(e){}
+    if (!NLE.collapsed) setTimeout(renderNle, 50);
+  });
+  $('nle-edit-save').addEventListener('click', saveNleClipEditor);
+  $('nle-edit-close').addEventListener('click', function() { NLE.editing = null; $('nle-edit-modal').classList.remove('open'); });
+  $('nle-edit-delete').addEventListener('click', deleteNleClipEditor);
+  $('nle-edit-modal').addEventListener('click', function(e) {
+    if (e.target === $('nle-edit-modal')) { NLE.editing = null; this.classList.remove('open'); }
+  });
+
+  /* Click empty lane → seek + deselect */
+  document.querySelectorAll('.nle-lane-body').forEach(function(body) {
+    body.addEventListener('mousedown', function(e) {
+      if (e.target !== body) return;
+      var rect = body.getBoundingClientRect();
+      var t = nleXToTime(e.clientX - rect.left);
+      NLE.selected = null;
+      renderNle();
+      seekTo(t / S.songDuration);
+    });
+  });
+
+  /* Delete key removes selected clip */
+  document.addEventListener('keydown', function(e) {
+    if (!NLE.selected) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      var sel = NLE.selected;
+      NLE.tracks[sel.track] = (NLE.tracks[sel.track] || []).filter(function(c) { return c.id !== sel.id; });
+      NLE.selected = null;
+      renderNle();
+      e.preventDefault();
+    }
+  });
+}
+
+/* NLE preview compositing (aroll video + broll image + active viz layers) */
+function nleGetImg(url) {
+  if (!url) return null;
+  if (!NLE._imgCache[url]) {
+    var im = new Image();
+    im.src = url;
+    NLE._imgCache[url] = im;
+  }
+  return NLE._imgCache[url];
+}
+function nleGetVideo(url) {
+  if (!url) return null;
+  if (!NLE._vidCache[url]) {
+    var v = document.createElement('video');
+    v.src = url; v.muted = true; v.preload = 'auto'; v.loop = false;
+    NLE._vidCache[url] = v;
+  }
+  return NLE._vidCache[url];
+}
+
+function drawNleMediaPreview(now) {
+  if (!ctx || !W || !H) return;
+  /* A-Roll video (bottom) */
+  var aroll = (NLE.tracks.aroll || []).find(function(c) { return c.start <= now && now < c.end; });
+  if (aroll) {
+    var v = nleGetVideo(aroll.videoUrl);
+    if (v) {
+      var local = now - aroll.start;
+      if (Math.abs(v.currentTime - local) > 0.2 && v.readyState > 0) {
+        try { v.currentTime = local; } catch(e){}
+      }
+      if (v.videoWidth > 0) {
+        var vs = Math.max(W / v.videoWidth, H / v.videoHeight);
+        var vw = v.videoWidth * vs, vh = v.videoHeight * vs;
+        ctx.drawImage(v, (W - vw) / 2, (H - vh) / 2, vw, vh);
+      }
+    }
+  }
+  /* B-Roll image (Ken Burns) */
+  var broll = (NLE.tracks.broll || []).find(function(c) { return c.start <= now && now < c.end; });
+  if (broll) {
+    var im = nleGetImg(broll.imageUrl);
+    if (im && im.complete && im.naturalWidth > 0) {
+      var prog = (now - broll.start) / Math.max(0.001, broll.end - broll.start);
+      var dir = broll.zoomDir || 0;
+      var z = (dir === 1) ? (1.15 - 0.15 * prog) : (1 + 0.15 * prog);
+      var w2 = W / z, h2 = H / z;
+      var ox = 0, oy = 0;
+      if (dir === 2) ox = -(w2 - W) * prog;
+      else if (dir === 3) ox = (w2 - W) * prog;
+      else if (dir === 4) oy = -(h2 - H) * prog;
+      else if (dir === 5) oy = (h2 - H) * prog;
+      else { ox = -(w2 - W) / 2; oy = -(h2 - H) / 2; }
+      ctx.drawImage(im, (W - w2) / 2 + ox, (H - h2) / 2 + oy, w2, h2);
+    }
+  }
+}
+
+function nleActiveVizLayerSet(now) {
+  var vizClips = NLE.tracks.viz || [];
+  if (!vizClips.length) return null; /* no viz clips → render all layers (legacy) */
+  var set = {};
+  vizClips.forEach(function(c) {
+    if (!c.muted && c.start <= now && now < c.end && c.layerName) set[c.layerName] = true;
+  });
+  return set;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    MAIN RENDER LOOP
    ═══════════════════════════════════════════════════════════════════════ */
 function renderLoop(ts) {
@@ -2148,6 +2774,14 @@ function renderLoop(ts) {
     ctx.fillRect(0, 0, W, H);
   }
 
+  /* NLE media underlay (aroll video + broll Ken Burns) */
+  var nowCt = audioEl ? audioEl.currentTime : 0;
+  var vizActiveSet = null;
+  if (NLE && (NLE.tracks.aroll.length || NLE.tracks.broll.length || NLE.tracks.viz.length)) {
+    drawNleMediaPreview(nowCt);
+    vizActiveSet = nleActiveVizLayerSet(nowCt);
+  }
+
   /* Sync stem playback with master audio */
   if (audioEl && S.playing) {
     var ct = audioEl.currentTime;
@@ -2171,6 +2805,9 @@ function renderLoop(ts) {
 
     var hasSolo = layers.some(function(l) { return l.solo; });
     if (hasSolo && !layer.solo) continue;
+
+    /* If the NLE timeline is active, only render layers with an active viz clip */
+    if (vizActiveSet && !vizActiveSet[layer.name]) continue;
 
     var freqData = getFreqDataForLayer(layer);
     var timeData = getTimeDataForLayer(layer);
@@ -2339,6 +2976,7 @@ document.addEventListener('keydown', function(e) {
       break;
     case 'Delete':
     case 'Backspace':
+      if (NLE && NLE.selected) return; /* NLE clip delete handled separately */
       if (layers.length > 1) {
         removeLayer(S.selectedLayerIndex);
       }
