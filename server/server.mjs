@@ -48135,7 +48135,12 @@ function mergeFields(existing, incoming, policy) {
       value = extractCaptionFromBlob(value);
       if (!value.trim()) continue;
     }
-    const occupied = !!(out[key] ?? "").trim();
+    // PGFX: treat NA / label-echo garbage captions ("caption: caption: N/A", "N/A")
+    // as empty so fill_missing re-runs can overwrite them with real LLM output.
+    const existingRaw = (out[key] ?? "").trim();
+    const occupied = key === "caption" && (isNA(existingRaw) || existingRaw.toLowerCase().includes("caption: caption") || existingRaw.toLowerCase().startsWith("caption: n/a"))
+      ? false
+      : !!existingRaw;
     let write2;
     if (policy === "overwrite_all") write2 = GENERATED_FIELDS.has(key) || !occupied;
     else if (policy === "overwrite_caption") write2 = key === "caption" || !occupied;
@@ -110704,13 +110709,26 @@ async function fetchLyrics(artistName, albumName, maxSongs = 10) {
 function normalizeTitle(s) {
   return s.toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, " ").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
+// PGFX: normalize curly/smart apostrophes and quotes to ASCII before comparing artist
+// names. ID3 tags commonly store "L'Entourloop" with U+2019 while Genius API returns
+// U+0027 — exact codepoint comparison never matches. Also normalize em/en dashes and
+// nbsp so "Le Savoir faire" variants align.
+function normalizeSearchName(s) {
+  return String(s ?? "")
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2013\u2014\u2015]/g, "-")
+    .replace(/\u00A0/g, " ")
+    .toLowerCase()
+    .trim();
+}
 async function searchSongLyrics(artist, title, opts) {
   const hits = await apiSearch(`${title} ${artist}`, 5);
-  const artistLower = artist.toLowerCase().trim();
+  const artistLower = normalizeSearchName(artist);
   const titleNorm = normalizeTitle(title);
   for (const hit of hits) {
     const result = hit.result ?? {};
-    const primaryLower = (result.primary_artist?.name ?? "").toLowerCase().trim();
+    const primaryLower = normalizeSearchName(result.primary_artist?.name ?? "");
     if (opts?.relaxed) {
       const artistOk = !!primaryLower && (primaryLower.includes(artistLower) || artistLower.includes(primaryLower));
       if (!artistOk) continue;
@@ -111635,6 +111653,21 @@ function cleanValue(raw) {
 function isNA(v) {
   return v.trim().toLowerCase() === "n/a";
 }
+// PGFX: LLMs sometimes echo the template label into the value ("caption: caption: N/A"
+// or "caption: caption: The track…"). Strip a leading label prefix so the parsed value
+// is just the content; then callers' isNA()/dropNA() handle "N/A" properly instead of
+// the whole "caption: N/A" string surviving as a bogus caption.
+function stripLabelPrefix(raw) {
+  let v = raw.trim();
+  const labelRe = /^(?:caption|genre|bpm|key|signature)\s*:\s*/i;
+  let m;
+  while ((m = labelRe.exec(v))) {
+    const next = v.slice(m[0].length).trim();
+    if (!next) break;
+    v = next;
+  }
+  return v;
+}
 function fromMapping(obj) {
   const out = {};
   for (const field of FIELDS) {
@@ -111670,7 +111703,7 @@ function scanLabels(text6) {
     const hit = hits[i];
     if (out[hit.field] !== void 0) continue;
     const stop = i + 1 < hits.length ? hits[i + 1].start : text6.length;
-    const value = cleanValue(text6.slice(hit.end, stop));
+    const value = cleanValue(stripLabelPrefix(text6.slice(hit.end, stop)));
     if (value) out[hit.field] = value;
   }
   if (!out.caption) {
@@ -111708,7 +111741,8 @@ function parseStructuredResponse(raw) {
   }
   const scanned = dropNA(scanLabels(text6));
   if (Object.keys(scanned).length > 0) return scanned;
-  return { caption: text6 };
+  const bare = cleanValue(stripLabelPrefix(text6));
+  return isNA(bare) ? {} : { caption: bare };
 }
 var CAPTION_INSTRUCTIONS, CAPTION_TOP_P, FIELDS;
 var init_captionPrompt = __esm({
@@ -111740,7 +111774,15 @@ function parseArtistTitleFromFilename(filename) {
   if (numberedDash) body = numberedDash[1].trim();
   else if (numbered) body = numbered[1].trim();
   const dashed = /^(.+?)\s+-\s+(.+)$/.exec(body);
-  if (dashed) return { artist: dashed[1].trim(), title: dashed[2].trim() };
+  if (dashed) {
+    // PGFX: handle "Artist - Album - NN - Title" and "Artist - NN - Title" layouts:
+    // the trailing "NN - <real title>" fragment would otherwise leak into the title.
+    let titlePart = dashed[2].trim();
+    titlePart = titlePart.replace(/^\d{1,3}\s*[-–]\s*/, "");
+    const track = /^(.+?)\s+-\s+(\d{1,3})\s*[-–]\s*(.+)$/.exec(titlePart);
+    if (track) return { artist: dashed[1].trim(), title: track[3].trim() };
+    return { artist: dashed[1].trim(), title: titlePart };
+  }
   const tight = body.split("-");
   if (tight.length === 2 && tight[0].trim() && tight[1].trim()) {
     return { artist: tight[0].trim(), title: tight[1].trim() };
@@ -112569,6 +112611,45 @@ function safeStem(relPath) {
   const stem = dot > 0 ? base.slice(0, dot) : base;
   return (dir + stem).replace(/\//g, "__").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 96);
 }
+function hasNonAsciiPath(p) {
+  return /[^\x00-\x7F]/.test(String(p ?? ""));
+}
+// PGFX: ace-train.exe uses narrow-char Windows file APIs (stat/fopen/CreateFileA) and
+// cannot open paths with non-ASCII bytes (U+2019 in "L'Entourloop" → mojibake → ENOENT).
+// Stage such sources into an ASCII-only folder and point the manifest at the copies.
+// Cache ids/outStems are computed from the ORIGINAL relPath and stay stable, so tensors
+// produced from staged copies are identical to what an ASCII-named source would yield.
+function stageNonAsciiAudio(jobId, manifest, samples) {
+  const needs = [];
+  for (let i = 0; i < manifest.samples.length; i++) {
+    const s = samples[i];
+    const m = manifest.samples[i];
+    if (s && hasNonAsciiPath(s.audioPath)) needs.push({ idx: i, m, s });
+  }
+  if (needs.length === 0) return null;
+  const stageRoot = path28.join(config.training.dir, "staging", jobId);
+  fs34.mkdirSync(stageRoot, { recursive: true });
+  const extOf = (p) => {
+    const ext = path28.extname(p);
+    return /^\.[A-Za-z0-9]{1,8}$/.test(ext) ? ext.toLowerCase() : ".wav";
+  };
+  let staged = 0;
+  for (const { idx, m, s } of needs) {
+    const ext = extOf(s.audioPath);
+    const asciiStem = (`${safeStem(s.relPath) || `sample${idx + 1}`}-${m.id}`)
+      .replace(/[^A-Za-z0-9._-]/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 110);
+    const target = path28.join(stageRoot, `${asciiStem}${ext}`);
+    fs34.copyFileSync(s.audioPath, target);
+    m.audioPath = target;
+    m.filename = path28.basename(target);
+    m.stagedFrom = s.audioPath;
+    staged++;
+  }
+  return { root: stageRoot, count: staged };
+}
 function idIndex(datasetJson) {
   const byPath = /* @__PURE__ */ new Map();
   const root2 = datasetJson;
@@ -112736,6 +112817,7 @@ function relay(job, ev, sampleIdByCacheId) {
 async function runPreprocessJob(job) {
   if (isCancelled(job)) return;
   const opts = job.opts;
+  let stagedRoot = null;
   try {
     const ds2 = getDataset(job.datasetId);
     if (!ds2) {
@@ -112764,6 +112846,12 @@ async function runPreprocessJob(job) {
       log(job, "warn", `Could not read dataset.json (${err.message}) \u2014 cache ids fall back to path hashes`);
     }
     const manifest = buildPreprocessManifest(ds2, included, datasetJson);
+    const staged = stageNonAsciiAudio(job.id, manifest, included);
+    if (staged) {
+      stagedRoot = staged.root;
+      log(job, "warn", `Non-ASCII source path(s) detected \u2014 staged ${staged.count} audio file(s) to ASCII staging dir ${staged.root} (ace-train cannot open non-ASCII paths)`);
+      pushLog(`[Training] Preprocess job ${job.id}: staged ${staged.count} non-ASCII source file(s) to ${staged.root}`);
+    }
     const manifestPath = writePreprocessManifest(job.id, manifest);
     const sampleIdByCacheId = /* @__PURE__ */ new Map();
     manifest.samples.forEach((m2, idx) => {
@@ -112860,6 +112948,46 @@ async function runPreprocessJob(job) {
       if (!fs34.existsSync(path28.join(outDir, "preprocess_meta.json"))) {
         throw new Error("ace-train finished but wrote no preprocess_meta.json");
       }
+      // PGFX Bug B: ace-train exits 0 even when it skipped every song (e.g. non-ASCII
+      // paths it cannot open with narrow-char APIs). A "done" job with processed=0 is a
+      // silent failure — surface it instead of letting train-dit later fail with
+      // "no cached songs".
+      try {
+        const meta2 = JSON.parse(fs34.readFileSync(path28.join(outDir, "preprocess_meta.json"), "utf-8"));
+        const processed = Number(meta2?.processed ?? 0);
+        const skipped = Number(meta2?.skipped ?? 0);
+        const failed = Number(meta2?.failed ?? 0);
+        let guardError = null;
+        if (processed === 0 && skipped > 0) {
+          // PGFX: distinguish a genuine failure from an idempotent rerun. ace-train
+          // skips ALL existing outputs when --overwrite is off (processed=0, skipped=N,
+          // per-sample error="") — that is NOT a failure, it means the tensors already
+          // exist. The original Bug B (non-ASCII paths ace-train cannot open) produced
+          // per-sample errors like "audio file not found: ...", so we only fail when
+          // actual errors are recorded.
+          const skippedWithError = Array.isArray(meta2?.samples)
+            ? meta2.samples.filter((s) => s && s.skipped && s.error)
+            : [];
+          const firstErr2 = skippedWithError[0]?.error ?? "";
+          if (skippedWithError.length > 0) {
+            guardError = new Error(
+              `ace-train skipped all ${skipped} song(s) and processed none` + (firstErr2 ? ` \u2014 e.g. "${firstErr2}"` : "") + (stagedRoot ? ` \u2014 staged to ${stagedRoot}` : " \u2014 the engine could not read the source audio (check that paths are ASCII and files exist)")
+            );
+          } else {
+            log(job, "info", `ace-train skipped all ${skipped} song(s) \u2014 outputs already exist (run with overwrite to rebuild)`);
+            pushLog(`[Training] Preprocess job ${job.id}: all ${skipped} song(s) already preprocessed \u2014 nothing to do (run with overwrite to rebuild)`);
+            // All samples are accounted for (their tensors already exist) — report an
+            // honest tally instead of 0/18.
+            job.done = skipped;
+            emitProgress(job);
+          }
+        } else if (processed === 0 && failed > 0) {
+          guardError = new Error(`ace-train processed no songs and failed ${failed} \u2014 see job log for per-song errors`);
+        }
+        if (guardError) throw guardError;
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith("ace-train skipped all") || err instanceof Error && err.message.startsWith("ace-train processed no songs")) throw err;
+      }
     } finally {
       if (stopped) {
         job.phase = "engine-restart";
@@ -112886,6 +113014,13 @@ async function runPreprocessJob(job) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[Training] Preprocess job ${job.id} FAILED \u2014 ${message}`);
     finishJob(job, "failed", message);
+  } finally {
+    if (stagedRoot) {
+      try {
+        fs34.rmSync(stagedRoot, { recursive: true, force: true });
+      } catch {
+      }
+    }
   }
 }
 var init_preprocessRunner = __esm({
@@ -119876,6 +120011,16 @@ const GENRE_BPM_RANGES = {
 // user-selected genre strings (like "doom metal") for subgenre-specific lookup.
 // If BPM is null/undefined/0, returns null (caller should use genre default).
 // Returns { bpm, clamped, original } — clamped is true if the value was changed.
+// Clamp an LLM/LM-estimated track duration into a realistic full-length range.
+// Short estimates (10-15s) become jarringly short tracks because auto-trim honors
+// the requested duration exactly. Returns a finite integer in [MIN, MAX], or
+// undefined for invalid/non-positive input (caller falls back to its own default).
+function clampSongDurationSec(value) {
+  if (value == null) return void 0;
+  const rawDur = Number(value);
+  if (!Number.isFinite(rawDur) || rawDur <= 0) return void 0;
+  return Math.min(240, Math.max(30, Math.round(rawDur)));
+}
 function clampBpmForGenre(bpm, genreKeys, originalGenres) {
   if (!bpm || bpm <= 0) return { bpm: null, clamped: false, original: bpm };
   const gKeys = genreKeys ? (Array.isArray(genreKeys) ? genreKeys : [genreKeys]) : [];
@@ -122548,6 +122693,14 @@ Return ONLY a valid JSON object with exactly these keys:
 }
 
 Do NOT include any text outside the JSON object. No markdown, no explanation, no commentary.
+
+=== DURATION (the "duration" field) ===
+
+The duration is the TOTAL track length in seconds. It MUST be a realistic full-length value — this becomes the actual generated track length, so short guesses produce jarringly short songs.
+
+- Songs with vocals: 90-240s. Roughly 120s per verse-plus-chorus pair — a 3-verse song needs about 210s.
+- Instrumentals (lyrics are "[Instrumental]"): 60-240s.
+- NEVER write a duration below 60s unless the genre genuinely demands it (a jingle, sting, or short loop). A plain "loop" caption is NOT a reason to write 10s — treat it as a full track built around the loop.
 
 === TAGS (the "tags" field) ===
 
@@ -165484,7 +165637,12 @@ function translateParams(params) {
     req.lyrics = sanitizeDirectionLines(params.lyrics);
   }
   if (params.bpm) req.bpm = params.bpm;
-  if (params.duration) {
+  // Duration sentinel guard: the UI's "Auto" mode sends duration=-1 (and 0/NaN
+  // are possible from other clients). Only POSITIVE values are real requests —
+  // anything else means "let the LM decide" (no duration field → metas=incomplete,
+  // no auto-trim). Without this guard, -1 + durationBuffer(15) = a 14s track
+  // every time the user leaves duration on Auto with Auto-Trim enabled.
+  if (typeof params.duration === "number" && params.duration > 0) {
     const buffer = params.autoTrimEnabled && params.durationBuffer ? params.durationBuffer : 0;
     req.duration = params.duration + buffer;
   }
@@ -309294,6 +309452,18 @@ async function runInspire(job, params) {
       throw new Error("No results from inspire mode");
     }
     const first2 = lmResults[0];
+    // Clamp the engine-LM's auto-estimated duration into a realistic full-length
+    // range (same protection as the /llm route — the LM also picks short values
+    // for instrumental/loop captions when no target duration is given).
+    const clampedDur2 = clampSongDurationSec(first2.duration);
+    if (first2.duration != null && clampedDur2 !== first2.duration) {
+      if (clampedDur2 === void 0) {
+        console.log(`[Inspire] Duration ignored (invalid: ${first2.duration}) — using default`);
+      } else {
+        console.log(`[Inspire] Duration clamped: ${first2.duration}s → ${clampedDur2}s (floor 30s, ceiling 240s)`);
+      }
+      first2.duration = clampedDur2;
+    }
     job.status = "succeeded";
     job.progress = 100;
     job.stage = "Done!";
@@ -309784,6 +309954,24 @@ router21.post("/llm", async (req, res) => {
       const bpmResult = clampBpmForGenre(structuredResult.bpm, genreKeys, genres);
       if (bpmResult.clamped) {
         structuredResult.bpm = bpmResult.bpm;
+      }
+      // ── Duration Clamping (LLM auto-duration) ─────────────────────────────────
+      // The LLM freely estimates "duration" and tends to pick absurdly short values
+      // (10-15s) for instrumental / loop captions — which then become full tracks
+      // because auto-trim honors the requested duration exactly. Clamp every valid
+      // positive estimate into a realistic full-length range. Invalid/garbage
+      // values become undefined so the frontend's own fallback (e.g. 200s) applies.
+      if (structuredResult.duration != null) {
+        const rawDur = structuredResult.duration;
+        const clampedDur = clampSongDurationSec(rawDur);
+        if (clampedDur !== rawDur) {
+          if (clampedDur === void 0) {
+            console.log(`[Inspire/LLM] Duration ignored (invalid: ${rawDur}) — using frontend fallback`);
+          } else {
+            console.log(`[Inspire/LLM] Duration clamped: ${rawDur}s → ${clampedDur}s (floor 30s, ceiling 240s)`);
+          }
+          structuredResult.duration = clampedDur;
+        }
       }
       // ── Duration-Verse Count Validation ────────────────────────────────────────
       // Warn if duration is long but verse count is too low (empty space problem)
@@ -314316,7 +314504,13 @@ router27.get("/scan-preview", (req, res) => {
       return;
     }
     const recursive = req.query.recursive !== "0" && req.query.recursive !== "false";
-    res.json(scanPreview(root2, recursive));
+    const preview = scanPreview(root2, recursive);
+    // PGFX: flag non-ASCII source paths — ace-train.exe cannot open them with its
+    // narrow-char file APIs; preprocessing will stage them automatically but the UI
+    // should surface this up-front.
+    const nonAsciiPaths = (Array.isArray(preview.sampleNames) ? preview.sampleNames : [])
+      .filter((n) => /[^\x00-\x7F]/.test(String(n ?? ""))).length;
+    res.json({ ...preview, nonAsciiPaths });
   } catch (err) {
     if (err instanceof ScanLimitError) {
       res.status(400).json({ error: err.message });
@@ -315194,7 +315388,10 @@ router27.post("/datasets/:id/preprocess", async (req, res) => {
     };
     const job = startPreprocessJob(ds2.id, targets, opts);
     console.log(`[Training] Preprocess job ${job.id} queued \u2014 ${targets.length} songs, variant ${variantKey}`);
-    res.status(202).json({ jobId: job.id });
+    // PGFX: warn when any target source path is non-ASCII — ace-train will stage them
+    // automatically, but the UI should tell the user why preprocessing takes longer.
+    const nonAscii = samples.filter((s) => !s.excluded && !s.fileMissing && (wanted ? wanted.has(s.sampleId) : true)).filter((s) => /[^\x00-\x7F]/.test(s.audioPath || "")).length;
+    res.status(202).json({ jobId: job.id, ...nonAscii > 0 ? { warning: `${nonAscii} source file(s) use non-ASCII characters in their path \u2014 ace-train cannot open them directly, so they will be copied to an ASCII staging folder before preprocessing` } : {} });
   } catch (err) {
     console.error(`[Training] Preprocess start failed: ${err.message}`);
     res.status(500).json({ error: err.message });
