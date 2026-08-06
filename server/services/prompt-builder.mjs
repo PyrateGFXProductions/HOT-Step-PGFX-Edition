@@ -32,26 +32,38 @@ const STOP_WORDS = new Set([
 ]);
 
 const GENRE_VISUALS = {
-  rock: "dramatic lighting, electric atmosphere, high contrast",
-  metal: "dark dramatic scene, intense fire and shadows, heavy atmosphere",
-  punk: "gritty urban scene, raw energy, bold colors, rebellion",
-  pop: "vibrant colors, clean aesthetic, bright lighting, contemporary",
-  electronic: "neon lights, futuristic environment, glowing particles, cyberpunk",
-  jazz: "warm golden tones, smoky atmosphere, elegant mood, sophisticated",
-  blues: "moody blue tones, deep shadows, soulful atmosphere",
-  folk: "natural landscapes, warm earth tones, rustic beauty, pastoral",
-  classical: "elegant composition, renaissance lighting, grand architecture",
-  hip: "urban cityscape, bold colors, street culture, dynamic perspective",
-  rap: "urban environment, dramatic angles, street aesthetic",
-  country: "wide open landscapes, golden hour, rural beauty, americana",
-  indie: "dreamy atmosphere, soft pastel colors, artistic composition",
-  r: "warm intimate lighting, smooth gradients, elegant silhouettes",
-  ambient: "ethereal landscapes, soft focus, atmospheric mist, dreamlike",
-  bossa: "tropical sunset, warm golden light, coastal paradise",
-  reggae: "tropical colors, island vibes, sunset hues, laid-back mood",
-  soul: "warm rich tones, intimate atmosphere, emotional depth",
-  funk: "bold psychedelic colors, retro vibes, dynamic energy",
-  alternative: "moody atmosphere, artistic composition, unconventional beauty"
+  rock: "raw electric energy, harsh shadows and bright highlights, gritty texture",
+  metal: "a dark monumental scene lit by fire and shadow, heavy and intense",
+  punk: "loud rebellion, bold clashing colors, DIY grit and raw attitude",
+  pop: "clean bright gloss, vibrant saturated color, polished contemporary surfaces",
+  electronic: "sleek futuristic shapes glowing with neon, light cutting through darkness",
+  jazz: "warm golden haze, smoky late-night intimacy, elegant brass reflections",
+  blues: "deep moody blue shadows, soulful worn textures, honest emotion",
+  folk: "earthy natural warmth, rustic handcrafted textures, open pastoral light",
+  classical: "grand elegant architecture, renaissance chiaroscuro, timeless composition",
+  hip: "bold graphic confidence, dynamic angles, expressive street energy",
+  rap: "sharp dramatic contrast, high-energy attitude, bold graphic lines",
+  country: "wide golden skies, weathered wood, warm americana openness",
+  indie: "dreamy soft light, intimate artistic detail, gentle pastel mood",
+  rnb: "smooth warm intimacy, velvet shadows, elegant soft gradients",
+  "r&b": "smooth warm intimacy, velvet shadows, elegant soft gradients",
+  ambient: "vast ethereal space, soft drifting mist, weightless calm",
+  techno: "dark warehouse pulse, minimal red and white light, industrial concrete",
+  house: "warm floor-to-ceiling energy, glowing disco ball, soulful nightclub haze",
+  edm: "massive festival stage, laser arrays cutting through crowd haze, explosive color",
+  dubstep: "bass you can see, shockwave light, festival LED walls",
+  synthwave: "retro neon grid, chrome sunset, 80s future glow",
+  trap: "dark moody luxury, neon-tinted night, slow heavy bass light",
+  drill: "hard-edged contrast, rain-slicked shadow, stark urban tension",
+  "lo-fi": "warm tape-grain softness, cozy golden lamplight, nostalgic calm",
+  phonk: "gritty Memphis darkness, muscle-car headlights, distortion and haze",
+  hyperpop: "electric candy color, glitchy playful energy, surreal brightness",
+  industrial: "cold steel and machinery, harsh halogen glare, mechanical texture",
+  bossa: "golden coastal warmth, tropical ease, gentle sunlit waves",
+  reggae: "sunset island warmth, laid-back color, sound-system soul",
+  soul: "rich vintage warmth, deep emotional tones, golden-era texture",
+  funk: "bold groovy color, psychedelic retro energy, rhythmic pattern",
+  alternative: "stark artistic contrast, moody unconventional beauty"
 };
 
 const SECTION_VISUAL_TONE = {
@@ -96,9 +108,9 @@ const GENRE_VISUAL_CONTEXT = {
   "techno":     "dark warehouse, minimal red/white lighting, industrial concrete, underground club aesthetic",
   "house":      "warm warehouse party, disco ball, soulful energy, Chicago underground vibes",
   "dubstep":    "massive bass drops visible as shockwaves, LED panels, festival bass culture, wobble bass energy",
-  "hiphop":     "urban landscape, graffiti walls, street culture, gold chains, boombox aesthetic, concrete jungle",
-  "trap":       "neon-lit Atlanta nights, luxury cars, ice chains, dark moody streets, bass culture",
-  "drill":      "gritty London streets, dark urban landscape, rain-slicked roads, raw energy",
+  "hiphop":     "bold colors, confident attitude, dynamic lighting, golden-era textures, expressive energy, boombox aesthetic",
+  "trap":       "neon-tinted night atmosphere, luxury textures, dark moody tones, bass culture, atmospheric haze",
+  "drill":      "rain-slicked tones, raw energy, stark contrast lighting, hard-edged atmosphere, dark dramatic shadows",
   "r&b":        "velvet curtains, warm amber lighting, intimate stage, soulful expression, smooth aesthetic",
   "soul":       "Motown warmth, golden era aesthetic, rich wood tones, vintage microphone, emotional delivery",
   "funk":       "groovy colors, Parliament-Funkadelic aesthetic, bright neon, funkadelic energy, tight outfits",
@@ -292,7 +304,10 @@ function getGenreVisuals(style) {
   if (!style) return "";
   const lower = style.toLowerCase();
   for (const [genre, visuals] of Object.entries(GENRE_VISUALS)) {
-    if (lower.includes(genre)) return visuals;
+    // Word-boundary match: prevents 'r' matching every style ("warm intimate lighting"
+    // on every EDM cover) and 'hip' matching "ship"/"chipped".
+    const re = new RegExp(`(^|[^a-z0-9&+#])${genre}([^a-z0-9&+#]|$)`);
+    if (re.test(lower)) return visuals;
   }
   return "";
 }
@@ -341,124 +356,94 @@ function extractTitleConcept(title) {
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    buildCoverArtPrompt — section-aware image prompt for cover art + video
+   PGFX: FLUX.2 is a text-to-image transformer — it wants descriptive PROSE with a
+   single coherent concept, not comma-separated keyword lists. Every prompt below
+   is built from one song concept paragraph shared by the cover AND all video
+   sections (cohesion between music and visuals).
    ═══════════════════════════════════════════════════════════════════════════════ */
+
+const SECTION_MOOD = {
+  intro: "the scene opens gently, soft light gradually revealing itself",
+  verse: "the scene turns intimate and observational, natural grounded light",
+  "pre-chorus": "tension builds as the light begins to shift and gather",
+  chorus: "the scene opens wide and vivid, color and emotion at full intensity",
+  "post-chorus": "the energy lingers, a resonant afterglow settling over everything",
+  bridge: "the scene shifts into a dreamlike space, a different palette than the verses",
+  interlude: "a suspended quiet moment, the visual world holding its breath",
+  outro: "the scene resolves and fades, warmth or melancholy settling in",
+  instrumental: "abstract flowing forms, pure visual music with no human figures"
+};
+
+function buildSongConcept(opts) {
+  if (opts.concept?.trim()) return opts.concept.trim();
+  var coverArtSubject = (opts.coverArtSubject || opts.subject || "").trim();
+  var title = (opts.title || "").trim();
+  var lyrics = opts.lyrics || "";
+  var description = opts.description || "";
+  // A person only enters via the no-subject fallback pool — never forced into a
+  // subject's scene (an "empty highway" subject must stay empty).
+  var personDesc = "";
+  if (opts.vocalistGender === "male" || opts.aboutGender === "male") personDesc = "a man";
+  else if (opts.vocalistGender === "female" || opts.aboutGender === "female") personDesc = "a woman";
+  else if (opts.vocalistGender === "duet") personDesc = "a man and a woman";
+  if (coverArtSubject) return coverArtSubject;
+  if (description?.trim()) return description.trim();
+  var titleConcept = extractTitleConcept(title);
+  if (titleConcept) return `In the spirit of the song "${title}", ${titleConcept}`;
+  var lyricImagery = extractLyricImagery(lyrics);
+  if (lyricImagery) return lyricImagery;
+  var themeKeywords = extractThemeKeywords(lyrics, 5);
+  if (themeKeywords.length > 0) {
+    return `A scene centered on ${themeKeywords.join(", ")}, rich with atmosphere and dramatic light`;
+  }
+  var fallbackScenes = personDesc ? [
+    `${personDesc} stands alone in a vast open landscape under a dramatic sky`,
+    `${personDesc} walks through drifting light and shadow in an endless space`,
+    `${personDesc} waits in a quiet room where a single beam of light falls through the dark`,
+    `${personDesc} moves through a dreamlike field of color and mist`
+  ] : [
+    "a vast open landscape stretches under a dramatic sky, light breaking through heavy clouds",
+    "soft abstract forms drift through a deep field of color, lit from within",
+    "a lone light source glows in a wide dark space, its reflections spreading across still water",
+    "weathered textures fill the frame, carved by time and lit with warm directional light",
+    "layered shapes recede into atmospheric depth, each one catching a different hue of light",
+    "a single road cuts through an endless plain toward a glowing horizon"
+  ];
+  return fallbackScenes[Math.floor(Math.random() * fallbackScenes.length)];
+}
 
 function buildCoverArtPrompt(opts) {
   if (opts.prompt?.trim()) {
     return opts.prompt.trim();
   }
-  var parts = [];
-  var style = opts.style || "";
-  var title = opts.title || "";
-  var lyrics = opts.lyrics || "";
-  var description = opts.description || "";
-  var coverArtSubject = opts.coverArtSubject || opts.subject || "";
+  var style = (opts.style || "").trim();
   var sectionType = (opts.sectionType || "").toLowerCase().replace(/[^a-z-]/g, "");
-  var sectionIndex = typeof opts.sectionIndex === "number" ? opts.sectionIndex : -1;
-  var totalSections = typeof opts.totalSections === "number" ? opts.totalSections : 0;
-  var vocalistGender = opts.vocalistGender || "";
-  var aboutGender = opts.aboutGender || "";
-
-  var act = 0;
-  if (sectionIndex >= 0 && totalSections > 0) {
-    var pct = sectionIndex / Math.max(1, totalSections - 1);
-    act = pct < 0.33 ? 1 : pct < 0.66 ? 2 : 3;
-  }
-
-  var lyricImagery = extractLyricImagery(lyrics);
-  var themeKeywords = extractThemeKeywords(lyrics, 5);
-
-  var personDesc = "";
-  if (vocalistGender === "male" || aboutGender === "male") personDesc = "a man";
-  else if (vocalistGender === "female" || aboutGender === "female") personDesc = "a woman";
-  else if (vocalistGender === "duet") personDesc = "a man and a woman";
-
-  if (coverArtSubject && sectionType) {
-    var tone = SECTION_VISUAL_TONE[sectionType] || SECTION_VISUAL_TONE["verse"];
-    if (act > 0 && ACT_EMPHASIS[act]) {
-      parts.push(coverArtSubject + ", " + ACT_EMPHASIS[act] + ", " + tone);
-    } else {
-      parts.push(coverArtSubject + ", " + tone);
-    }
-    if (lyricImagery) {
-      parts.push("visual details: " + lyricImagery);
-    }
-  } else if (coverArtSubject) {
-    var enrichedSubject = coverArtSubject;
-    if (personDesc && !/man|woman|boy|girl|he|she|male|female/i.test(coverArtSubject)) {
-      enrichedSubject = personDesc + " in a scene of " + coverArtSubject;
-    }
-    parts.push(enrichedSubject);
-    if (lyricImagery) parts.push("visual details: " + lyricImagery);
-  } else if (description?.trim()) {
-    parts.push(description.trim());
-  } else if (lyricImagery) {
-    var titleConcept = extractTitleConcept(title);
-    if (titleConcept) {
-      parts.push("A scene inspired by \"" + title.trim() + "\": " + titleConcept);
-    } else {
-      parts.push("Visual composition featuring: " + lyricImagery);
-    }
-  } else if (themeKeywords.length > 0) {
-    parts.push("A scene evoking themes of " + themeKeywords.join(", "));
-  } else {
-    var fallbackScenes = personDesc ? [
-      personDesc + " standing in a vast ethereal landscape under a dramatic sky",
-      personDesc + " silhouetted against flowing abstract forms with rich color gradients",
-      personDesc + " in a mysterious atmospheric scene with dramatic lighting",
-      personDesc + " surrounded by symbolic objects in dramatic composition",
-      personDesc + " amidst organic shapes merging with geometric patterns"
-    ] : [
-      "a vast ethereal landscape under a dramatic sky",
-      "abstract flowing forms with rich color gradients",
-      "a mysterious figure silhouetted against light",
-      "symbolic objects arranged in dramatic composition",
-      "organic shapes merging with geometric patterns"
-    ];
-    parts.push(fallbackScenes[Math.floor(Math.random() * fallbackScenes.length)]);
-  }
-
-  var genreVisuals = getGenreVisuals(style);
-  if (genreVisuals) {
-    parts.push(genreVisuals);
+  var isSection = typeof opts.sectionIndex === "number" && opts.sectionIndex >= 0 && (opts.totalSections || 0) > 0;
+  var concept = buildSongConcept(opts);
+  var genreMood = getGenreVisuals(style);
+  var styleLabel = (style.split(",")[0] || "").trim().toLowerCase() || "music";
+  var sentences = [concept];
+  if (genreMood) {
+    sentences.push(`The image carries a ${styleLabel} mood: ${genreMood}.`);
   } else if (style) {
-    var styleWords = style.split(",").map(function(w) { return w.trim().toLowerCase(); }).filter(function(w) { return w.length > 2 && !w.includes("_"); }).slice(0, 2);
-    if (styleWords.length > 0) {
-      parts.push(styleWords.join(" ") + " aesthetic");
-    }
+    sentences.push(`The image carries a ${styleLabel} mood.`);
   }
-
-  parts.push("no text, no words, no letters, no signs, no UI, no HUD, no watermark");
-
-  if (sectionIndex >= 0 && totalSections > 0) {
-    var progress = sectionIndex / Math.max(1, totalSections - 1);
+  if (isSection) {
+    var progress = opts.sectionIndex / Math.max(1, (opts.totalSections || 1) - 1);
     var arcDesc = progress < 0.2 ? "an opening moment"
       : progress < 0.4 ? "a building moment"
       : progress < 0.6 ? "a peak emotional moment"
       : progress < 0.8 ? "an intensifying moment"
       : "a closing moment";
-    /* PGFX: Avoid storyboard/chapter language — FLUX.2 renders narrative phrasing as multi-panel grids.
-       Force a single full-frame composition and move continuity into a per-series consistency note. */
-    parts.push("SINGLE IMAGE, SINGLE FRAME: one full-frame composition showing one scene only. Not a storyboard, not a comic strip, not multiple panels, not a grid of images, not a sequence, not a collage. This image stands alone.");
-    parts.push("Visual consistency: same characters, same location, same lighting palette as the other section images in this series (each section image is generated separately as its own single image).");
-    parts.push("Song moment: " + arcDesc);
+    var sectionMood = SECTION_MOOD[sectionType] || SECTION_MOOD.verse;
+    sentences.push(`This image is ${arcDesc} of the song: ${sectionMood}.`);
+    sentences.push("The same characters, location and lighting continue across every image in this series, each one rendered as a separate single frame.");
   }
-
-  parts.push("photorealistic, real photograph, no text, no words, no letters, no signs, no UI, no HUD, no watermark, no drawing, no illustration, no comic, no anime, no cartoon, no painted style");
-
-  var suffixPool = [
-    "cinematic photography, dramatic natural lighting, shallow depth of field, film grain, RAW photo quality",
-    "professional photography, atmospheric lighting, rich textures, shot on 35mm lens, vivid realism",
-    "editorial photography, balanced composition, nuanced color grading, gallery quality photograph",
-    "documentary style photography, authentic atmosphere, real-world lighting, compelling visual narrative",
-    "fine art photography, luminous natural light, intricate detail, breathtaking cinematic composition",
-    "portrait photography, volumetric lighting, sharp focus on subject, award-winning photojournalism",
-    "landscape photography, epic scale, atmospheric perspective, golden hour warmth, visually striking",
-    "street photography, candid moment, dynamic composition, raw emotion, real-world texture"
-  ];
-  var suffix = suffixPool[Math.floor(Math.random() * suffixPool.length)];
-  parts.push(suffix);
-  return parts.join(". ");
+  sentences.push("Each image is one full-frame scene standing completely alone — never a storyboard, comic strip, grid or collage.");
+  sentences.push("The composition is cinematic and richly detailed, with no text and no lettering anywhere.");
+  // Every element must read as a complete sentence for FLUX.2 prose prompting.
+  var normalizeSentence = function(s) { return s.trim().replace(/[.!?]+\s*$/, "") + "."; };
+  return sentences.map(normalizeSentence).join(" ");
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -487,21 +472,18 @@ function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, ti
 
   const visualEssence = extractVisualEssence(lyrics);
 
-  const parts = [
-    `Scene: ${visualWorld}`,
-    `Song moment: ${narrative.position}, ${narrative.energy} — ${narrativeArc}`,
-    genreVisual ? `Visual style: ${genreVisual}` : "",
-    `Atmosphere: ${scene.mood}`,
-    `Moment: ${scene.pose}`,
-    visualEssence ? `Imagery: ${visualEssence}` : "",
-    title ? `Song theme: ${title}` : "",
-    /* PGFX: FLUX.2 treats "visual story/chapters" as a request for multi-panel storyboards.
-       Keep per-series consistency without narrative framing; force a single frame. */
-    `Visual consistency: same characters, same location, same lighting palette as the other section images in this series (each section image is generated separately as its own single image).`,
-    "SINGLE IMAGE, SINGLE FRAME: one full-frame composition showing one scene only. Not a storyboard, not a comic strip, not multiple panels, not a grid of images, not a sequence, not a collage. This image stands alone.",
-    "cinematic film still, dramatic lighting, photorealistic, 8k"
-  ].filter(Boolean);
-  return parts.join(". ");
+  const sentences = [visualWorld];
+  sentences.push(`This image belongs to a ${narrativeArc}: ${scene.mood}.`);
+  if (genreVisual) sentences.push(`The setting carries a ${genreKey} atmosphere: ${genreVisual}.`);
+  sentences.push(scene.pose);
+  if (visualEssence) sentences.push(`Imagery drawn from the lyrics: ${visualEssence}.`);
+  if (title) sentences.push(`The song's theme is "${title}".`);
+  /* PGFX: FLUX.2 treats "visual story/chapters" as a request for multi-panel storyboards.
+     Keep per-series consistency without narrative framing; force a single frame. */
+  sentences.push("The same characters, location and lighting continue across every image in this series, each one rendered as a separate single frame.");
+  sentences.push("Each image is one full-frame scene standing completely alone — never a storyboard, comic strip, grid or collage.");
+  sentences.push("Cinematic and photorealistic with dramatic lighting and no text or lettering anywhere.");
+  return sentences.filter(Boolean).join(" ");
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════

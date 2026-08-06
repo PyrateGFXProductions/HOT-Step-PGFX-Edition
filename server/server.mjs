@@ -47595,36 +47595,143 @@ function getGenreVisuals(style) {
   if (!style) return "";
   const lower = style.toLowerCase();
   for (const [genre, visuals] of Object.entries(GENRE_VISUALS)) {
-    if (lower.includes(genre)) return visuals;
+    // Word-boundary match: prevents 'r' matching every style ("warm intimate lighting"
+    // on every EDM cover) and 'hip' matching "ship"/"chipped".
+    const re = new RegExp(`(^|[^a-z0-9&+#])${genre}([^a-z0-9&+#]|$)`);
+    if (re.test(lower)) return visuals;
   }
   return "";
+}
+function extractLyricImagery(lyrics) {
+  if (!lyrics?.trim()) return "";
+  let cleaned = lyrics.replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "").replace(/\n+/g, " ").trim();
+  if (!cleaned) return "";
+  const lines = cleaned.split(/[.!?]+/).map((l) => l.trim()).filter((l) => l.length > 8);
+  if (lines.length === 0) return "";
+  const visualWords = /\b(sun|moon|stars?|sky|sea|ocean|fire|rain|storm|night|day|light|dark|shadow|colors?|red|blue|gold|silver|street|road|door|window|wall|floor|hands?|face|eyes?|heart|bone|blood|stone|iron|steel|wood|glass|water|wind|dust|smoke|flame|neon|chrome|concrete|asphalt|jungle|forest|mountain|river|desert|city|town|speaker|stage|crowd|dancefloor|turntable|vinyl|microphone|amplifier|subwoofer|bass|drum|guitar|crown|sword|chain|mask|ghost|angel|devil|abyss|horizon|gate|tower|bridge|rose|thorn|vine|leaf|tree|flower|garden|cliff|cave|beach|shore|cloud|frost|ember|spark|wave|tide|thunder|lightning|fog|mist|ash|dirt|mud|sand|gravel)\b/gi;
+  let bestLine = "", bestScore = 0;
+  for (const line of lines) {
+    const matches = line.match(visualWords) || [];
+    if (matches.length > bestScore) { bestScore = matches.length; bestLine = line; }
+  }
+  const chosen = (bestLine || lines[0]).replace(/[,;.!?]+$/, "").trim();
+  return chosen.length > 150 ? chosen.substring(0, 150) : chosen;
+}
+function extractTitleConcept(title) {
+  if (!title?.trim()) return "";
+  const t = title.trim().toLowerCase();
+  const conceptMap = {
+    "midnight": "a city at midnight, deep blue quiet, a few lone lights burning in the dark",
+    "night": "a clear night sky full of stars above dark sleeping shapes, deep and moody",
+    "sunset|dusk|evening": "the sky burns gold and orange at sunset, long shadows stretching across the horizon",
+    "sunrise|dawn|morning": "soft pastel light breaks over the horizon at dawn, fresh and hopeful",
+    "love|heart|romance": "two figures draw close together in warm red light, intimate and tender",
+    "lonely|alone|solo": "a single figure stands in a vast empty space, muted and still",
+    "fire|burn|flame": "glowing embers drift upward from a bright flame against the dark",
+    "rain|storm|thunder": "heavy rain pours down in sheets, lightning flickering inside towering clouds",
+    "ocean|sea|wave|tide": "endless ocean rolls under a dramatic sky, deep blues and white foam",
+    "desert|sand|dust": "endless sand dunes carved by wind glow warm amber in the low sun",
+    "city|urban|street|block": "a canyon of city lights at night, windows glowing in towers that climb into the dark",
+    "space|star|galaxy|cosmos": "deep space filled with nebula color, distant stars, a sense of infinite scale",
+    "ghost|spirit|phantom": "a translucent figure glows cold blue inside an ethereal haze",
+    "angel|heaven": "soft radiant light spills from above, feathers and halos in a warm celestial glow",
+    "devil|hell|demon": "an infernal glow of red and black, smoke and embers curling around menacing shapes",
+    "gold|golden": "gilded metallic light floods the scene, rich and opulent",
+    "blood|bleed|red": "deep crimson tones with dramatic contrast, raw and visceral",
+    "hunter|hunt|prey|chase": "the tension of pursuit, harsh natural light, a predator locked on its target",
+    "dream|dreams": "a surreal soft-focus dreamscape with impossible architecture and pastel haze",
+    "war|battle|fight|enemy": "smoke and steel on a battlefield, hard contrast, charged with conflict",
+    "money|rich|fame|glory": "golden spotlight and shine, luxurious textures, a moment of triumph",
+    "road|highway|drive": "an open road stretches to the horizon, sky meeting asphalt, motion in the air",
+    "home|house|back": "warm light spills from familiar windows, a nostalgic domestic glow",
+    "fear|afraid|terror": "cold shadows press in, dim uncertain light, an anxious angle",
+    "hope": "soft warm light breaks through darkness, an upward gaze, a gentle glow",
+    "goodbye|farewell|leave": "a figure walks away into long shadows, muted tones of farewell",
+    "forever|eternal|infinity": "endless horizons and circular forms under timeless light"
+  };
+  for (const [pattern, concept] of Object.entries(conceptMap)) {
+    if (new RegExp(pattern).test(t)) return concept;
+  }
+  return "";
+}
+const SECTION_MOOD = {
+  intro: "the scene opens gently, soft light gradually revealing itself",
+  verse: "the scene turns intimate and observational, natural grounded light",
+  "pre-chorus": "tension builds as the light begins to shift and gather",
+  chorus: "the scene opens wide and vivid, color and emotion at full intensity",
+  "post-chorus": "the energy lingers, a resonant afterglow settling over everything",
+  bridge: "the scene shifts into a dreamlike space, a different palette than the verses",
+  interlude: "a suspended quiet moment, the visual world holding its breath",
+  outro: "the scene resolves and fades, warmth or melancholy settling in",
+  instrumental: "abstract flowing forms, pure visual music with no human figures"
+};
+function buildSongConcept(opts) {
+  if (opts.concept?.trim()) return opts.concept.trim();
+  const coverArtSubject = (opts.coverArtSubject || opts.subject || "").trim();
+  const title = (opts.title || "").trim();
+  const lyrics = opts.lyrics || "";
+  // A person only enters via the no-subject fallback pool — never forced into a
+  // subject's scene (an "empty highway" subject must stay empty).
+  let personDesc = "";
+  if (opts.vocalistGender === "male" || opts.aboutGender === "male") personDesc = "a man";
+  else if (opts.vocalistGender === "female" || opts.aboutGender === "female") personDesc = "a woman";
+  else if (opts.vocalistGender === "duet") personDesc = "a man and a woman";
+  if (coverArtSubject) return coverArtSubject;
+  const titleConcept = extractTitleConcept(title);
+  if (titleConcept) return `In the spirit of the song "${title}", ${titleConcept}`;
+  const lyricImagery = extractLyricImagery(lyrics);
+  if (lyricImagery) return lyricImagery;
+  const themeKeywords = extractThemeKeywords(lyrics, 5);
+  if (themeKeywords.length > 0) {
+    return `A scene centered on ${themeKeywords.join(", ")}, rich with atmosphere and dramatic light`;
+  }
+  const fallbackScenes = personDesc ? [
+    `${personDesc} stands alone in a vast open landscape under a dramatic sky`,
+    `${personDesc} walks through drifting light and shadow in an endless space`,
+    `${personDesc} waits in a quiet room where a single beam of light falls through the dark`,
+    `${personDesc} moves through a dreamlike field of color and mist`
+  ] : [
+    "a vast open landscape stretches under a dramatic sky, light breaking through heavy clouds",
+    "soft abstract forms drift through a deep field of color, lit from within",
+    "a lone light source glows in a wide dark space, its reflections spreading across still water",
+    "weathered textures fill the frame, carved by time and lit with warm directional light",
+    "layered shapes recede into atmospheric depth, each one catching a different hue of light",
+    "a single road cuts through an endless plain toward a glowing horizon"
+  ];
+  return fallbackScenes[Math.floor(Math.random() * fallbackScenes.length)];
 }
 function buildCoverArtPrompt(opts) {
   if (opts.prompt?.trim()) {
     return opts.prompt.trim();
   }
-  const parts = [];
-  if (opts.subject?.trim()) {
-    parts.push(opts.subject.trim());
-  } else {
-    const keywords = extractThemeKeywords(opts.lyrics || "", 5);
-    if (keywords.length > 0) {
-      parts.push(`a scene evoking ${keywords.join(", ")}`);
-    } else {
-      parts.push("a striking visual composition with dramatic lighting");
-    }
+  const style = (opts.style || "").trim();
+  const sectionType = (opts.sectionType || "").toLowerCase();
+  const isSection = typeof opts.sectionIndex === "number" && opts.sectionIndex >= 0 && (opts.totalSections || 0) > 0;
+  const concept = buildSongConcept(opts);
+  const genreMood = getGenreVisuals(style);
+  const styleLabel = (style.split(",")[0] || "").trim().toLowerCase() || "music";
+  const sentences = [concept];
+  if (genreMood) {
+    sentences.push(`The image carries a ${styleLabel} mood: ${genreMood}.`);
+  } else if (style) {
+    sentences.push(`The image carries a ${styleLabel} mood.`);
   }
-  const genreVisuals = getGenreVisuals(opts.style || "");
-  if (genreVisuals) {
-    parts.push(genreVisuals);
-  } else if (opts.style) {
-    const styleWords = opts.style.split(",").map((w) => w.trim().toLowerCase()).filter((w) => w.length > 2 && !w.includes("_")).slice(0, 2);
-    if (styleWords.length > 0) {
-      parts.push(`${styleWords.join(" ")} aesthetic`);
-    }
+  if (isSection) {
+    const progress = opts.sectionIndex / Math.max(1, (opts.totalSections || 1) - 1);
+    const arcDesc = progress < 0.2 ? "an opening moment"
+      : progress < 0.4 ? "a building moment"
+      : progress < 0.6 ? "a peak emotional moment"
+      : progress < 0.8 ? "an intensifying moment"
+      : "a closing moment";
+    const sectionMood = SECTION_MOOD[sectionType] || SECTION_MOOD.verse;
+    sentences.push(`This image is ${arcDesc} of the song: ${sectionMood}.`);
+    sentences.push("The same characters, location and lighting continue across every image in this series, each one rendered as a separate single frame.");
   }
-  parts.push("digital painting, cinematic composition, highly detailed, beautiful lighting, 8k");
-  return parts.join(", ");
+  sentences.push("Each image is one full-frame scene standing completely alone — never a storyboard, comic strip, grid or collage.");
+  sentences.push("The composition is cinematic and richly detailed, with no text and no lettering anywhere.");
+  // Every element must read as a complete sentence for FLUX.2 prose prompting.
+  const normalizeSentence = (s) => s.trim().replace(/[.!?]+\s*$/, "") + ".";
+  return sentences.map(normalizeSentence).join(" ");
 }
 var STOP_WORDS, GENRE_VISUALS;
 var init_promptBuilder = __esm({
@@ -47732,26 +47839,38 @@ var init_promptBuilder = __esm({
       "been"
     ]);
     GENRE_VISUALS = {
-      rock: "dramatic lighting, electric atmosphere, high contrast",
-      metal: "dark dramatic scene, intense fire and shadows, heavy atmosphere",
-      punk: "gritty urban scene, raw energy, bold colors, rebellion",
-      pop: "vibrant colors, clean aesthetic, bright lighting, contemporary",
-      electronic: "neon lights, futuristic environment, glowing particles, cyberpunk",
-      jazz: "warm golden tones, smoky atmosphere, elegant mood, sophisticated",
-      blues: "moody blue tones, deep shadows, soulful atmosphere",
-      folk: "natural landscapes, warm earth tones, rustic beauty, pastoral",
-      classical: "elegant composition, renaissance lighting, grand architecture",
-      hip: "urban cityscape, bold colors, street culture, dynamic perspective",
-      rap: "urban environment, dramatic angles, street aesthetic",
-      country: "wide open landscapes, golden hour, rural beauty, americana",
-      indie: "dreamy atmosphere, soft pastel colors, artistic composition",
-      r: "warm intimate lighting, smooth gradients, elegant silhouettes",
-      ambient: "ethereal landscapes, soft focus, atmospheric mist, dreamlike",
-      bossa: "tropical sunset, warm golden light, coastal paradise",
-      reggae: "tropical colors, island vibes, sunset hues, laid-back mood",
-      soul: "warm rich tones, intimate atmosphere, emotional depth",
-      funk: "bold psychedelic colors, retro vibes, dynamic energy",
-      alternative: "moody atmosphere, artistic composition, unconventional beauty"
+      rock: "raw electric energy, harsh shadows and bright highlights, gritty texture",
+      metal: "a dark monumental scene lit by fire and shadow, heavy and intense",
+      punk: "loud rebellion, bold clashing colors, DIY grit and raw attitude",
+      pop: "clean bright gloss, vibrant saturated color, polished contemporary surfaces",
+      electronic: "sleek futuristic shapes glowing with neon, light cutting through darkness",
+      jazz: "warm golden haze, smoky late-night intimacy, elegant brass reflections",
+      blues: "deep moody blue shadows, soulful worn textures, honest emotion",
+      folk: "earthy natural warmth, rustic handcrafted textures, open pastoral light",
+      classical: "grand elegant architecture, renaissance chiaroscuro, timeless composition",
+      hip: "bold graphic confidence, dynamic angles, expressive street energy",
+      rap: "sharp dramatic contrast, high-energy attitude, bold graphic lines",
+      country: "wide golden skies, weathered wood, warm americana openness",
+      indie: "dreamy soft light, intimate artistic detail, gentle pastel mood",
+      rnb: "smooth warm intimacy, velvet shadows, elegant soft gradients",
+      "r&b": "smooth warm intimacy, velvet shadows, elegant soft gradients",
+      ambient: "vast ethereal space, soft drifting mist, weightless calm",
+      techno: "dark warehouse pulse, minimal red and white light, industrial concrete",
+      house: "warm floor-to-ceiling energy, glowing disco ball, soulful nightclub haze",
+      edm: "massive festival stage, laser arrays cutting through crowd haze, explosive color",
+      dubstep: "bass you can see, shockwave light, festival LED walls",
+      synthwave: "retro neon grid, chrome sunset, 80s future glow",
+      trap: "dark moody luxury, neon-tinted night, slow heavy bass light",
+      drill: "hard-edged contrast, rain-slicked shadow, stark urban tension",
+      "lo-fi": "warm tape-grain softness, cozy golden lamplight, nostalgic calm",
+      phonk: "gritty Memphis darkness, muscle-car headlights, distortion and haze",
+      hyperpop: "electric candy color, glitchy playful energy, surreal brightness",
+      industrial: "cold steel and machinery, harsh halogen glare, mechanical texture",
+      bossa: "golden coastal warmth, tropical ease, gentle sunlit waves",
+      reggae: "sunset island warmth, laid-back color, sound-system soul",
+      soul: "rich vintage warmth, deep emotional tones, golden-era texture",
+      funk: "bold groovy color, psychedelic retro energy, rhythmic pattern",
+      alternative: "stark artistic contrast, moody unconventional beauty"
     };
   }
 });
@@ -122715,6 +122834,7 @@ Your tags MUST cover these dimensions:
 6. SPATIAL CHARACTERISTICS: Stereo width, depth placement (intimate/distant), movement in space, layering
 7. TIMBRAL QUALITIES: Warmth vs coldness, brightness vs darkness, analog vs digital character, frequency balance
 8. UNIQUE SONIC SIGNATURE: What makes THIS track unmistakable \u2014 the defining element a listener would recognise in 3 seconds
+9. SUBJECT & MOOD ENCODED IN THE SOUND: How the SONG SUBJECT's imagery, mood, and emotional world translate into sound. This is what makes the music feel like it is ABOUT the subject, not just generic for the genre. Concrete examples: a song about "the last hour of daylight" should describe "sparse piano notes decaying like fading light, warm low strings sinking into darkness, the arrangement slowly dimming as it progresses"; a song about a "pounding heartbeat" should say "kick drum hits like a racing pulse, tension builds with every bar"; a song about "an empty city at 3AM" should say "lonely synth pads echoing through empty streets, sparse hi-hats like distant footsteps". For EVERY song, weave 2-4 subject-specific sonic metaphors into the tags. Even when the subject is abstract or emotional, tie a concrete sound to it.
 
 BAD tags (too generic):
 "Upbeat pop song with catchy melody, energetic drums, and bright synths. Positive vibes with clean production."
@@ -122771,6 +122891,7 @@ CRITICAL DJ VARIETY RULE — DO NOT SKIP:
 
 CRITICAL TAG RULES:
 - Tags describe the SOUND, not the structure or timeline. Never write "verse starts with..." or "chorus builds to..."
+- The tags are the ONLY text the audio engine conditions on \u2014 if the subject never appears in the tags, the music has no idea what the song is about and will drift to generic genre-slop. ALWAYS include subject-derived sonic imagery (dimension 9).
 - Write in English regardless of lyric language
 - Be specific: "breathy female vocal with subtle plate reverb" not just "female vocal"
 - Match the genre's real-world production aesthetic — use the genre-specific examples above as a reference for instrumentation, effects, and sonic character
@@ -308885,6 +309006,17 @@ async function runExtraction(job, ditSettings, style, lyrics) {
       logGeneration(stemLogId, "INFO", `Stem extraction: ${trackName} (${i + 1}/${job.tracks.length})`);
       logGeneration(stemLogId, "INFO", `Source: ${job.sourceFileName}`);
       console.log(`[StemStudio] Job ${job.id}: extracting track ${i + 1}/${job.tracks.length} \u2014 ${trackName}`);
+      // PGFX FIX (2026-08-05): audio_cover_strength was forced to 1.0, which makes
+      // the engine's Context-Silence step-switch land at step 0 — the DiT never
+      // leaves the source mix, so EVERY track came back as a byte-identical copy
+      // of the full mix (7/7 tracks = 45945 KB each in the user's run).
+      // The working Cover Studio path defaults to 0.5 (switch at step N/2):
+      // half the steps keep the source structure, half generate the requested
+      // stem freely. Mirror that here so each track is actually isolated.
+      const isVocalTrack = trackName === "vocals" || trackName === "backing_vocals";
+      const extractNegative = isVocalTrack
+        ? "instrumental, music accompaniment, full mix, drums, bass, guitar, keyboard, synth, orchestra, melody without vocals, instruments playing"
+        : "vocals, singing, voice, vocal melody, lyrics, choir, human voice, singer";
       const aceReq = {
         caption: style || "",
         // Only pass lyrics for the 'vocals' track — feeding them into other
@@ -308892,8 +309024,11 @@ async function runExtraction(job, ditSettings, style, lyrics) {
         lyrics: trackName === "vocals" ? lyrics || "" : "",
         task_type: "extract",
         track: trackName,
-        audio_cover_strength: 1,
-        // forced — DiT sees full mix
+        audio_cover_strength: 0.5,
+        // Context-Silence switch at step N/2: source mix guides structure,
+        // then the DiT is free to isolate the requested track.
+        negative_prompt: extractNegative,
+        // Push the DiT away from the other stems for cleaner isolation
         // Use the client-specified model (forced to base/SFT)
         synth_model: ditSettings?.ditModel,
         // Inherit basic DiT settings (or use engine defaults)
@@ -309696,6 +309831,7 @@ router21.post("/llm", async (req, res) => {
       "- NEVER use these AI-generic words: neon, analog, ethereal, shimmering, cascade, kaleidoscope, tapestry, phantom, ghostly, wailing, howling, flickering, drenched, echo-drenched, glare, haze, whispers, echoes, shadows, starlight, heartbeat, delve.",
       "- THE 'GREASE SPOT' RULE: Write about PHYSICAL OBJECTS and MUNDANE DETAILS. Instead of abstract feelings, use concrete nouns: broken lighters, specific car models, grease spots on linoleum, receipts, license plates, cold coffee. Concrete nouns starve the AI of the abstract pathways that produce slop. But make sure physical objects interact plausibly — a cigarette pack gets torn open, not 'leaked.' A chain snaps or drags, it doesn't 'weep.' EXCEPTION for existential genres (doom, black, prog metal, folk, shoegaze): abstract language is part of their identity — ground each abstract concept with one concrete image per verse.",
       "- NARRATIVE COHERENCE: Every image must connect to the subject. If the subject is 'the last hour of daylight,' every line should relate to fading light, dying sun, encroaching darkness, or time running out. Random objects unrelated to the subject (cold tea, copper coins, newspapers) make no sense. Each verse is a scene — images within it must rhyme thematically. The subject is the CENTER — every line orbits it.",
+      "- NEVER WRITE ABOUT THE MUSIC ITSELF: The song must be about the SUBJECT, not about the genre, the beat, the studio, the DJ, the producer, the band, or the scene. 'The bass hits hard', 'I'm spitting fire on the mic', 'the crowd goes wild', 'we rock the stage' are FAILURES unless the subject itself is literally about performing music. A song about 'a midnight drive' must describe driving — headlights, empty roads, gas stations — NOT 'I drop the beat at midnight'. The genre palette is for VOCABULARY flavor (how you say things), never the TOPIC (what you say). If the listener can't tell what the subject is from the lyrics alone, you have failed.",
       "- 3-ACT STORY STRUCTURE: Every song tells a story. Act 1 (Verse 1): Setup — establish the world, the subject, where we are. Act 2 (Verse 2-3): Tension — deepen the conflict, raise stakes, build pressure. Act 3 (Verse 4+): Resolution — climax, transformation, the final image that lingers. A song with 4 verses of unrelated images is a list, not a story. The listener needs to feel the song went SOMEWHERE.",
       "- Write like a REAL PERSON from this genre would write, not like an AI. A punk singer doesn't say 'analog heart'. A reggae artist doesn't say 'neon rain'.",
       "- VOCABULARY VARIETY (CRITICAL): Do NOT repeat the same key words or phrases across verses. If you use a strong word in Verse 1, find a DIFFERENT word for the same idea in Verse 2. Real songwriters avoid repeating their best lines — each verse should feel like a fresh take. The genre vocabulary palette is a pool to DRAW FROM, not a checklist to copy. Pick different words from it for each section.",
@@ -310505,10 +310641,22 @@ router21.post("/video/create", async (req, res) => {
     var sectionTimings = calculateSectionTimings(sections, effectiveBpm, songDuration, beatData.beats);
     console.log(`[VideoCreate] Section timings: [${sectionTimings.map(function(t) { return t.toFixed(1); }).join(", ")}]`);
     /* ── Step 4: Generate images for each section ── */
+    /* PGFX: One song concept drives EVERY section image (and matches the cover),
+       so the video stays visually cohesive with the album art. */
+    var songConcept = buildSongConcept({
+      coverArtSubject: resolvedSubject,
+      title: resolvedTitle,
+      lyrics: resolvedLyrics,
+      style: resolvedStyle,
+      vocalistGender: vocalistGender || "",
+      aboutGender: aboutGender || ""
+    });
+    console.log(`[VideoCreate] Song concept: "${songConcept}"`);
     var imageResults = [];
     for (var si = 0; si < sections.length; si++) {
       var sec = sections[si];
       var prompt = buildCoverArtPrompt({
+        concept: songConcept,
         title: resolvedTitle,
         style: resolvedStyle,
         lyrics: sec.lyrics,
