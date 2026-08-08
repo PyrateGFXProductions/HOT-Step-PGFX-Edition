@@ -237,9 +237,9 @@ function translateMusicTerms(text) {
 function extractLyricImagery(lyrics) {
   if (!lyrics?.trim()) return "";
   const translated = translateMusicTerms(lyrics);
-  const cleaned = translated.replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "").replace(/\n+/g, " ").trim();
+  const cleaned = translated.replace(/\[.*?\]/g, "").replace(/\(.*?\)/g, "").replace(/\r/g, "").trim();
   if (!cleaned) return "";
-  const lines = cleaned.split(/[.!?]+/).filter((l) => l.trim().length > 8);
+  const lines = cleaned.split(/[.!?\n]+/).filter((l) => l.trim().length > 8);
   if (lines.length === 0) return "";
   const visualWords = /\b(sun|moon|stars?|sky|sea|ocean|fire|rain|storm|night|day|light|dark|shadow|color|red|blue|gold|silver|street|road|door|window|wall|floor|hand|face|eye|heart|bone|blood|stone|iron|steel|wood|glass|water|wind|dust|smoke|flame|neon|chrome|concrete|asphalt|jungle|forest|mountain|river|desert|city|town|speaker|stage|crowd|dancefloor|turntable|vinyl|microphone|amplifier|subwoofer|bass|drum|guitar|crown|sword|chain|mask|ghost|angel|devil|shadow|abyss|horizon|gate|tower|bridge|rose|thorn|vine|leaf|tree|flower|garden|cliff|cave|beach|shore|cloud|frost|ember|spark|flame|wave|tide|thunder|lightning|fog|mist|ash|dust|dirt|mud|sand|gravel)\b/gi;
   let bestLine = "";

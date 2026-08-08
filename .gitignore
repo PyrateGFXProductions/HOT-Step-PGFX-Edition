@@ -32,6 +32,7 @@ noise_samples/
 # ── Server data — generated audio, stems, references (27 GB) 
 server/data/
 server/node_modules/
+ui/dist/disguise
 
 # ── Logs ─────────────────────────────────────────────────────
 logs/
@@ -55,6 +56,9 @@ Thumbs.db
 *.swp
 *.swo
 *~
+*test.*
+*check.*
+_dirstrip*.*
 .vscode/
 .idea/
 

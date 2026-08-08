@@ -480,8 +480,15 @@ const FFT = 2048;
    STATE
    ═══════════════════════════════════════════════════════════════════════ */
 const params = new URLSearchParams(window.location.search);
+/* The id param may carry a disco/mastered suffix (e.g. '<uuid>_disco') if the
+   opener passed a derived URL instead of the bare song id. Strip it. */
+let _rawSongId = params.get('id') || null;
+if (_rawSongId) {
+  _rawSongId = _rawSongId.replace(/_(disco|mastered|engine)$/i, '');
+  if (_rawSongId.indexOf('_') >= 0) _rawSongId = _rawSongId.split('_')[0];
+}
 const S = {
-  songId: params.get('id') || null,
+  songId: _rawSongId,
   songTitle: params.get('title') || 'Untitled',
   songDuration: 0,
   playing: false,
@@ -1771,7 +1778,7 @@ function populateSectionSelects() {
   });
 }
 
-async function getAuthToken() {
+async function getAuthToken(forceRefresh) {
   var token = null;
   try { token = JSON.parse(localStorage.getItem('ace-settings') || '{}').token || null; } catch(e) {}
   if (!token) { try { token = JSON.parse(localStorage.getItem('hs-auth') || '{}').token || null; } catch(e) {} }
@@ -1779,7 +1786,38 @@ async function getAuthToken() {
     var ks = ['hs-album-token', 'hs-token', 'auth-token', 'ace-token'];
     for (var k = 0; k < ks.length; k++) { var v = localStorage.getItem(ks[k]); if (v) { token = v; break; } }
   }
+  /* Server tokens live in an in-memory Map — after a server restart any stored
+     token is stale and every authed call 401s. Mint a fresh one lazily. */
+  if (forceRefresh || !token) {
+    try {
+      var r = await fetch('/api/auth/auto', { method: 'GET' });
+      if (r.ok) {
+        var d = await r.json();
+        if (d && d.token) {
+          token = d.token;
+          try { var s = JSON.parse(localStorage.getItem('ace-settings') || '{}'); s.token = token; localStorage.setItem('ace-settings', JSON.stringify(s)); } catch(e) {}
+          try { localStorage.setItem('hs-auth', JSON.stringify({ token: token })); } catch(e) {}
+        }
+      }
+    } catch(e) {}
+  }
   return token;
+}
+
+/* Retry-on-401 comfyui POST. Stale localStorage tokens 401 after a server
+   restart; refresh via /api/auth/auto and retry exactly once. */
+async function comfyPost(path, body) {
+  var token = await getAuthToken();
+  var headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  var resp = await fetch(path, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+  if (resp.status === 401) {
+    token = await getAuthToken(true);
+    headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    resp = await fetch(path, { method: 'POST', headers: headers, body: JSON.stringify(body) });
+  }
+  return resp;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1939,28 +1977,20 @@ async function generateImage(sectionName) {
   $('img-progress-fill').style.width = '10%';
 
   try {
-    var authHeaders = { 'Content-Type': 'application/json' };
-    var token = await getAuthToken();
-    if (token) authHeaders['Authorization'] = 'Bearer ' + token;
-
-    var resp = await fetch('/api/inspire/comfyui/generate-image', {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({
-        prompt: prompt,
-        section: section.name,
-        sectionType: section.name.toLowerCase().replace(/\s+/g, '-'),
-        lyrics: section.lyrics || '',
-        songId: S.songId,
-        sectionIndex: S.sections.indexOf(section),
-        totalSections: S.sections.length,
-        width: 1920,
-        height: 1080,
-        /* Pipeline model selections from Pipeline Config */
-        unetModel: _pipelineModels.flux.unet,
-        vaeModel: _pipelineModels.flux.vae,
-        clipModel: _pipelineModels.flux.clip
-      })
+    var resp = await comfyPost('/api/inspire/comfyui/generate-image', {
+      prompt: prompt,
+      section: section.name,
+      sectionType: section.name.toLowerCase().replace(/\s+/g, '-'),
+      lyrics: section.lyrics || '',
+      songId: S.songId,
+      sectionIndex: S.sections.indexOf(section),
+      totalSections: S.sections.length,
+      width: 1920,
+      height: 1080,
+      /* Pipeline model selections from Pipeline Config */
+      unetModel: _pipelineModels.flux.unet,
+      vaeModel: _pipelineModels.flux.vae,
+      clipModel: _pipelineModels.flux.clip
     });
 
     var data = await resp.json();
@@ -1972,7 +2002,10 @@ async function generateImage(sectionName) {
       var done = false;
       while (!done) {
         await new Promise(function(r) { setTimeout(r, 2000); });
-        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId), { headers: authHeaders });
+        var statusToken = await getAuthToken();
+        var statusHdrs = {};
+        if (statusToken) statusHdrs['Authorization'] = 'Bearer ' + statusToken;
+        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId), { headers: statusHdrs });
         var statusData = await statusResp.json();
         $('img-progress-fill').style.width = (statusData.progress || 50) + '%';
 
@@ -2039,43 +2072,38 @@ async function generateVideoClip(sectionName) {
   $('vid-progress-fill').style.width = '10%';
 
   try {
-    var vidAuthHeaders = { 'Content-Type': 'application/json' };
-    var vidToken = await getAuthToken();
-    if (vidToken) vidAuthHeaders['Authorization'] = 'Bearer ' + vidToken;
-
-    var resp = await fetch('/api/inspire/comfyui/generate-video', {
-      method: 'POST',
-      headers: vidAuthHeaders,
-      body: JSON.stringify({
-        prompt: prompt,
-        section: section.name,
-        songId: S.songId,
-        imageUrl: section.imageUrl || null,
-        audioUrl: section.audioUrl || S.audioUrl || null,
-        audioStart: section.startTime || 0,
-        audioDuration: section.endTime - section.startTime,
-        width: 1920,
-        height: 1080,
-        duration: section.endTime - section.startTime,
-        /* Pipeline model selections from Pipeline Config */
-        unetModel: _pipelineModels.ltx.unet,
-        vaeModel: _pipelineModels.ltx.vae,
-        clipModel: _pipelineModels.ltx.clip,
-        audioVaeModel: _pipelineModels.ltx.audioVae,
-        icLoraModel: _pipelineModels.ltx.icLora,
-        upscaleModel: _pipelineModels.ltx.upscale
-      })
+    var vidResp = await comfyPost('/api/inspire/comfyui/generate-video', {
+      prompt: prompt,
+      section: section.name,
+      songId: S.songId,
+      imageUrl: section.imageUrl || null,
+      audioUrl: section.audioUrl || S.audioUrl || null,
+      audioStart: section.startTime || 0,
+      audioDuration: section.endTime - section.startTime,
+      width: 1920,
+      height: 1080,
+      duration: section.endTime - section.startTime,
+      /* Pipeline model selections from Pipeline Config */
+      unetModel: _pipelineModels.ltx.unet,
+      vaeModel: _pipelineModels.ltx.vae,
+      clipModel: _pipelineModels.ltx.clip,
+      audioVaeModel: _pipelineModels.ltx.audioVae,
+      icLoraModel: _pipelineModels.ltx.icLora,
+      upscaleModel: _pipelineModels.ltx.upscale
     });
 
-    var data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || 'Video generation failed (HTTP ' + resp.status + ')');
+    var data = await vidResp.json();
+    if (!vidResp.ok) throw new Error(data.error || 'Video generation failed (HTTP ' + vidResp.status + ')');
     var taskId = data.taskId || data.jobId;
 
     if (taskId) {
       var done = false;
       while (!done) {
         await new Promise(function(r) { setTimeout(r, 3000); });
-        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId), { headers: vidAuthHeaders });
+        var statusToken = await getAuthToken();
+        var statusHdrs = {};
+        if (statusToken) statusHdrs['Authorization'] = 'Bearer ' + statusToken;
+        var statusResp = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId), { headers: statusHdrs });
         var statusData = await statusResp.json();
         $('vid-progress-fill').style.width = (statusData.progress || 30) + '%';
 
@@ -2160,31 +2188,23 @@ async function startExport() {
       };
     });
 
-    var exportAuthHeaders = { 'Content-Type': 'application/json' };
-    var exportToken = await getAuthToken();
-    if (exportToken) exportAuthHeaders['Authorization'] = 'Bearer ' + exportToken;
-
-    var resp = await fetch('/api/inspire/comfyui/export-mp4', {
-      method: 'POST',
-      headers: exportAuthHeaders,
-      body: JSON.stringify({
-        songId: S.songId,
-        width: parseInt(res[0]),
-        height: parseInt(res[1]),
-        fps: fps,
-        audioSource: audioSrc,
-        sections: S.sections.map(function(s) {
-          return {
-            name: s.name,
-            startTime: s.startTime,
-            endTime: s.endTime,
-            imageUrl: s.imageUrl,
-            videoUrl: s.videoUrl
-          };
-        }),
-        layers: layerConfigs,
-        duration: S.songDuration
-      })
+    var resp = await comfyPost('/api/inspire/comfyui/export-mp4', {
+      songId: S.songId,
+      width: parseInt(res[0]),
+      height: parseInt(res[1]),
+      fps: fps,
+      audioSource: audioSrc,
+      sections: S.sections.map(function(s) {
+        return {
+          name: s.name,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          imageUrl: s.imageUrl,
+          videoUrl: s.videoUrl
+        };
+      }),
+      layers: layerConfigs,
+      duration: S.songDuration
     });
 
     var data = await resp.json();
@@ -2195,7 +2215,10 @@ async function startExport() {
       var done = false;
       while (!done) {
         await new Promise(function(r) { setTimeout(r, 3000); });
-        var progResp = await fetch('/api/inspire/comfyui/export-status/' + encodeURIComponent(S.exportJobId), { headers: exportAuthHeaders });
+        var progToken = await getAuthToken();
+        var progHdrs = {};
+        if (progToken) progHdrs['Authorization'] = 'Bearer ' + progToken;
+        var progResp = await fetch('/api/inspire/comfyui/export-status/' + encodeURIComponent(S.exportJobId), { headers: progHdrs });
         var progData = await progResp.json();
         $('export-progress-fill').style.width = (progData.progress || 10) + '%';
         $('export-status').textContent = 'Exporting... ' + Math.round(progData.progress || 0) + '%';
