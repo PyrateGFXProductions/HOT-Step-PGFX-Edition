@@ -1016,6 +1016,8 @@
           params.caption = track.caption || params.caption || '';
           params.lyrics = track.lyrics || params.lyrics || '';
           params.title = track.title || params.title || '';
+          params.subject = track.subject || '';
+          params.coverArtSubject = track.subject || '';
           params.source = 'album-batch';
 
           /* Override per-track optional fields if provided */
@@ -1155,7 +1157,7 @@
                 style: albumGenre || '',
                 caption: t.style || '',
                 trackTitle: t.title || '',
-                coverArtSubject: t.coverArtSubject || ''
+                coverArtSubject: t.subject || t.coverArtSubject || ''
               })
             });
             if (videoResp.ok) {

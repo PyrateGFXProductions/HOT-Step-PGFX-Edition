@@ -211,6 +211,20 @@ input,select,textarea{font-family:inherit}
 .nle-panel.collapsed .nle-racks,.nle-panel.collapsed .nle-ruler{display:none}
 .nle-progress{height:3px;background:var(--bg);border-radius:2px;overflow:hidden;margin:2px 8px 4px}
 .nle-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));transition:width .3s;width:0}
+/* ── Lyric Segments (PGFX 2026-08-09) ── */
+.seg-row{border:1px solid var(--border,#2d333b);border-radius:6px;padding:6px 8px;margin:6px 0;background:rgba(255,255,255,0.02)}
+.seg-row.done{border-color:rgba(63,185,80,0.5)}
+.seg-row.failed{border-color:rgba(248,81,73,0.6)}
+.seg-head{display:flex;align-items:center;gap:6px;font-size:10px;margin-bottom:3px}
+.seg-badge{background:var(--accent);color:#fff;border-radius:9px;min-width:16px;text-align:center;font-weight:700;font-size:9px;padding:1px 4px}
+.seg-type{font-weight:700;color:var(--text1)}
+.seg-time{color:var(--text3);font-variant-numeric:tabular-nums}
+.seg-lines{font-size:10px;color:var(--text2);font-style:italic;margin-bottom:4px;max-height:28px;overflow:hidden}
+.seg-prompt{width:100%;box-sizing:border-box;min-height:44px;font-size:10px;background:var(--bg);color:var(--text1);border:1px solid var(--border,#2d333b);border-radius:4px;padding:4px 6px;margin-bottom:4px;resize:vertical}
+.seg-btns{display:flex;align-items:center;gap:8px}
+.seg-status{font-size:10px;color:var(--text3)}
+.seg-thumbs{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.seg-thumb{width:72px;height:44px;object-fit:cover;border-radius:3px;cursor:pointer;border:1px solid var(--border,#2d333b)}
 </style>
 </head>
 <body>
@@ -317,6 +331,29 @@ input,select,textarea{font-family:inherit}
         <div class="gen-progress" id="vid-progress"><div class="gen-progress-fill" id="vid-progress-fill"></div></div>
         <div class="gen-status" id="vid-status"></div>
         <div class="gen-thumbs" id="vid-thumbs"></div>
+      </div>
+    </div>
+
+    <!-- Lyric Segments (PGFX 2026-08-09): lyrics-driven 4-8s clips -->
+    <div class="right-section">
+      <div class="right-section-header" data-toggle="segments-body">Lyric Segments <span class="chevron">&#9660;</span></div>
+      <div class="right-section-body" id="segments-body">
+        <div class="gen-field" style="display:flex;align-items:center;gap:8px">
+          <label style="margin:0;text-transform:none">Resolution</label>
+          <select id="seg-resolution" style="flex:1">
+            <option value="768x512">768x512 (fast)</option>
+            <option value="1024x576">1024x576</option>
+            <option value="1280x720">1280x720</option>
+            <option value="1920x1080">1920x1080</option>
+          </select>
+        </div>
+        <div class="gen-btns">
+          <button class="btn btn-primary btn-sm" id="btn-gen-all-segments">Generate All Segments</button>
+          <button class="btn btn-sm" id="btn-rebuild-plan" title="Rebuild the lyric segment plan">Rebuild Plan</button>
+        </div>
+        <div class="gen-progress" id="seg-progress"><div class="gen-progress-fill" id="seg-progress-fill"></div></div>
+        <div class="gen-status" id="seg-status"></div>
+        <div id="segments-list"></div>
       </div>
     </div>
   </div>
@@ -498,7 +535,9 @@ const S = {
   selectedLayerIndex: 0,
   selectedEffectId: null,
   exportJobId: null,
-  audioUrl: null
+  audioUrl: null,
+  segmentPlan: null,   /* PGFX 2026-08-09: lyric-driven segment plan (video-plan) */
+  generatingSegments: false
 };
 
 let audioCtx, masterAnalyser, masterSource, audioEl, destNode;
@@ -583,6 +622,7 @@ function loadAudio(url, title) {
     updateTimeDisplay();
     buildTimeline();
     initNle();
+    loadLyricPlan();
   });
   audioEl.addEventListener('ended', function() {
     S.playing = false;
@@ -601,14 +641,8 @@ function loadAudio(url, title) {
     loadStemsForSong(S.songId);
   }
 
-  /* Auto-play when page opens. Browsers may block this in some contexts;
-     the user can always click the play button to start manually. */
-  var playPromise = audioEl.play();
-  if (playPromise && typeof playPromise.catch === 'function') {
-    playPromise.catch(function(e) {
-      console.log('[MV] Auto-play blocked (user interaction needed):', e.message);
-    });
-  }
+  /* PGFX 2026-08-09: NO auto-play on page open — clicking the MVC icon must
+     not start the song. Playback starts only on an explicit Play click. */
 }
 
 function formatTime(sec) {
@@ -1970,7 +2004,7 @@ async function loadStemsForSong(songId) {
 async function generateImage(sectionName) {
   var section = S.sections.find(function(s) { return s.name === sectionName; });
   if (!section) return;
-  var prompt = $('img-prompt').value || section.imagePrompt || 'A cinematic scene for ' + section.name + ' of a music video';
+  var prompt = ($('img-prompt').value || '').trim() || section.imagePrompt || '';
   section.imagePrompt = prompt;
 
   $('img-status').textContent = 'Generating image for ' + section.name + '...';
@@ -2065,7 +2099,7 @@ function renderImageThumbs() {
 async function generateVideoClip(sectionName) {
   var section = S.sections.find(function(s) { return s.name === sectionName; });
   if (!section) return;
-  var prompt = $('vid-prompt').value || section.videoPrompt || 'Music video clip for ' + section.name;
+  var prompt = ($('vid-prompt').value || '').trim() || section.videoPrompt || '';
   section.videoPrompt = prompt;
 
   $('vid-status').textContent = 'Generating video clip for ' + section.name + '...';
@@ -2074,6 +2108,7 @@ async function generateVideoClip(sectionName) {
   try {
     var vidResp = await comfyPost('/api/inspire/comfyui/generate-video', {
       prompt: prompt,
+      imagePrompt: section.imagePrompt || '',
       section: section.name,
       songId: S.songId,
       imageUrl: section.imageUrl || null,
@@ -2159,6 +2194,208 @@ function renderVideoThumbs() {
     }
   });
   populateSectionSelects();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LYRICAL SEGMENTS (PGFX 2026-08-09)
+   Each song section is split into 2-line lyric segments (4-8s each). The
+   server returns the plan (timings + per-segment FLUX.2/LTX prompts); this
+   page drives one image → one audio-conditioned LTX2.3 clip per segment.
+   ═══════════════════════════════════════════════════════════════════════ */
+function segFrames(dur) {
+  /* LTXVImgToVideo length: >= 9, multiple of 8, at 25 fps */
+  var n = Math.max(9, Math.round((dur * 25) / 8) * 8);
+  return n;
+}
+
+function segResolution() {
+  var v = ($('seg-resolution') || {}).value || '768x512';
+  var p = v.split('x');
+  return { width: parseInt(p[0]) || 768, height: parseInt(p[1]) || 512 };
+}
+
+async function loadLyricPlan() {
+  $('seg-status').textContent = 'Building lyric segment plan...';
+  try {
+    var resp = await comfyPost('/api/inspire/comfyui/video-plan', { songId: S.songId });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Plan failed (HTTP ' + resp.status + ')');
+    S.segmentPlan = data.segments || [];
+    if (S.segmentPlan.length === 0) {
+      $('seg-status').textContent = 'No lyric segments found (song has no lyrics?)';
+      return;
+    }
+    $('seg-status').textContent = S.segmentPlan.length + ' lyric segments (' + (data.duration || 0).toFixed(1) + 's)';
+    renderSegmentPlan();
+  } catch (e) {
+    $('seg-status').textContent = 'Plan failed: ' + e.message;
+  }
+}
+
+function renderSegmentPlan() {
+  var list = $('segments-list');
+  list.innerHTML = '';
+  (S.segmentPlan || []).forEach(function(seg) {
+    var row = document.createElement('div');
+    row.className = 'seg-row';
+    row.id = 'seg-' + seg.index;
+
+    var head = document.createElement('div');
+    head.className = 'seg-head';
+    var badge = document.createElement('span');
+    badge.className = 'seg-badge';
+    badge.textContent = seg.index + 1;
+    var type = document.createElement('span');
+    type.className = 'seg-type';
+    type.textContent = seg.sectionType;
+    var time = document.createElement('span');
+    time.className = 'seg-time';
+    time.textContent = formatTime(seg.startTime) + ' - ' + formatTime(seg.endTime) + ' (' + seg.duration.toFixed(1) + 's)';
+    head.appendChild(badge); head.appendChild(type); head.appendChild(time);
+    row.appendChild(head);
+
+    var lines = document.createElement('div');
+    lines.className = 'seg-lines';
+    lines.textContent = '"' + (seg.lines || []).join(' / ') + '"';
+    row.appendChild(lines);
+
+    var ta = document.createElement('textarea');
+    ta.className = 'seg-prompt';
+    ta.value = seg.prompt || '';
+    row.appendChild(ta);
+
+    var btns = document.createElement('div');
+    btns.className = 'seg-btns';
+    var gen = document.createElement('button');
+    gen.className = 'btn btn-sm btn-primary';
+    gen.textContent = 'Generate Clip';
+    gen.addEventListener('click', function() { generateSegmentClip(seg.index); });
+    var status = document.createElement('span');
+    status.className = 'seg-status';
+    status.id = 'seg-status-' + seg.index;
+    btns.appendChild(gen); btns.appendChild(status);
+    row.appendChild(btns);
+
+    var thumbs = document.createElement('div');
+    thumbs.className = 'seg-thumbs';
+    thumbs.id = 'seg-thumbs-' + seg.index;
+    row.appendChild(thumbs);
+
+    list.appendChild(row);
+  });
+}
+
+function segStatus(idx, msg) {
+  var el = $('seg-status-' + idx);
+  if (el) el.textContent = msg || '';
+}
+
+function segThumb(idx, kind, url) {
+  var thumbs = $('seg-thumbs-' + idx);
+  if (!thumbs) return;
+  var el = document.createElement(kind === 'video' ? 'video' : 'img');
+  el.className = 'seg-thumb';
+  el.src = url;
+  if (kind === 'video') { el.muted = true; el.loop = true; }
+  el.title = url;
+  el.addEventListener('click', function() {
+    seekTo((S.segmentPlan[idx].startTime) / S.songDuration);
+  });
+  thumbs.appendChild(el);
+}
+
+/* Generate one segment: FLUX.2 image → LTX2.3 audio-conditioned clip */
+async function generateSegmentClip(idx) {
+  var seg = S.segmentPlan[idx];
+  if (!seg) return;
+  if (S.generatingSegments) return;
+  var row = $('seg-' + idx);
+  var res = segResolution();
+  var frames = segFrames(seg.duration);
+  var clipDur = frames / 25;
+
+  segStatus(idx, 'Image...');
+  if (row) row.className = 'seg-row';
+  try {
+    var imgResp = await comfyPost('/api/inspire/comfyui/generate-image', {
+      songId: S.songId,
+      sectionType: seg.sectionType,
+      prompt: ($('seg-' + idx).querySelector('.seg-prompt') || {}).value || seg.prompt,
+      width: res.width,
+      height: res.height
+    });
+    var imgData = await imgResp.json();
+    if (!imgResp.ok) throw new Error(imgData.error || 'Image failed (HTTP ' + imgResp.status + ')');
+    seg.imageUrl = imgData.imageUrl;
+    segThumb(idx, 'image', imgData.imageUrl);
+    segStatus(idx, 'Clip (' + clipDur.toFixed(1) + 's)...');
+
+    var vidResp = await comfyPost('/api/inspire/comfyui/generate-video', {
+      imageUrl: imgData.imageUrl,
+      audioUrl: S.audioUrl,
+      audioStart: seg.startTime,
+      audioDuration: clipDur,
+      videoPrompt: seg.prompt,
+      frames: frames,
+      width: res.width,
+      height: res.height,
+      sectionType: seg.sectionType,
+      songId: S.songId,
+      unetModel: _pipelineModels.ltx.unet,
+      vaeModel: _pipelineModels.ltx.vae,
+      clipModel: _pipelineModels.ltx.clip,
+      audioVaeModel: _pipelineModels.ltx.audioVae,
+      icLoraModel: _pipelineModels.ltx.icLora,
+      upscaleModel: _pipelineModels.ltx.upscale
+    });
+    var vidData = await vidResp.json();
+    if (!vidResp.ok) throw new Error(vidData.error || 'Clip failed (HTTP ' + vidResp.status + ')');
+    seg.videoUrl = vidData.videoUrl;
+    seg.clipDur = clipDur;
+    segThumb(idx, 'video', vidData.videoUrl);
+    segStatus(idx, 'Done (' + (vidData.sizeMB || '') + ' MB)');
+    if (row) row.className = 'seg-row done';
+    nleUpsertFromSegments();
+  } catch (e) {
+    segStatus(idx, 'Failed: ' + e.message);
+    if (row) row.className = 'seg-row failed';
+  }
+}
+
+async function generateAllSegments() {
+  if (S.generatingSegments) return;
+  if (!S.segmentPlan || S.segmentPlan.length === 0) { $('seg-status').textContent = 'No plan — click Rebuild Plan'; return; }
+  S.generatingSegments = true;
+  $('btn-gen-all-segments').disabled = true;
+  var ok = 0, fail = 0;
+  for (var i = 0; i < S.segmentPlan.length; i++) {
+    if (S.segmentPlan[i].videoUrl) { ok++; continue; }
+    $('seg-progress-fill').style.width = ((i / S.segmentPlan.length) * 100) + '%';
+    $('seg-status').textContent = 'Segment ' + (i + 1) + '/' + S.segmentPlan.length + '...';
+    await generateSegmentClip(i);
+    if (S.segmentPlan[i].videoUrl) ok++; else fail++;
+  }
+  $('seg-progress-fill').style.width = '100%';
+  $('seg-status').textContent = 'All segments: ' + ok + ' done, ' + fail + ' failed';
+  S.generatingSegments = false;
+  $('btn-gen-all-segments').disabled = false;
+}
+
+/* Sync generated segment assets into the NLE without clobbering user edits */
+function nleUpsertFromSegments() {
+  if (!S.songDuration || S.songDuration <= 0) return;
+  var dur = S.songDuration || 60;
+  (S.segmentPlan || []).forEach(function(seg) {
+    if (!seg.videoUrl) return;
+    var key = 'seg-' + seg.index;
+    if (!(NLE.tracks.aroll || []).some(function(c) { return c.name === key; })) {
+      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: Math.min(seg.startTime, dur - 0.05), end: Math.min(seg.endTime, dur), videoUrl: seg.videoUrl, name: key });
+    }
+    if (seg.imageUrl && !(NLE.tracks.broll || []).some(function(c) { return c.name === key; })) {
+      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: Math.min(seg.startTime, dur - 0.05), end: Math.min(seg.endTime, dur), imageUrl: seg.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: key });
+    }
+  });
+  renderNle();
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -2922,6 +3159,8 @@ $('btn-gen-video').addEventListener('click', function() {
   generateVideoClip($('vid-section').value);
 });
 $('btn-gen-all-videos').addEventListener('click', generateAllVideoClips);
+$('btn-gen-all-segments').addEventListener('click', generateAllSegments);
+$('btn-rebuild-plan').addEventListener('click', loadLyricPlan);
 
 /* Generate All (top bar) */
 $('btn-generate-all').addEventListener('click', async function() {

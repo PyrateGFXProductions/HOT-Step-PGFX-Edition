@@ -1384,6 +1384,7 @@ async function generateAlbum() {
     ].filter(Boolean);
     pendingTracks.push({
       title: t.title || t.subject || `Track`,
+      subject: t.subject || undefined,
       lyrics: t.lyrics,
       caption: captionParts.join('. ') + '.',
       bpm: t._bpm || undefined,

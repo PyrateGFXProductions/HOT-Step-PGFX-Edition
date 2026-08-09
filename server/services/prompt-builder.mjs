@@ -31,39 +31,49 @@ const STOP_WORDS = new Set([
   "into", "over", "down", "been"
 ]);
 
+/* PGFX 2026-08-07: genre supplies LIGHTING/PALETTE/TEXTURE only — NEVER a scene with
+   people, instruments, venues or props. The SCENE must come from the lyric subject/
+   concept. Sync with the inline copy in server.mjs (init_promptBuilder). */
 const GENRE_VISUALS = {
   rock: "raw electric energy, harsh shadows and bright highlights, gritty texture",
-  metal: "a dark monumental scene lit by fire and shadow, heavy and intense",
+  metal: "fire and shadow, heavy dark intensity, monumental contrast",
   punk: "loud rebellion, bold clashing colors, DIY grit and raw attitude",
   pop: "clean bright gloss, vibrant saturated color, polished contemporary surfaces",
-  electronic: "sleek futuristic shapes glowing with neon, light cutting through darkness",
+  electronic: "sleek futuristic glow, neon light cutting through darkness",
   jazz: "warm golden haze, smoky late-night intimacy, elegant brass reflections",
   blues: "deep moody blue shadows, soulful worn textures, honest emotion",
   folk: "earthy natural warmth, rustic handcrafted textures, open pastoral light",
-  classical: "grand elegant architecture, renaissance chiaroscuro, timeless composition",
-  hip: "bold graphic confidence, dynamic angles, expressive street energy",
-  rap: "sharp dramatic contrast, high-energy attitude, bold graphic lines",
+  classical: "grand elegant scale, renaissance chiaroscuro, timeless dramatic light",
+  hip: "bold graphic color, dynamic angles, sharp street light and shadow",
+  rap: "sharp dramatic contrast, high-energy attitude, bold graphic color blocks",
+  bluegrass: "warm golden afternoon light, dusty open air, weathered wood tones, honest rural warmth",
+  "honky-tonk": "amber neon glow, smoky warm light, worn wood and glass reflections",
+  americana: "wide nostalgic golden light, big open skies, weathered wood textures, dusty warmth",
+  "country rock": "sunset haze, dusty golden light, wide-open sky tones, road-worn warmth",
+  outlaw: "dry dusk light, dust on the wind, long open-road shadows, amber haze",
+  western: "painted desert light, warm cinematic golden haze, long shadows at dusk",
+  gospel: "warm golden rays streaming through tall windows, sacred glowing light, soft dust motes",
   country: "wide golden skies, weathered wood, warm americana openness",
   indie: "dreamy soft light, intimate artistic detail, gentle pastel mood",
   rnb: "smooth warm intimacy, velvet shadows, elegant soft gradients",
   "r&b": "smooth warm intimacy, velvet shadows, elegant soft gradients",
   ambient: "vast ethereal space, soft drifting mist, weightless calm",
-  techno: "dark warehouse pulse, minimal red and white light, industrial concrete",
-  house: "warm floor-to-ceiling energy, glowing disco ball, soulful nightclub haze",
-  edm: "massive festival stage, laser arrays cutting through crowd haze, explosive color",
-  dubstep: "bass you can see, shockwave light, festival LED walls",
+  techno: "dark industrial pulse, minimal red and white light, concrete and haze",
+  house: "warm glowing light, mirror-ball sparkle, soulful night haze",
+  edm: "explosive laser color, sweeping beams through haze, blinding brightness",
+  dubstep: "shockwave light, low-end haze, LED color glow",
   synthwave: "retro neon grid, chrome sunset, 80s future glow",
-  trap: "dark moody luxury, neon-tinted night, slow heavy bass light",
+  trap: "dark moody luxury, neon-tinted night, slow heavy low-end light",
   drill: "hard-edged contrast, rain-slicked shadow, stark urban tension",
   "lo-fi": "warm tape-grain softness, cozy golden lamplight, nostalgic calm",
-  phonk: "gritty Memphis darkness, muscle-car headlights, distortion and haze",
+  phonk: "gritty Memphis darkness, harsh amber glow, distortion and haze",
   hyperpop: "electric candy color, glitchy playful energy, surreal brightness",
-  industrial: "cold steel and machinery, harsh halogen glare, mechanical texture",
+  industrial: "cold steel tones, harsh halogen glare, mechanical texture",
   bossa: "golden coastal warmth, tropical ease, gentle sunlit waves",
-  reggae: "sunset island warmth, laid-back color, sound-system soul",
+  reggae: "sunset island warmth, laid-back color, sound-system glow",
   soul: "rich vintage warmth, deep emotional tones, golden-era texture",
   funk: "bold groovy color, psychedelic retro energy, rhythmic pattern",
-  alternative: "stark artistic contrast, moody unconventional beauty"
+  alternative: "stark artistic contrast, moody unconventional light and shadow"
 };
 
 const SECTION_VISUAL_TONE = {
@@ -258,6 +268,81 @@ function extractLyricImagery(lyrics) {
 }
 
 /**
+ * PGFX 2026-08-09: build the cover concept from the STORY the lyrics tell — the
+ * protagonist (animal species or repeated proper name), the setting (cinema/farm/
+ * road/bar/...), and the action — instead of a title substring ("Movie Seat"
+ * matched the ocean key) or a literal first line. Returns "" when the lyrics carry
+ * no clear story so the caller falls through to weaker signals.
+ */
+function extractLyricStory(lyrics) {
+  if (!lyrics?.trim()) return "";
+  // NOTE: the apostrophe is expressed as \u0027 so the source contains NO literal
+  // quote character — the regression harness brace-matcher treats one as a string opener.
+  let cleaned = lyrics.replace(/\[.*?\]/g, " ").replace(/\(.*?\)/g, " ").replace(/[^\w\s\u0027-]/g, " ").replace(/\s+/g, " ").trim();
+  if (cleaned.length < 20) return "";
+  const lower = " " + cleaned.toLowerCase() + " ";
+  const hasAny = (words) => words.some((w) => new RegExp(`(^|[^a-z0-9])${w}([^a-z0-9]|$)`).test(lower));
+  const ANIMALS = {
+    cow: ["cow", "heifer", "bull", "calf", "steer"],
+    horse: ["horse", "mare", "stallion", "pony", "colt"],
+    dog: ["dog", "hound", "puppy", "pup"],
+    cat: ["cat", "kitten", "feline"],
+    fox: ["fox"],
+    bear: ["bear"],
+    wolf: ["wolf", "wolves"],
+    deer: ["deer", "fawn", "doe"],
+    rabbit: ["rabbit", "bunny", "hare"],
+    bird: ["bird", "robin", "sparrow", "crow", "raven", "owl", "eagle", "hawk"],
+    hen: ["hen", "rooster", "chicken", "chick"],
+    pig: ["pig", "hog", "sow", "boar"],
+    sheep: ["sheep", "ewe", "lamb", "ram"],
+    goat: ["goat"],
+    mouse: ["mouse", "mice", "rat"],
+    fish: ["fish", "trout", "salmon"]
+  };
+  let animal = "";
+  for (const [species, words] of Object.entries(ANIMALS)) {
+    if (hasAny(words)) { animal = species; break; }
+  }
+  const capCount = {};
+  for (const w of cleaned.match(/\b[A-Z][a-z]{2,}\b/g) || []) capCount[w] = (capCount[w] || 0) + 1;
+  const name = Object.entries(capCount)
+    .filter(([w, c]) => c >= 2 && !["The", "I", "You", "We", "They", "She", "He", "It", "Yeah", "Oh"].includes(w))
+    .sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  const SETTINGS = [
+    { words: ["movie", "cinema", "picture house", "movie seat", "velvet seat", "ticket", "popcorn", "marquee", "projector", "screen", "showtime", "matinee", "theater", "theatre", "aisle"], scene: "settles into a velvet movie theater seat", place: "a movie theater" },
+    { words: ["barn", "fence", "corn bin", "tractor", "pasture", "hay", "silo", "ranch", "farm", "cattle", "field"], scene: "stands in the farmyard beside the fence", place: "a farm" },
+    { words: ["street", "avenue", "boulevard", "sidewalk", "neon", "skyscraper", "downtown", "city block"], scene: "walks a city street at night", place: "a city street" },
+    { words: ["train", "station", "platform", "railroad", "boxcar", "locomotive"], scene: "waits on a train platform", place: "a train station" },
+    { words: ["bar", "saloon", "tavern", "jukebox", "dancefloor", "honky", "dive"], scene: "stands in a smoky bar", place: "a bar" },
+    { words: ["ocean", "sea", "wave", "tide", "shore", "beach", "sand", "surf"], scene: "stands at the edge of the ocean", place: "the ocean" },
+    { words: ["mountain", "valley", "ridge", "creek", "river", "forest", "woods", "hill", "pine"], scene: "moves through open country", place: "the open country" },
+    { words: ["church", "chapel", "pew", "hymn"], scene: "sits in a quiet church pew", place: "a church" },
+    { words: ["home", "house", "porch", "kitchen", "doorway", "yard", "garden", "window"], scene: "lingers on a quiet home porch", place: "a quiet home" },
+    { words: ["road", "highway", "truck", "engine", "car", "asphalt"], scene: "stands on an open road", place: "an open road" }
+  ];
+  let setting = null;
+  let settingScore = 0;
+  for (const s of SETTINGS) {
+    let score = 0;
+    for (const w of s.words) {
+      const re = new RegExp(`(^|[^a-z0-9])${w}([^a-z0-9]|$)`, "g");
+      score += (lower.match(re) || []).length;
+    }
+    if (score > settingScore) { setting = s; settingScore = score; }
+  }
+  // Require >= 2 occurrences of setting vocabulary — a single "home" in a generic
+  // love lyric must NOT turn every love song into "a quiet scene in a quiet home".
+  if (animal) {
+    const who = name ? `${name}, a ${animal},` : `A ${animal},`;
+    return setting && settingScore >= 2 ? `${who} ${setting.scene}` : `${who} at the heart of the story`;
+  }
+  if (name && setting && settingScore >= 2) return `${name} ${setting.scene}`;
+  if (setting && settingScore >= 2) return `A quiet scene in ${setting.place}`;
+  return "";
+}
+
+/**
  * Extract the visual essence from lyrics — best descriptive line for MVC pipeline.
  */
 function extractVisualEssence(lyrics) {
@@ -349,7 +434,9 @@ function extractTitleConcept(title) {
     "ice|frost|snow|winter|cold|freeze|glacier": "frozen crystalline landscape, ice formations, cool blue-white palette, frost patterns"
   };
   for (const [pattern, concept] of Object.entries(conceptMap)) {
-    if (new RegExp(pattern).test(t)) return concept;
+    // Word-boundary match — the title "Millie Movie Seat" must NEVER match the ocean
+    // key via the substring "sea". Same class of bug as the r-bomb and hip-in-ship.
+    if (new RegExp(`(^|[^a-z0-9])(${pattern})([^a-z0-9]|$)`).test(t)) return concept;
   }
   return "";
 }
@@ -381,12 +468,17 @@ function buildSongConcept(opts) {
   var lyrics = opts.lyrics || "";
   var description = opts.description || "";
   // A person only enters via the no-subject fallback pool — never forced into a
-  // subject's scene (an "empty highway" subject must stay empty).
+  // subject scene (an "empty highway" subject must stay empty).
   var personDesc = "";
   if (opts.vocalistGender === "male" || opts.aboutGender === "male") personDesc = "a man";
   else if (opts.vocalistGender === "female" || opts.aboutGender === "female") personDesc = "a woman";
   else if (opts.vocalistGender === "duet") personDesc = "a man and a woman";
   if (coverArtSubject) return coverArtSubject;
+  // PGFX 2026-08-09: the LYRIC STORY is the strongest signal — it drives the scene
+  // before the title ever gets a chance (the old order let "Movie Seat" match
+  // "ocean" and never read the lyrics that describe a cow in a cinema).
+  var lyricStory = extractLyricStory(lyrics);
+  if (lyricStory) return lyricStory;
   if (description?.trim()) return description.trim();
   var titleConcept = extractTitleConcept(title);
   if (titleConcept) return `In the spirit of the song "${title}", ${titleConcept}`;
@@ -420,13 +512,21 @@ function buildCoverArtPrompt(opts) {
   var sectionType = (opts.sectionType || "").toLowerCase().replace(/[^a-z-]/g, "");
   var isSection = typeof opts.sectionIndex === "number" && opts.sectionIndex >= 0 && (opts.totalSections || 0) > 0;
   var concept = buildSongConcept(opts);
-  var genreMood = getGenreVisuals(style);
-  var styleLabel = (style.split(",")[0] || "").trim().toLowerCase() || "music";
+  /* PGFX 2026-08-07: the concept IS the scene (lyric subject). The genre only tints it
+     — lighting/palette/atmosphere, never a competing scene with people/instruments.
+     First-mentioned genre key wins (same rule as the inline copy in server.mjs). */
+  var genreLabel = "", genreMood = "";
+  var lowerStyle = style.toLowerCase();
+  for (const [key, visuals] of Object.entries(GENRE_VISUALS)) {
+    const re = new RegExp(`(^|[^a-z0-9&+#])${key}([^a-z0-9&+#]|$)`);
+    if (re.test(lowerStyle)) { genreLabel = key; genreMood = visuals; break; }
+  }
   var sentences = [concept];
   if (genreMood) {
-    sentences.push(`The image carries a ${styleLabel} mood: ${genreMood}.`);
+    sentences.push(`The scene is lit with a ${genreLabel} atmosphere: ${genreMood}.`);
   } else if (style) {
-    sentences.push(`The image carries a ${styleLabel} mood.`);
+    var styleLabel = (style.split(",")[0] || "").trim().toLowerCase() || "music";
+    sentences.push(`The scene is lit with a ${styleLabel} atmosphere.`);
   }
   if (isSection) {
     var progress = opts.sectionIndex / Math.max(1, (opts.totalSections || 1) - 1);
@@ -455,10 +555,21 @@ function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, ti
   const narrative = SECTION_NARRATIVE[sectionType] || SECTION_NARRATIVE.verse;
   const genderWord = vocalistGender === "male" ? "a man" : vocalistGender === "female" ? "a woman" : "a singer";
 
-  const visualWorld = subject || `${genderWord} in a music performance setting`;
+  /* PGFX 2026-08-07: the SCENE is the lyric SUBJECT — the singer performs inside the
+     song's world, never in a generic genre venue. Genre contributes lighting only. */
+  const subjectWorld = (subject || "").trim();
+  const visualWorld = subjectWorld
+    ? `${genderWord} performing inside the song's world: ${subjectWorld}`
+    : `${genderWord} in a music performance setting`;
 
-  const genreKey = (style || "").toLowerCase().split(/[,\s]+/)[0] || "";
-  const genreVisual = GENRE_VISUAL_CONTEXT[genreKey] || "";
+  /* Lighting/palette tint from the genre — word-boundary first-mention, and the
+     GENRE_VISUALS values are people/instrument/venue-free by design. */
+  const lowerStyle = (style || "").toLowerCase();
+  let genreKey = "", genreLight = "";
+  for (const [key, visuals] of Object.entries(GENRE_VISUALS)) {
+    const re = new RegExp(`(^|[^a-z0-9&+#])${key}([^a-z0-9&+#]|$)`);
+    if (re.test(lowerStyle)) { genreKey = key; genreLight = visuals; break; }
+  }
 
   const idx = typeof sectionIndex === "number" ? sectionIndex : 0;
   const total = typeof totalSections === "number" ? totalSections : 6;
@@ -474,7 +585,7 @@ function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, ti
 
   const sentences = [visualWorld];
   sentences.push(`This image belongs to a ${narrativeArc}: ${scene.mood}.`);
-  if (genreVisual) sentences.push(`The setting carries a ${genreKey} atmosphere: ${genreVisual}.`);
+  if (genreLight) sentences.push(`The scene is lit with a ${genreKey} atmosphere: ${genreLight}.`);
   sentences.push(scene.pose);
   if (visualEssence) sentences.push(`Imagery drawn from the lyrics: ${visualEssence}.`);
   if (title) sentences.push(`The song's theme is "${title}".`);
@@ -512,6 +623,7 @@ export {
   /* Functions */
   translateMusicTerms,
   extractLyricImagery,
+  extractLyricStory,
   extractVisualEssence,
   extractThemeKeywords,
   getGenreVisuals,

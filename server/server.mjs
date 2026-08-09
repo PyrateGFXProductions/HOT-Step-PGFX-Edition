@@ -47643,6 +47643,84 @@ function extractLyricImagery(lyrics) {
   const chosen = (bestLine || lines[0]).replace(/[,;.!?]+$/, "").trim();
   return chosen.length > 150 ? chosen.substring(0, 150) : chosen;
 }
+// PGFX 2026-08-09: build the cover concept from the STORY the lyrics tell — the
+// protagonist (animal species or repeated proper name), the setting (cinema/farm/
+// road/bar/...), and the action — instead of a title substring ("Movie Seat"
+// matched the ocean key) or a literal first line ("Millie broke the fence" reads
+// as a woman breaking a fence). Returns "" when the lyrics carry no clear story so
+// the caller falls through to weaker signals (title, imagery, keywords).
+function extractLyricStory(lyrics) {
+  if (!lyrics?.trim()) return "";
+  // NOTE: the apostrophe is expressed as \u0027 so the source contains NO literal
+  // quote character — the regression harness brace-matcher treats one as a string opener.
+  let cleaned = lyrics.replace(/\[.*?\]/g, " ").replace(/\(.*?\)/g, " ").replace(/[^\w\s\u0027-]/g, " ").replace(/\s+/g, " ").trim();
+  if (cleaned.length < 20) return "";
+  const lower = " " + cleaned.toLowerCase() + " ";
+  const hasAny = (words) => words.some((w) => new RegExp(`(^|[^a-z0-9])${w}([^a-z0-9]|$)`).test(lower));
+  // 1. Protagonist species — animal nouns are the strongest identity signal.
+  const ANIMALS = {
+    cow: ["cow", "heifer", "bull", "calf", "steer"],
+    horse: ["horse", "mare", "stallion", "pony", "colt"],
+    dog: ["dog", "hound", "puppy", "pup"],
+    cat: ["cat", "kitten", "feline"],
+    fox: ["fox"],
+    bear: ["bear"],
+    wolf: ["wolf", "wolves"],
+    deer: ["deer", "fawn", "doe"],
+    rabbit: ["rabbit", "bunny", "hare"],
+    bird: ["bird", "robin", "sparrow", "crow", "raven", "owl", "eagle", "hawk"],
+    hen: ["hen", "rooster", "chicken", "chick"],
+    pig: ["pig", "hog", "sow", "boar"],
+    sheep: ["sheep", "ewe", "lamb", "ram"],
+    goat: ["goat"],
+    mouse: ["mouse", "mice", "rat"],
+    fish: ["fish", "trout", "salmon"]
+  };
+  let animal = "";
+  for (const [species, words] of Object.entries(ANIMALS)) {
+    if (hasAny(words)) { animal = species; break; }
+  }
+  // 2. Protagonist name — a repeated capitalized proper noun (2+ times) is the
+  //    character ("Millie" repeats through every Millie song).
+  const capCount = {};
+  for (const w of cleaned.match(/\b[A-Z][a-z]{2,}\b/g) || []) capCount[w] = (capCount[w] || 0) + 1;
+  const name = Object.entries(capCount)
+    .filter(([w, c]) => c >= 2 && !["The", "I", "You", "We", "They", "She", "He", "It", "Yeah", "Oh"].includes(w))
+    .sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+  // 3. Setting — first matching place wins; cinema is checked first so "movie seat"
+  //    lands in a movie theater instead of a generic room.
+  const SETTINGS = [
+    { words: ["movie", "cinema", "picture house", "movie seat", "velvet seat", "ticket", "popcorn", "marquee", "projector", "screen", "showtime", "matinee", "theater", "theatre", "aisle"], scene: "settles into a velvet movie theater seat", place: "a movie theater" },
+    { words: ["barn", "fence", "corn bin", "tractor", "pasture", "hay", "silo", "ranch", "farm", "cattle", "field"], scene: "stands in the farmyard beside the fence", place: "a farm" },
+    { words: ["street", "avenue", "boulevard", "sidewalk", "neon", "skyscraper", "downtown", "city block"], scene: "walks a city street at night", place: "a city street" },
+    { words: ["train", "station", "platform", "railroad", "boxcar", "locomotive"], scene: "waits on a train platform", place: "a train station" },
+    { words: ["bar", "saloon", "tavern", "jukebox", "dancefloor", "honky", "dive"], scene: "stands in a smoky bar", place: "a bar" },
+    { words: ["ocean", "sea", "wave", "tide", "shore", "beach", "sand", "surf"], scene: "stands at the edge of the ocean", place: "the ocean" },
+    { words: ["mountain", "valley", "ridge", "creek", "river", "forest", "woods", "hill", "pine"], scene: "moves through open country", place: "the open country" },
+    { words: ["church", "chapel", "pew", "hymn"], scene: "sits in a quiet church pew", place: "a church" },
+    { words: ["home", "house", "porch", "kitchen", "doorway", "yard", "garden", "window"], scene: "lingers on a quiet home porch", place: "a quiet home" },
+    { words: ["road", "highway", "truck", "engine", "car", "asphalt"], scene: "stands on an open road", place: "an open road" }
+  ];
+  let setting = null;
+  let settingScore = 0;
+  for (const s of SETTINGS) {
+    let score = 0;
+    for (const w of s.words) {
+      const re = new RegExp(`(^|[^a-z0-9])${w}([^a-z0-9]|$)`, "g");
+      score += (lower.match(re) || []).length;
+    }
+    if (score > settingScore) { setting = s; settingScore = score; }
+  }
+  // Require >= 2 occurrences of setting vocabulary — a single "home" in a generic
+  // love lyric must NOT turn every love song into "a quiet scene in a quiet home".
+  if (animal) {
+    const who = name ? `${name}, a ${animal},` : `A ${animal},`;
+    return setting && settingScore >= 2 ? `${who} ${setting.scene}` : `${who} at the heart of the story`;
+  }
+  if (name && setting && settingScore >= 2) return `${name} ${setting.scene}`;
+  if (setting && settingScore >= 2) return `A quiet scene in ${setting.place}`;
+  return "";
+}
 function extractTitleConcept(title) {
   if (!title?.trim()) return "";
   const t = title.trim().toLowerCase();
@@ -47676,7 +47754,10 @@ function extractTitleConcept(title) {
     "forever|eternal|infinity": "endless horizons and circular forms under timeless light"
   };
   for (const [pattern, concept] of Object.entries(conceptMap)) {
-    if (new RegExp(pattern).test(t)) return concept;
+    // Word-boundary match — the title "Millie Movie Seat" must NEVER match the ocean
+    // key via the substring "sea". Same class of bug as the r-bomb and hip-in-ship
+    // (matchGenreVisuals) and the valley-to-holler injector.
+    if (new RegExp(`(^|[^a-z0-9])(${pattern})([^a-z0-9]|$)`).test(t)) return concept;
   }
   return "";
 }
@@ -47697,12 +47778,17 @@ function buildSongConcept(opts) {
   const title = (opts.title || "").trim();
   const lyrics = opts.lyrics || "";
   // A person only enters via the no-subject fallback pool — never forced into a
-  // subject's scene (an "empty highway" subject must stay empty).
+  // subject scene (an "empty highway" subject must stay empty).
   let personDesc = "";
   if (opts.vocalistGender === "male" || opts.aboutGender === "male") personDesc = "a man";
   else if (opts.vocalistGender === "female" || opts.aboutGender === "female") personDesc = "a woman";
   else if (opts.vocalistGender === "duet") personDesc = "a man and a woman";
   if (coverArtSubject) return coverArtSubject;
+  // PGFX 2026-08-09: the LYRIC STORY is the strongest signal — it drives the scene
+  // before the title ever gets a chance (the old order let "Movie Seat" match
+  // "ocean" and never read the lyrics that describe a cow in a cinema).
+  const lyricStory = extractLyricStory(lyrics);
+  if (lyricStory) return lyricStory;
   const titleConcept = extractTitleConcept(title);
   if (titleConcept) return `In the spirit of the song "${title}", ${titleConcept}`;
   const lyricImagery = extractLyricImagery(lyrics);
@@ -47738,9 +47824,11 @@ function buildCoverArtPrompt(opts) {
   const styleLabel = safeStyleLabel(style) || "music";
   const sentences = [concept];
   if (genreMood) {
-    sentences.push(`The image carries a ${genreMood.label} mood: ${genreMood.visuals}.`);
+    /* PGFX 2026-08-07: the concept IS the scene (lyric subject). The genre only tints
+       it — lighting/palette/atmosphere, never a competing scene with people/instruments. */
+    sentences.push(`The scene is lit with a ${genreMood.label} atmosphere: ${genreMood.visuals}.`);
   } else if (style) {
-    sentences.push(`The image carries a ${styleLabel} mood.`);
+    sentences.push(`The scene is lit with a ${styleLabel} atmosphere.`);
   }
   if (isSection) {
     const progress = opts.sectionIndex / Math.max(1, (opts.totalSections || 1) - 1);
@@ -47865,45 +47953,51 @@ var init_promptBuilder = __esm({
       "been"
     ]);
     GENRE_VISUALS = {
+      /* PGFX 2026-08-07: genre supplies LIGHTING/PALETTE/TEXTURE only — NEVER a scene
+         with people, instruments, venues or props. The SCENE must come from the lyric
+         subject/concept (buildSongConcept). A genre-scene clause ("five bluegrass
+         musicians on a wooden porch") made FLUX.2 glue the genre's generic world over
+         whatever the song was actually about. Every entry below is people/instrument-free
+         so the lyric subject stays authoritative. */
       rock: "raw electric energy, harsh shadows and bright highlights, gritty texture",
-      metal: "a dark monumental scene lit by fire and shadow, heavy and intense",
+      metal: "fire and shadow, heavy dark intensity, monumental contrast",
       punk: "loud rebellion, bold clashing colors, DIY grit and raw attitude",
       pop: "clean bright gloss, vibrant saturated color, polished contemporary surfaces",
-      electronic: "sleek futuristic shapes glowing with neon, light cutting through darkness",
+      electronic: "sleek futuristic glow, neon light cutting through darkness",
       jazz: "warm golden haze, smoky late-night intimacy, elegant brass reflections",
       blues: "deep moody blue shadows, soulful worn textures, honest emotion",
       folk: "earthy natural warmth, rustic handcrafted textures, open pastoral light",
-      classical: "grand elegant architecture, renaissance chiaroscuro, timeless composition",
-      hip: "bold graphic confidence, dynamic angles, expressive street energy",
-      rap: "sharp dramatic contrast, high-energy attitude, bold graphic lines",
-      bluegrass: "five bluegrass musicians spread across a wooden porch, one banjo player and one fiddle player standing apart from each other, each on their own instrument, warm golden dust in open afternoon light",
-      "honky-tonk": "a crowded honky-tonk bar at night, a band on a tiny stage, neon glow over bottles and sawdust",
-      americana: "wide open farmland under big skies, weathered barns and old wooden fences in warm nostalgic light",
-      "country rock": "an electric-country band on a dusty outdoor stage, amps and pedal steel under sunset haze",
-      outlaw: "dry desert miles under dusk light, dust on the wind, weathered roadside bars and open road",
-      western: "saguaro silhouettes and painted desert mesas, warm cinematic western light",
-      gospel: "sunlight streaming through old church windows, warm golden rays falling across wooden pews",
+      classical: "grand elegant scale, renaissance chiaroscuro, timeless dramatic light",
+      hip: "bold graphic color, dynamic angles, sharp street light and shadow",
+      rap: "sharp dramatic contrast, high-energy attitude, bold graphic color blocks",
+      bluegrass: "warm golden afternoon light, dusty open air, weathered wood tones, honest rural warmth",
+      "honky-tonk": "amber neon glow, smoky warm light, worn wood and glass reflections",
+      americana: "wide nostalgic golden light, big open skies, weathered wood textures, dusty warmth",
+      "country rock": "sunset haze, dusty golden light, wide-open sky tones, road-worn warmth",
+      outlaw: "dry dusk light, dust on the wind, long open-road shadows, amber haze",
+      western: "painted desert light, warm cinematic golden haze, long shadows at dusk",
+      gospel: "warm golden rays streaming through tall windows, sacred glowing light, soft dust motes",
       country: "wide golden skies, weathered wood, warm americana openness",
       indie: "dreamy soft light, intimate artistic detail, gentle pastel mood",
       rnb: "smooth warm intimacy, velvet shadows, elegant soft gradients",
       "r&b": "smooth warm intimacy, velvet shadows, elegant soft gradients",
       ambient: "vast ethereal space, soft drifting mist, weightless calm",
-      techno: "dark warehouse pulse, minimal red and white light, industrial concrete",
-      house: "warm floor-to-ceiling energy, glowing disco ball, soulful nightclub haze",
-      edm: "massive festival stage, laser arrays cutting through crowd haze, explosive color",
-      dubstep: "bass you can see, shockwave light, festival LED walls",
+      techno: "dark industrial pulse, minimal red and white light, concrete and haze",
+      house: "warm glowing light, mirror-ball sparkle, soulful night haze",
+      edm: "explosive laser color, sweeping beams through haze, blinding brightness",
+      dubstep: "shockwave light, low-end haze, LED color glow",
       synthwave: "retro neon grid, chrome sunset, 80s future glow",
-      trap: "dark moody luxury, neon-tinted night, slow heavy bass light",
+      trap: "dark moody luxury, neon-tinted night, slow heavy low-end light",
       drill: "hard-edged contrast, rain-slicked shadow, stark urban tension",
       "lo-fi": "warm tape-grain softness, cozy golden lamplight, nostalgic calm",
-      phonk: "gritty Memphis darkness, muscle-car headlights, distortion and haze",
+      phonk: "gritty Memphis darkness, harsh amber glow, distortion and haze",
       hyperpop: "electric candy color, glitchy playful energy, surreal brightness",
-      industrial: "cold steel and machinery, harsh halogen glare, mechanical texture",
+      industrial: "cold steel tones, harsh halogen glare, mechanical texture",
       bossa: "golden coastal warmth, tropical ease, gentle sunlit waves",
-      reggae: "sunset island warmth, laid-back color, sound-system soul",
+      reggae: "sunset island warmth, laid-back color, sound-system glow",
       soul: "rich vintage warmth, deep emotional tones, golden-era texture",
       funk: "bold groovy color, psychedelic retro energy, rhythmic pattern",
-      alternative: "stark artistic contrast, moody unconventional beauty"
+      alternative: "stark artistic contrast, moody unconventional light and shadow"
     };
   }
 });
@@ -169231,8 +169325,12 @@ async function runGeneration(job) {
         qualityJson
       );
       songIds.push(songId);
-      if (job.params.coverArtSubject) {
-        getDb().prepare("UPDATE songs SET cover_art_subject = ? WHERE id = ?").run(job.params.coverArtSubject, songId);
+      /* PGFX 2026-08-07: persist cover_art_subject from EITHER coverArtSubject or the
+         instaGen subject — the bundle's generate body now sends subject too, and the
+         cover-art/video prompt builders read this column for the lyric subject. */
+      const coverSubject = job.params.coverArtSubject || job.params.subject || "";
+      if (coverSubject) {
+        getDb().prepare("UPDATE songs SET cover_art_subject = ? WHERE id = ?").run(coverSubject, songId);
       }
     }
     if (job.params.parallelCoverArt && coverArtResults.length > 0) {
@@ -310937,8 +311035,15 @@ function splitLyricsIntoSegments(section) {
   }
   return segments;
 }
-function calculateSegmentTimings(segments, sectionTimings, songDuration) {
+function calculateSegmentTimings(segments, sectionTimings, songDuration, caps) {
   if (!segments || segments.length === 0) return [0, songDuration || 0];
+  /* Optional per-segment duration caps. Defaults keep the original fast-cut
+     behavior (2-7s); the MVC lyric-plan passes {minSec:4, maxSec:8} for
+     segment clips that match the LTX frame-length grid. */
+  caps = caps || {};
+  const minSec = caps.minSec || 2.0;
+  const maxSec = caps.maxSec || 7.0;
+  const floorSec = caps.floorSec || 1.5;
   const timings = [0];
   let running = 0;
   let i = 0;
@@ -310959,10 +311064,10 @@ function calculateSegmentTimings(segments, sectionTimings, songDuration) {
     if (segs.length === 1) {
       durs = [secDur];
     } else {
-      const capped = segs.map((s) => Math.max(2.0, Math.min(7.0, secDur * Math.max(1, s.lines.length) / totalWeight)));
+      const capped = segs.map((s) => Math.max(minSec, Math.min(maxSec, secDur * Math.max(1, s.lines.length) / totalWeight)));
       const cappedSum = capped.reduce((a, b) => a + b, 0);
       const extra = (secDur - cappedSum) / segs.length;
-      durs = extra >= 0 ? capped.map((c) => c + extra) : capped.map((c) => Math.max(1.5, c));
+      durs = extra >= 0 ? capped.map((c) => c + extra) : capped.map((c) => Math.max(floorSec, c));
     }
     running = secStart;
     for (let j = 0; j < segs.length; j++) {
@@ -310995,8 +311100,8 @@ function buildVideoSegmentPrompt(opts) {
   } else {
     sentences.push("In this moment of the song, the scene shifts and transforms");
   }
-  if (genreMood) sentences.push(`The mood is ${genreMood.label}: ${genreMood.visuals}`);
-  else if (style) sentences.push(`The mood is ${styleLabel}`);
+  if (genreMood) sentences.push(`The scene is lit with a ${genreMood.label} atmosphere: ${genreMood.visuals}`);
+  else if (style) sentences.push(`The scene is lit with a ${styleLabel} atmosphere`);
   sentences.push("The same characters, location and lighting continue from the other images in this video");
   sentences.push("Each image is one full-frame scene standing completely alone — never a storyboard, comic strip, grid or collage");
   sentences.push("The composition is cinematic and richly detailed, with no text and no lettering anywhere");
@@ -311552,7 +311657,7 @@ router21.post("/comfyui/generate-image", async (req, res) => {
           }
           if (!lyrics) lyrics = song.lyrics || "";
           if (!subject) {
-            try { const gp = JSON.parse(song.generation_params || "{}"); subject = gp.subject || gp.coverArtSubject || ""; } catch(e) {}
+            try { const gp = JSON.parse(song.generation_params || "{}"); subject = song.cover_art_subject || gp.subject || gp.coverArtSubject || ""; } catch(e) {}
           }
           if (!vocalistGender) {
             try { const gp = JSON.parse(song.generation_params || "{}"); vocalistGender = gp.vocalistGender || ""; } catch(e) {}
@@ -311636,11 +311741,46 @@ router21.post("/comfyui/generate-video", async (req, res) => {
     if (!fs9.existsSync(audioLocalPath)) return res.status(404).json({ error: "Audio not found: " + audioLocalPath });
     const audioFileName = path9.basename(audioLocalPath);
 
+    /* PGFX 2026-08-09: slice the audio to the clip window so the LTX audio
+       reference tokens match the video frames (previously the WHOLE song was
+       uploaded and conditioned — wrong for 4-8s segment clips). */
+    let uploadAudioPath = audioLocalPath;
+    let uploadAudioName = audioFileName;
+    const audioStart = parseFloat(req.body.audioStart);
+    const audioDur = parseFloat(req.body.audioDuration);
+    if (isFinite(audioStart) && audioStart >= 0 && isFinite(audioDur) && audioDur > 0) {
+      const ffmpegPath = getFFmpegPath();
+      if (ffmpegPath) {
+        const sliceDir = path9.join(process.cwd(), "data", "mvc");
+        if (!fs9.existsSync(sliceDir)) fs9.mkdirSync(sliceDir, { recursive: true });
+        const sliceName = `audio_slice_${uuid9().substring(0, 8)}.wav`;
+        const slicePath = path9.join(sliceDir, sliceName);
+        const args = ["-y", "-ss", String(audioStart), "-t", String(audioDur), "-i", audioLocalPath, "-vn", "-ar", "44100", "-ac", "2", slicePath];
+        try {
+          const { execFile } = require("child_process");
+          await new Promise((resolve, reject) => {
+            execFile(ffmpegPath, args, { timeout: 30000 }, (err) => err ? reject(new Error("FFmpeg slice failed: " + err.message)) : resolve());
+          });
+          if (fs9.existsSync(slicePath)) {
+            uploadAudioPath = slicePath;
+            uploadAudioName = sliceName;
+            console.log(`[MVC] Audio sliced ${audioStart}s + ${audioDur}s -> ${sliceName}`);
+          }
+        } catch (sliceErr) {
+          console.warn(`[MVC] Audio slice failed, using full file: ${sliceErr.message}`);
+        }
+      }
+    }
+    /* LTXVImgToVideo length must be >= 9 and a multiple of 8. Round up so the
+       clip never undershoots the requested duration. */
+    const rawFrames = parseInt(frames) || 97;
+    const gridFrames = Math.max(9, Math.ceil(rawFrames / 8) * 8);
+
     /* Upload both to ComfyUI */
     console.log(`[MVC] Uploading image: ${imageFileName}`);
     await comfyUpload(imageLocalPath, imageFileName);
-    console.log(`[MVC] Uploading audio: ${audioFileName}`);
-    await comfyUpload(audioLocalPath, audioFileName);
+    console.log(`[MVC] Uploading audio: ${uploadAudioName}`);
+    await comfyUpload(uploadAudioPath, uploadAudioName);
 
     /* Auto-generate video prompt if not provided */
     let finalVideoPrompt = videoPrompt;
@@ -311653,10 +311793,10 @@ router21.post("/comfyui/generate-video", async (req, res) => {
     /* Build workflow */
     const workflow = buildLTX2Workflow({
       imageFilename: imageFileName,
-      audioFilename: audioFileName,
+      audioFilename: uploadAudioName,
       videoPrompt: finalVideoPrompt,
       negativePrompt, width: width||768, height: height||512,
-      frames: frames||97, frameRate: frameRate||25,
+      frames: gridFrames, frameRate: frameRate||25,
       steps: 20, cfg: cfg||3.0, imgStrength: imgStrength||1.0,
       seed, outputPrefix: `mvc_${sectionType || "clip"}`,
       unetModel: unetModel||"auto", vaeModel: vaeModel||"auto",
@@ -311699,7 +311839,10 @@ router21.post("/comfyui/extract-audio", async (req, res) => {
     if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
     const outName = `audio_seg_${uuid9().substring(0,8)}.wav`;
     const outPath = path9.join(outDir, outName);
-    const ffmpegPath = path9.join(process.cwd(), "ffmpeg.exe");
+    /* PGFX 2026-08-09: use the canonical resolver — ffmpeg.exe lives in
+       server/, never in the process cwd. */
+    const ffmpegPath = getFFmpegPath();
+    if (!ffmpegPath) { res.status(500).json({ error: "ffmpeg not available" }); return; }
     const args = ["-y", "-ss", String(startTime||0), "-t", String(duration||9), "-i", audioLocalPath, "-vn", "-ar", "44100", "-ac", "2", outPath];
     const { execFile } = require("child_process");
     await new Promise((resolve, reject) => {
@@ -311712,6 +311855,110 @@ router21.post("/comfyui/extract-audio", async (req, res) => {
     res.json({ audioUrl: `/data/mvc/${outName}`, duration, startTime });
   } catch (err) {
     console.error("[MVC] Audio extraction failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ── Lyric video plan — PGFX 2026-08-09 ─────────────────────────────────────
+   Returns the full lyric-driven segment plan WITHOUT generating anything:
+   sections + 4-8s lyric segments + per-segment FLUX.2/LTX prompts + timings.
+   The MVC page drives per-segment image/clip generation from this plan. */
+router21.post("/comfyui/video-plan", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const { songId, audioUrl, lyrics, style, caption, trackTitle, coverArtSubject, vocalistGender, aboutGender, minSegmentSec, maxSegmentSec } = req.body;
+    let songData = null;
+    let resolvedAudioUrl = audioUrl || "";
+    let resolvedLyrics = lyrics || "";
+    let resolvedStyle = style || caption || "";
+    let resolvedTitle = trackTitle || "";
+    let resolvedSubject = coverArtSubject || "";
+    if (songId) {
+      songData = getDb().prepare("SELECT * FROM songs WHERE id = ? AND user_id = ?").get(songId, userId);
+      if (!songData) { res.status(404).json({ error: "Song not found" }); return; }
+      resolvedAudioUrl = songData.audio_url || songData.mastered_audio_url || "";
+      resolvedLyrics = songData.lyrics || "";
+      resolvedStyle = songData.style || songData.caption || "";
+      resolvedTitle = songData.title || "";
+      resolvedSubject = songData.cover_art_subject || "";
+    }
+    if (!resolvedAudioUrl) { res.status(400).json({ error: "No audio URL provided" }); return; }
+    const audioFilename = path4.basename(resolvedAudioUrl);
+    const audioFilePath = path4.join(config.data.audioDir, audioFilename);
+    if (!fs5.existsSync(audioFilePath)) { res.status(404).json({ error: "Audio file not found on disk: " + audioFilename }); return; }
+    /* Duration + BPM */
+    let beatData;
+    try { beatData = detectBeatsInAudio(audioFilePath); }
+    catch (e) { console.warn(`[VideoPlan] Beat detection failed: ${e.message}`); beatData = { beats: [], bpm: 0, duration: 0 }; }
+    let songDuration = beatData.duration;
+    if (!songDuration || songDuration <= 0) {
+      const wavInfo = parseWav(audioFilePath);
+      songDuration = wavInfo.samples.length / wavInfo.sampleRate;
+    }
+    let effectiveBpm = beatData.bpm || 0;
+    if ((!effectiveBpm || effectiveBpm <= 0) && songData?.bpm) effectiveBpm = songData.bpm;
+    /* Sections + segments */
+    const sections = parseVideoSections(resolvedLyrics);
+    if (sections.length === 0) { res.status(400).json({ error: "No lyrics sections found" }); return; }
+    const sectionTimings = calculateSectionTimings(sections, effectiveBpm, songDuration, beatData.beats);
+    const flatSegments = [];
+    for (let sgi = 0; sgi < sections.length; sgi++) {
+      const segsFor = splitLyricsIntoSegments(sections[sgi]);
+      for (const sg of segsFor) { sg.sectionType = sections[sgi].sectionType; sg.sectionIndex = sgi; flatSegments.push(sg); }
+    }
+    if (flatSegments.length === 0) {
+      sections.forEach((s, i) => flatSegments.push({ sectionType: s.sectionType, sectionIndex: i, lines: s.lyrics.split("\n").filter((l) => l.trim().length > 0) }));
+    }
+    /* 4-8s default caps (client may override) */
+    const minSec = Math.max(2, Math.min(10, parseFloat(minSegmentSec) || 4));
+    const maxSec = Math.max(minSec, Math.min(12, parseFloat(maxSegmentSec) || 8));
+    const segmentTimings = calculateSegmentTimings(flatSegments, sectionTimings, songDuration, { minSec, maxSec });
+    /* One shared concept keeps every segment (and the album cover) cohesive */
+    const songConcept = buildSongConcept({
+      coverArtSubject: resolvedSubject,
+      title: resolvedTitle,
+      lyrics: resolvedLyrics,
+      style: resolvedStyle,
+      vocalistGender: vocalistGender || "",
+      aboutGender: aboutGender || ""
+    });
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const segments = flatSegments.map((sec, i) => {
+      const startTime = segmentTimings[i] || 0;
+      const endTime = segmentTimings[i + 1] ?? songDuration;
+      const prompt = buildVideoSegmentPrompt({
+        segmentLines: sec.lines,
+        sectionType: sec.sectionType,
+        concept: songConcept,
+        style: resolvedStyle,
+        title: resolvedTitle,
+        coverArtSubject: resolvedSubject,
+        vocalistGender: vocalistGender || "",
+        aboutGender: aboutGender || ""
+      });
+      return {
+        index: i,
+        sectionIndex: sec.sectionIndex,
+        sectionType: sec.sectionType,
+        lines: sec.lines,
+        startTime: r2(startTime),
+        endTime: r2(endTime),
+        duration: r2(Math.max(0.5, endTime - startTime)),
+        prompt
+      };
+    });
+    res.json({
+      songId: songId || null,
+      title: resolvedTitle,
+      duration: songDuration,
+      bpm: effectiveBpm,
+      concept: songConcept,
+      sections: sections.map((s, i) => ({ index: i, type: s.sectionType, startTime: r2(sectionTimings[i] || 0), endTime: r2(sectionTimings[i + 1] ?? songDuration) })),
+      segments
+    });
+  } catch (err) {
+    console.error("[MVC] Video plan failed:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
