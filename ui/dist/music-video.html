@@ -339,6 +339,13 @@ input,select,textarea{font-family:inherit}
       <div class="right-section-header" data-toggle="segments-body">Lyric Segments <span class="chevron">&#9660;</span></div>
       <div class="right-section-body" id="segments-body">
         <div class="gen-field" style="display:flex;align-items:center;gap:8px">
+          <label style="margin:0;text-transform:none">Engine</label>
+          <select id="seg-engine" style="flex:1">
+            <option value="minimax-h3" selected>MiniMax H3 (I2V, native audio, fast)</option>
+            <option value="ltx">LTX 2.3 (audio-conditioned)</option>
+          </select>
+        </div>
+        <div class="gen-field" style="display:flex;align-items:center;gap:8px">
           <label style="margin:0;text-transform:none">Resolution</label>
           <select id="seg-resolution" style="flex:1">
             <option value="768x512">768x512 (fast)</option>
@@ -386,6 +393,7 @@ input,select,textarea{font-family:inherit}
     <button class="btn btn-sm" id="nle-add-viz" title="Add visualizer clip at playhead">+ Viz</button>
     <button class="btn btn-sm" id="nle-add-broll" title="Add B-Roll image clip at playhead">+ B-Roll</button>
     <button class="btn btn-sm" id="nle-add-aroll" title="Add A-Roll video clip at playhead">+ A-Roll</button>
+    <button class="btn btn-sm" id="nle-singer" title="Generate singer performance shots and lay them on A-Roll">&#127908; Singer Shots</button>
     <button class="btn btn-sm" id="nle-seed" title="Auto-layout clips from sections &amp; layers">Auto-Layout</button>
     <button class="btn btn-sm btn-green" id="nle-render" title="Compose NLE timeline to MP4 via server ffmpeg">Render NLE</button>
     <button class="btn btn-sm" id="nle-collapse" title="Collapse / expand NLE panel">&#9650;</button>
@@ -420,6 +428,13 @@ input,select,textarea{font-family:inherit}
       <option value="2">Pan Left</option><option value="3">Pan Right</option>
       <option value="4">Pan Up</option><option value="5">Pan Down</option>
     </select></div>
+    <div class="gen-field"><label>Transition</label><select id="nle-edit-transition-sel">
+      <option value="dip">Dip (0.3s)</option>
+      <option value="crossfade">Crossfade (0.5s)</option>
+      <option value="fade">Fade (0.6s)</option>
+      <option value="none">None (cut)</option>
+    </select></div>
+    <div class="gen-field" id="nle-edit-effect" style="display:none"><label>Viz Mode</label><select id="nle-edit-effect-sel"></select></div>
     <div class="gen-field"><label>Start (sec)</label><input type="number" id="nle-edit-start" step="0.01" min="0"></div>
     <div class="gen-field"><label>End (sec)</label><input type="number" id="nle-edit-end" step="0.01" min="0"></div>
     <div class="gen-field"><label style="display:flex;align-items:center;gap:6px;text-transform:none"><input type="checkbox" id="nle-edit-muted" style="width:auto"> Muted</label></div>
@@ -603,6 +618,11 @@ function loadAudio(url, title) {
   initAudio();
   if (audioEl) { audioEl.pause(); audioEl.removeAttribute('src'); audioEl.load(); }
   if (masterSource) { try { masterSource.disconnect(); } catch(e){} }
+  /* Switching songs must also silence any stems still streaming from the
+     previous song (PGFX 2026-08-10). */
+  pauseAllStems();
+  S.playing = false;
+  $('btn-play').innerHTML = '&#9654;';
 
   $('no-preview').style.display = 'none';
   $('song-title').textContent = title || 'Untitled';
@@ -627,6 +647,7 @@ function loadAudio(url, title) {
   audioEl.addEventListener('ended', function() {
     S.playing = false;
     $('btn-play').innerHTML = '&#9654;';
+    pauseAllStems();
   });
   audioEl.addEventListener('timeupdate', function() {
     if (!seekDragging) {
@@ -669,10 +690,15 @@ function togglePlay() {
     audioEl.pause();
     S.playing = false;
     $('btn-play').innerHTML = '&#9654;';
+    /* Pause MUST reach the stems — the render loop only drives stems while
+       S.playing, so a master-only pause would let stems free-run (PGFX 2026-08-10). */
+    pauseAllStems();
   } else {
     audioEl.play();
     S.playing = true;
     $('btn-play').innerHTML = '&#9646;&#9646;';
+    /* Resync stems to the current master position before they join the loop */
+    syncStemsTo(audioEl.currentTime);
     if (!animFrameId) renderLoop();
   }
 }
@@ -686,13 +712,44 @@ function stopAudio() {
   $('seek-bar').value = 0;
   updatePlayhead(0);
   updateTimeDisplay();
+  /* Stop was leaving stems playing — every stem must pause AND rewind (PGFX 2026-08-10). */
+  pauseAllStems();
+  syncStemsTo(0);
 }
 
 function seekTo(pct) {
   if (!audioEl) return;
   audioEl.currentTime = pct * S.songDuration;
+  /* Mirror seek to every buffered stem or stems drift against the master
+     after scrubbing (PGFX 2026-08-10). */
+  syncStemsTo(pct * S.songDuration);
   updatePlayhead(pct);
   updateTimeDisplay();
+}
+
+/* Stem playback helpers (PGFX 2026-08-10): stemAudioEls holds plain
+   HTMLMediaElements in flight while stems stream in. The master transport
+   (play/pause/stop/seek) MUST be mirrored to every stem element, and the
+   render loop must never force a seek on a stem that is still buffering
+   (readyState < 2) — a 43MB network stem being seeked mid-load stalls or
+   skips ahead, which is what made Play jump past the song start. */
+function pauseAllStems() {
+  var stems = Object.values(stemAudioEls);
+  for (var s = 0; s < stems.length; s++) {
+    try { stems[s].pause(); } catch(e) {}
+  }
+}
+
+function syncStemsTo(ct) {
+  var stems = Object.values(stemAudioEls);
+  for (var s = 0; s < stems.length; s++) {
+    var st = stems[s];
+    try {
+      if (st.readyState >= 2 && isFinite(st.currentTime) && Math.abs(st.currentTime - ct) > 0.4) {
+        st.currentTime = ct;
+      }
+    } catch(e) {}
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -2330,21 +2387,42 @@ async function generateSegmentClip(idx) {
     segThumb(idx, 'image', imgData.imageUrl);
     segStatus(idx, 'Clip (' + clipDur.toFixed(1) + 's)...');
 
+    /* PGFX 2026-08-11: CROP-REUSE — one FLUX.2 keyframe per segment; head and
+       instrument close-ups are ffmpeg CROPS of that same image, not new renders.
+       Failures are non-fatal (keyframe + video still proceed). Crops land in the
+       NLE B-Roll lane for fast-cut variety. */
+    deriveSegmentCrops(idx);
+
+    var engine = (($('seg-engine') || {}).value) || 'minimax-h3';
+    /* PGFX 2026-08-11: model-correct prompt per engine — H3 gets its own SHORT
+       motion prompt (server built h3MotionPrompt in the plan); LTX gets the
+       LTX 2.3 motion prompt. Never feed LTX camera-intent prose to H3. */
+    var motionPrompt = engine === 'minimax-h3'
+      ? (seg.h3MotionPrompt || seg.motionPrompt || seg.prompt)
+      : (seg.motionPrompt || seg.prompt);
+
     var vidResp = await comfyPost('/api/inspire/comfyui/generate-video', {
       imageUrl: imgData.imageUrl,
       audioUrl: S.audioUrl,
       audioStart: seg.startTime,
       audioDuration: clipDur,
-      videoPrompt: seg.prompt,
+      /* PGFX 2026-08-10: LTX 2.3 motion prompt (from the server video-plan) is
+         distinct from the FLUX.2 keyframe prompt. Fall back to the image prompt
+         only if a motion prompt was never built. */
+      videoPrompt: motionPrompt,
       frames: frames,
       width: res.width,
       height: res.height,
       sectionType: seg.sectionType,
       songId: S.songId,
-      unetModel: _pipelineModels.ltx.unet,
-      vaeModel: _pipelineModels.ltx.vae,
-      clipModel: _pipelineModels.ltx.clip,
-      audioVaeModel: _pipelineModels.ltx.audioVae,
+      /* Engine selector: ltx (default) | minimax-h3 — each engine sends only
+         its OWN pipeline model selections; undefined falls back to the server's
+         per-engine defaults (auto). Never cross-feed LTX models to H3. */
+      engine: engine,
+      unetModel: _pipelineModels.h3.unet !== 'auto' ? _pipelineModels.h3.unet : undefined,
+      vaeModel: _pipelineModels.h3.vae !== 'auto' ? _pipelineModels.h3.vae : undefined,
+      clipModel: _pipelineModels.h3.clip !== 'auto' ? _pipelineModels.h3.clip : undefined,
+      audioVaeModel: _pipelineModels.h3.audioVae !== 'auto' ? _pipelineModels.h3.audioVae : undefined,
       icLoraModel: _pipelineModels.ltx.icLora,
       upscaleModel: _pipelineModels.ltx.upscale
     });
@@ -2360,6 +2438,55 @@ async function generateSegmentClip(idx) {
     segStatus(idx, 'Failed: ' + e.message);
     if (row) row.className = 'seg-row failed';
   }
+}
+
+/* PGFX 2026-08-11: derive close-up B-Roll crops from the segment keyframe via
+   the server crop-image route (ffmpeg, zero FLUX.2 renders). Non-fatal — any
+   failure leaves the keyframe + video intact. Each crop becomes a B-Roll lane
+   clip inside the segment's time window with a distinct name. */
+async function deriveSegmentCrops(idx) {
+  var seg = S.segmentPlan[idx];
+  if (!seg || !seg.imageUrl) return;
+  var rows = [
+    { region: 'head',       label: 'Head',       key: 'cropHead' },
+    { region: 'instrument', label: 'Instrument', key: 'cropInstrument' }
+  ];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (seg[r.key]) continue;
+    try {
+      var resp = await comfyPost('/api/inspire/comfyui/crop-image', {
+        imageUrl: seg.imageUrl,
+        region: r.region
+      });
+      var data = await resp.json();
+      if (!resp.ok || !data.imageUrl) continue;
+      seg[r.key] = data.imageUrl;
+      nleAddCropClip(seg, data.imageUrl, r.label);
+    } catch (e) {
+      console.warn('[MV] Crop derive failed (' + r.region + '):', e.message);
+    }
+  }
+}
+
+/* Add a derived crop as a B-Roll clip in the segment's window (dedupe by name). */
+function nleAddCropClip(seg, imageUrl, label) {
+  if (!NLE || !NLE.tracks || !NLE.tracks.broll) return;
+  if (!S.songDuration || S.songDuration <= 0) return;
+  var dur = S.songDuration || 60;
+  var name = (seg.name || ('Seg ' + seg.index)) + ' ' + label;
+  var exists = (NLE.tracks.broll || []).some(function(c) { return c.name === name; });
+  if (exists) return;
+  NLE.tracks.broll.push({
+    id: 'b' + NLE.seq++,
+    start: Math.min(seg.startTime, dur - 0.05),
+    end: Math.min(seg.endTime, dur - 0.05),
+    imageUrl: imageUrl,
+    name: name,
+    zoomDir: 1,
+    sectionType: seg.sectionType || nleSectionTypeOf(seg.name)
+  });
+  renderNle();
 }
 
 async function generateAllSegments() {
@@ -2388,11 +2515,12 @@ function nleUpsertFromSegments() {
   (S.segmentPlan || []).forEach(function(seg) {
     if (!seg.videoUrl) return;
     var key = 'seg-' + seg.index;
+    var segType = seg.sectionType || nleSectionTypeOf(seg.name);
     if (!(NLE.tracks.aroll || []).some(function(c) { return c.name === key; })) {
-      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: Math.min(seg.startTime, dur - 0.05), end: Math.min(seg.endTime, dur), videoUrl: seg.videoUrl, name: key });
+      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: Math.min(seg.startTime, dur - 0.05), end: Math.min(seg.endTime, dur), videoUrl: seg.videoUrl, name: key, sectionType: segType });
     }
     if (seg.imageUrl && !(NLE.tracks.broll || []).some(function(c) { return c.name === key; })) {
-      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: Math.min(seg.startTime, dur - 0.05), end: Math.min(seg.endTime, dur), imageUrl: seg.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: key });
+      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: Math.min(seg.startTime, dur - 0.05), end: Math.min(seg.endTime, dur), imageUrl: seg.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: key, sectionType: segType });
     }
   });
   renderNle();
@@ -2431,6 +2559,13 @@ async function startExport() {
       height: parseInt(res[1]),
       fps: fps,
       audioSource: audioSrc,
+      duration: S.songDuration,
+      /* NLE-aware path (server prefers tracks when present): the intercut
+         aroll/broll/viz timeline with per-clip transitions. */
+      tracks: buildNleTracks(),
+      snap: !!NLE.snap,
+      bpm: NLE.bpm || 120,
+      /* Legacy fallback (server uses this only when tracks is empty) */
       sections: S.sections.map(function(s) {
         return {
           name: s.name,
@@ -2440,8 +2575,7 @@ async function startExport() {
           videoUrl: s.videoUrl
         };
       }),
-      layers: layerConfigs,
-      duration: S.songDuration
+      layers: layerConfigs
     });
 
     var data = await resp.json();
@@ -2529,6 +2663,12 @@ function initNle() {
   if (NLE.collapsed) nlePaneEl.classList.add('collapsed');
 }
 
+/* Normalize a section name to its bare type for situational transitions:
+   "Verse 1" → "verse", "Pre-Chorus 2" → "pre-chorus", "Outro" → "outro" */
+function nleSectionTypeOf(name) {
+  return String(name || '').toLowerCase().replace(/\s+/g, '-').replace(/-\d+$/, '');
+}
+
 /* Auto-layout: seed clips from sections + layers */
 function seedNle() {
   NLE.tracks = { aroll: [], broll: [], viz: [] };
@@ -2538,14 +2678,14 @@ function seedNle() {
   /* A-Roll: section videos */
   (S.sections || []).forEach(function(sec) {
     if (sec.videoUrl) {
-      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: sec.startTime, end: sec.endTime, videoUrl: sec.videoUrl, name: sec.name });
+      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: sec.startTime, end: sec.endTime, videoUrl: sec.videoUrl, name: sec.name, sectionType: nleSectionTypeOf(sec.name) });
     }
   });
 
   /* B-Roll: section images */
   (S.sections || []).forEach(function(sec) {
     if (sec.imageUrl) {
-      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: sec.startTime, end: sec.endTime, imageUrl: sec.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: sec.name });
+      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: sec.startTime, end: sec.endTime, imageUrl: sec.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: sec.name, sectionType: nleSectionTypeOf(sec.name) });
     }
   });
 
@@ -2568,11 +2708,111 @@ function nleUpsertFromSections() {
   if (!S.songDuration || S.songDuration <= 0) return;
   (S.sections || []).forEach(function(sec) {
     if (sec.videoUrl && !(NLE.tracks.aroll || []).some(function(c) { return c.name === sec.name; })) {
-      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: sec.startTime, end: sec.endTime, videoUrl: sec.videoUrl, name: sec.name });
+      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: sec.startTime, end: sec.endTime, videoUrl: sec.videoUrl, name: sec.name, sectionType: nleSectionTypeOf(sec.name) });
     }
     if (sec.imageUrl && !(NLE.tracks.broll || []).some(function(c) { return c.name === sec.name; })) {
-      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: sec.startTime, end: sec.endTime, imageUrl: sec.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: sec.name });
+      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: sec.startTime, end: sec.endTime, imageUrl: sec.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: sec.name, sectionType: nleSectionTypeOf(sec.name) });
     }
+  });
+  renderNle();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   A-ROLL SINGER SHOTS (PGFX 2026-08-12)
+   One FLUX.2 "performance" image per DISTINCT section type (verse, chorus,
+   bridge...), then laid on the A-Roll lane at every section of that type.
+   The server builds the prompt via buildSingerImagePrompt with
+   role=performance: the singer (default male) fronts the shot while the
+   song subject / lyric story is the world they perform inside of.
+   ═══════════════════════════════════════════════════════════════════════ */
+async function generateSingerShots() {
+  if (S.generatingSingers) return;
+  if (!S.songId) { $('nle-status').textContent = 'No song loaded.'; return; }
+  S.generatingSingers = true;
+  var btn = $('nle-singer');
+  if (btn) btn.disabled = true;
+  $('nle-status').textContent = 'Generating singer shots...';
+  try {
+    S.singerShots = S.singerShots || {};
+    var types = [];
+    (S.sections || []).forEach(function(sec) {
+      var t = nleSectionTypeOf(sec.name);
+      if (types.indexOf(t) === -1) types.push(t);
+    });
+    if (!types.length) { $('nle-status').textContent = 'No sections to shoot.'; return; }
+    var done = 0;
+    for (var i = 0; i < types.length; i++) {
+      var t = types[i];
+      var sec = null;
+      (S.sections || []).forEach(function(s) { if (!sec && nleSectionTypeOf(s.name) === t) sec = s; });
+      $('nle-status').textContent = 'Singer shot ' + (i + 1) + '/' + types.length + ' (' + t + ')...';
+      var resp = await comfyPost('/api/inspire/comfyui/generate-image', {
+        role: 'performance',
+        sectionType: t,
+        section: sec ? sec.name : t,
+        lyrics: (sec && sec.lyrics) || '',
+        songId: S.songId,
+        sectionIndex: S.sections.indexOf(sec),
+        totalSections: S.sections.length,
+        width: 1920,
+        height: 1080,
+        /* Pipeline model selections from Pipeline Config */
+        unetModel: _pipelineModels.flux.unet,
+        vaeModel: _pipelineModels.flux.vae,
+        clipModel: _pipelineModels.flux.clip
+      });
+      var data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Singer generation failed (HTTP ' + resp.status + ')');
+      var taskId = data.taskId || data.jobId;
+      var imageUrl = data.imageUrl || data.outputPath || '';
+      if (taskId) {
+        var pollDone = false;
+        while (!pollDone) {
+          await new Promise(function(r) { setTimeout(r, 2000); });
+          var stTok = await getAuthToken();
+          var stHdrs = {};
+          if (stTok) stHdrs['Authorization'] = 'Bearer ' + stTok;
+          var sr = await fetch('/api/inspire/comfyui/status?taskId=' + encodeURIComponent(taskId), { headers: stHdrs });
+          var sd = await sr.json();
+          if (sd.status === 'completed' || sd.status === 'done') { imageUrl = sd.imageUrl || sd.outputPath || imageUrl; pollDone = true; }
+          else if (sd.status === 'failed') throw new Error(sd.error || 'Singer generation failed');
+        }
+      }
+      if (!imageUrl) throw new Error('No image returned for ' + t);
+      S.singerShots[t] = { imageUrl: imageUrl, name: sec ? sec.name : t };
+      done++;
+    }
+    laySingerClips();
+    $('nle-status').textContent = 'Singer shots done: ' + done + ' (' + types.join(', ') + ')';
+  } catch (e) {
+    $('nle-status').textContent = 'Singer shots failed: ' + e.message;
+  }
+  S.generatingSingers = false;
+  if (btn) btn.disabled = false;
+}
+
+/* Lay one A-Roll clip per section using its section type's singer shot.
+   Reuses the same performance image for every occurrence of a type —
+   no re-render, deduped by clip name. */
+function laySingerClips() {
+  if (!NLE || !S.singerShots) return;
+  var dur = S.songDuration || 60;
+  (S.sections || []).forEach(function(sec) {
+    var t = nleSectionTypeOf(sec.name);
+    var shot = S.singerShots[t];
+    if (!shot) return;
+    var name = 'Singer: ' + sec.name;
+    var exists = (NLE.tracks.aroll || []).some(function(c) { return c.name === name; });
+    if (exists) return;
+    NLE.tracks.aroll.push({
+      id: 'a' + NLE.seq++,
+      start: Math.min(sec.startTime, dur - 0.05),
+      end: Math.min(sec.endTime, dur - 0.05),
+      imageUrl: shot.imageUrl,
+      name: name,
+      zoomDir: (NLE.tracks.aroll.length) % 6,
+      sectionType: t
+    });
   });
   renderNle();
 }
@@ -2743,6 +2983,25 @@ function openNleClipEditor(type, id) {
   /* Ken Burns only for broll */
   $('nle-edit-zoom').style.display = type === 'broll' ? '' : 'none';
   $('nle-edit-zoom-sel').value = String(clip.zoomDir || 0);
+  /* Transition for every clip type */
+  $('nle-edit-transition-sel').value = clip.transition || (type === 'viz' ? 'none' : 'dip');
+  /* Viz Mode only for viz clips */
+  var effWrap = $('nle-edit-effect');
+  if (type === 'viz') {
+    effWrap.style.display = '';
+    var esel = $('nle-edit-effect-sel');
+    if (!esel.options.length) {
+      EFFECTS.forEach(function(ef) {
+        var opt = document.createElement('option');
+        opt.value = ef.id;
+        opt.textContent = ef.name;
+        esel.appendChild(opt);
+      });
+    }
+    esel.value = clip.effectId || 'bars';
+  } else {
+    effWrap.style.display = 'none';
+  }
   $('nle-edit-start').value = clip.start.toFixed(2);
   $('nle-edit-end').value = clip.end.toFixed(2);
   $('nle-edit-muted').checked = !!clip.muted;
@@ -2760,11 +3019,13 @@ function saveNleClipEditor() {
   clip.start = Math.max(0, Math.min(s, e - 0.1));
   clip.end = Math.max(clip.start + 0.1, e);
   clip.muted = $('nle-edit-muted').checked;
+  clip.transition = $('nle-edit-transition-sel').value;
   if (t === 'aroll' && $('nle-edit-asset-sel').value) clip.videoUrl = $('nle-edit-asset-sel').value;
   if (t === 'broll') {
     if ($('nle-edit-asset-sel').value) clip.imageUrl = $('nle-edit-asset-sel').value;
     clip.zoomDir = parseInt($('nle-edit-zoom-sel').value) || 0;
   }
+  if (t === 'viz') clip.effectId = $('nle-edit-effect-sel').value || clip.effectId;
   NLE.editing = null;
   $('nle-edit-modal').classList.remove('open');
   renderNle();
@@ -2818,7 +3079,16 @@ function buildNleTracks() {
       return !c.muted && c.end > c.start;
     }).map(function(c) {
       var o = { start: Math.round(c.start * 1000) / 1000, end: Math.round(c.end * 1000) / 1000 };
-      if (type === 'aroll') o.videoUrl = c.videoUrl;
+      /* Section type lets the server pick situational transitions for
+         auto-seeded clips (fade for intro/outro, crossfade for chorus...).
+         Explicit user-picked transitions always win. */
+      o.sectionType = c.sectionType || '';
+      o.transition = c.transition || '';
+      if (type === 'aroll') {
+        o.videoUrl = c.videoUrl || '';
+        o.imageUrl = c.imageUrl || '';
+        o.zoomDir = c.zoomDir || 0;
+      }
       else if (type === 'broll') { o.imageUrl = c.imageUrl; o.zoomDir = c.zoomDir || 0; }
       else {
         o.stem = stemUrlForName[c.stem] || null;
@@ -2855,7 +3125,9 @@ async function renderNleTimeline() {
         width: 1920, height: 1080, fps: 30,
         audioSource: 'mix',
         duration: S.songDuration,
-        tracks: tracks
+        tracks: tracks,
+        snap: !!NLE.snap,
+        bpm: NLE.bpm || 120
       })
     });
     var data = await resp.json();
@@ -2898,6 +3170,7 @@ function wireNleEvents() {
   $('nle-add-viz').addEventListener('click', function() { addNleClip('viz'); });
   $('nle-add-broll').addEventListener('click', function() { addNleClip('broll'); });
   $('nle-add-aroll').addEventListener('click', function() { addNleClip('aroll'); });
+  $('nle-singer').addEventListener('click', generateSingerShots);
   $('nle-seed').addEventListener('click', function() { seedNle(); renderNle(); });
   $('nle-render').addEventListener('click', renderNleTimeline);
   $('nle-collapse').addEventListener('click', function() {
@@ -2925,16 +3198,45 @@ function wireNleEvents() {
     });
   });
 
-  /* Delete key removes selected clip */
+  /* Keyboard edits on selected clip: Delete / Ctrl+D duplicate / S split */
   document.addEventListener('keydown', function(e) {
     if (!NLE.selected) return;
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    var sel = NLE.selected;
+    var clip = (NLE.tracks[sel.track] || []).find(function(c) { return c.id === sel.id; });
+    if (!clip) return;
     if (e.key === 'Delete' || e.key === 'Backspace') {
-      var sel = NLE.selected;
       NLE.tracks[sel.track] = (NLE.tracks[sel.track] || []).filter(function(c) { return c.id !== sel.id; });
       NLE.selected = null;
       renderNle();
       e.preventDefault();
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+      /* Duplicate: insert a copy adjacent after the original */
+      e.preventDefault();
+      var dup = JSON.parse(JSON.stringify(clip));
+      dup.id = sel.track[0] + NLE.seq++;
+      dup.name = (clip.name || 'Clip') + ' copy';
+      var len = dup.end - dup.start;
+      dup.start = Math.min(S.songDuration || 60, dup.start + len);
+      dup.end = Math.min(S.songDuration || 60, dup.start + len);
+      NLE.tracks[sel.track].push(dup);
+      NLE.selected = { track: sel.track, id: dup.id };
+      renderNle();
+    } else if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 's' || e.key === 'S')) {
+      /* Split at playhead */
+      e.preventDefault();
+      var now = audioEl ? audioEl.currentTime : 0;
+      if (now <= clip.start + 0.1 || now >= clip.end - 0.1) return;
+      var a = JSON.parse(JSON.stringify(clip));
+      var b = JSON.parse(JSON.stringify(clip));
+      a.end = now;
+      b.start = now;
+      b.id = sel.track[0] + NLE.seq++;
+      b.name = (clip.name || 'Clip') + ' B';
+      clip.end = now;
+      NLE.tracks[sel.track].push(b);
+      NLE.selected = { track: sel.track, id: b.id };
+      renderNle();
     }
   });
 }
@@ -3048,17 +3350,25 @@ function renderLoop(ts) {
     vizActiveSet = nleActiveVizLayerSet(nowCt);
   }
 
-  /* Sync stem playback with master audio */
+  /* Sync stem playback with master audio — only nudge stems that are actually
+     buffered (readyState>=2): a 43MB network stem being seeked while loading
+     stalls or skips ahead, which is what made Play jump past the song start.
+     A tolerant 0.4s drift window avoids per-frame force seeks, and play() is
+     only called once the element has real data — play() on an unbuffered blob
+     URL is fire-and-forget and can silently drop the stem. */
   if (audioEl && S.playing) {
     var ct = audioEl.currentTime;
     var stems = Object.values(stemAudioEls);
     for (var s = 0; s < stems.length; s++) {
-      if (Math.abs(stems[s].currentTime - ct) > 0.15) {
-        stems[s].currentTime = ct;
-      }
-      if (stems[s].paused && !stems[s].ended) {
-        stems[s].play().catch(function(){});
-      }
+      var st = stems[s];
+      try {
+        if (st.readyState >= 2 && isFinite(st.currentTime) && Math.abs(st.currentTime - ct) > 0.4) {
+          st.currentTime = ct;
+        }
+        if (st.readyState >= 2 && st.paused && !st.ended) {
+          st.play().catch(function(){});
+        }
+      } catch(e) {}
     }
   }
 
@@ -3268,7 +3578,8 @@ var _selectedVideoModel = 'auto';
 /* Full pipeline model selections — wired to dropdowns */
 var _pipelineModels = {
   flux: { unet: 'auto', vae: 'auto', clip: 'auto' },
-  ltx:  { unet: 'auto', vae: 'auto', clip: 'auto', audioVae: 'auto', icLora: 'auto', upscale: 'auto' }
+  ltx:  { unet: 'auto', vae: 'auto', clip: 'auto', audioVae: 'auto', icLora: 'auto', upscale: 'auto' },
+  h3:   { unet: 'auto', vae: 'auto', clip: 'auto', audioVae: 'auto' }
 };
 
 function getToken() {
@@ -3399,6 +3710,23 @@ function renderPipelineConfig(data) {
   html += '</select></div>';
   html += '</div>';
 
+  /* MiniMax H3 Video Pipeline (PGFX 2026-08-10) */
+  html += '<div style="margin-bottom:12px;padding:8px;background:var(--bg2);border-radius:8px">';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--amber);margin-bottom:6px">MiniMax H3 Video Pipeline (native audio)</div>';
+  html += '<div class="model-select-row"><label>UNet</label><select id="pipeline-h3-unet" style="flex:1">';
+  html += optList(m.h3Unets || [], d.minimaxH3?.unet);
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>Video VAE</label><select id="pipeline-h3-vae" style="flex:1">';
+  html += optList((m.h3Vae || []).filter(function(v) { return /video/i.test(v.name); }), d.minimaxH3?.vae);
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>Text Enc</label><select id="pipeline-h3-clip" style="flex:1">';
+  html += optList(m.h3Clip || [], d.minimaxH3?.clip);
+  html += '</select></div>';
+  html += '<div class="model-select-row"><label>Audio VAE</label><select id="pipeline-h3-audio-vae" style="flex:1">';
+  html += optList((m.h3Vae || []).filter(function(v) { return /audio/i.test(v.name); }), d.minimaxH3?.audioVae);
+  html += '</select></div>';
+  html += '</div>';
+
   content.innerHTML = html;
 
   /* Wire selector changes — update _pipelineModels state */
@@ -3431,6 +3759,19 @@ function renderPipelineConfig(data) {
   $('pipeline-ltx-upscale').addEventListener('change', function() {
     _pipelineModels.ltx.upscale = this.value;
   });
+  /* MiniMax H3 pipeline (PGFX 2026-08-10) */
+  if ($('pipeline-h3-unet')) $('pipeline-h3-unet').addEventListener('change', function() {
+    _pipelineModels.h3.unet = this.value;
+  });
+  if ($('pipeline-h3-vae')) $('pipeline-h3-vae').addEventListener('change', function() {
+    _pipelineModels.h3.vae = this.value;
+  });
+  if ($('pipeline-h3-clip')) $('pipeline-h3-clip').addEventListener('change', function() {
+    _pipelineModels.h3.clip = this.value;
+  });
+  if ($('pipeline-h3-audio-vae')) $('pipeline-h3-audio-vae').addEventListener('change', function() {
+    _pipelineModels.h3.audioVae = this.value;
+  });
 }
 
 /* ComfyUI status click → refresh */
@@ -3454,6 +3795,18 @@ renderEffectThumbs();
 /* Check ComfyUI status and load model browser */
 checkComfyUIStatus();
 loadModelBrowser();
+
+/* Engine selector persistence (PGFX 2026-08-10): restore last choice, save on change */
+(function() {
+  var eng = $('seg-engine');
+  if (!eng) return;
+  var saved = 'minimax-h3';
+  try { saved = localStorage.getItem('hs-mvc-engine') || 'minimax-h3'; } catch(e) {}
+  if (saved === 'minimax-h3' || saved === 'ltx') eng.value = saved;
+  eng.addEventListener('change', function() {
+    try { localStorage.setItem('hs-mvc-engine', this.value); } catch(e) {}
+  });
+})();
 
 /* Load song from URL params */
 if (S.songId) {

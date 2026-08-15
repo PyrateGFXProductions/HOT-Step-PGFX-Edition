@@ -304,11 +304,6 @@ function extractLyricStory(lyrics) {
   for (const [species, words] of Object.entries(ANIMALS)) {
     if (hasAny(words)) { animal = species; break; }
   }
-  const capCount = {};
-  for (const w of cleaned.match(/\b[A-Z][a-z]{2,}\b/g) || []) capCount[w] = (capCount[w] || 0) + 1;
-  const name = Object.entries(capCount)
-    .filter(([w, c]) => c >= 2 && !["The", "I", "You", "We", "They", "She", "He", "It", "Yeah", "Oh"].includes(w))
-    .sort((a, b) => b[1] - a[1])[0]?.[0] || "";
   const SETTINGS = [
     { words: ["movie", "cinema", "picture house", "movie seat", "velvet seat", "ticket", "popcorn", "marquee", "projector", "screen", "showtime", "matinee", "theater", "theatre", "aisle"], scene: "settles into a velvet movie theater seat", place: "a movie theater" },
     { words: ["barn", "fence", "corn bin", "tractor", "pasture", "hay", "silo", "ranch", "farm", "cattle", "field"], scene: "stands in the farmyard beside the fence", place: "a farm" },
@@ -331,6 +326,18 @@ function extractLyricStory(lyrics) {
     }
     if (score > settingScore) { setting = s; settingScore = score; }
   }
+  // Protagonist name: a repeated capitalized proper noun (2+ times) is the
+  // character ("Millie" repeats through every Millie song). Function words,
+  // animal words and setting words can NEVER be a name: "Get that cow out the
+  // cinema seat!" must not name the cow "Get" or "Cow" or "Seat".
+  const NON_NAMES = new Set(["The", "I", "You", "We", "They", "She", "He", "It", "Yeah", "Oh", "And", "But", "So", "When", "If", "Now", "Here", "There", "Well", "Never", "Every", "Gonna", "Wanna", "Cause", "Baby", "Hey", "Girl", "Boy", "Get", "Take", "Put", "Let", "Make", "Come", "Go", "Say", "Tell", "Don", "Love", "Day", "Night", "Time", "Way", "Back", "Down", "Out", "One", "Two", "What", "Why", "How", "This", "That", "Then"]);
+  for (const words of Object.values(ANIMALS)) for (const w of words) NON_NAMES.add(w.charAt(0).toUpperCase() + w.slice(1));
+  for (const s of SETTINGS) for (const w of s.words) for (const part of w.split(" ")) NON_NAMES.add(part.charAt(0).toUpperCase() + part.slice(1));
+  const capCount = {};
+  for (const w of cleaned.match(/\b[A-Z][a-z]{2,}\b/g) || []) capCount[w] = (capCount[w] || 0) + 1;
+  const name = Object.entries(capCount)
+    .filter(([w, c]) => c >= 2 && !NON_NAMES.has(w))
+    .sort((a, b) => b[1] - a[1])[0]?.[0] || "";
   // Require >= 2 occurrences of setting vocabulary — a single "home" in a generic
   // love lyric must NOT turn every love song into "a quiet scene in a quiet home".
   if (animal) {
@@ -395,6 +402,37 @@ function getGenreVisuals(style) {
     if (re.test(lower)) return visuals;
   }
   return "";
+}
+
+/* PGFX 2026-08-07: genre label + visuals — FIRST-MENTIONED genre key wins
+   (style leading "bluegrass … and honky-tonk" is bluegrass-led), with a key-length
+   tiebreak when two keys match at the same position ("country rock" beats "rock").
+   Mirrors the inline server.mjs helper. */
+function matchGenreVisuals(style) {
+  if (!style) return null;
+  const lower = style.toLowerCase();
+  let best = null;
+  for (const genre of Object.keys(GENRE_VISUALS)) {
+    const re = new RegExp(`(^|[^a-z0-9&+#])${genre}([^a-z0-9&+#]|$)`);
+    const m = re.exec(lower);
+    if (!m) continue;
+    const wordIndex = m.index + m[1].length;
+    if (!best || wordIndex < best.index || (wordIndex === best.index && genre.length > best.genre.length)) {
+      best = { genre, visuals: GENRE_VISUALS[genre], index: wordIndex };
+    }
+  }
+  return best ? { label: best.genre, visuals: best.visuals } : null;
+}
+
+/* PGFX 2026-08-07: fallback style label — first ~10 words of the prose split on
+   whitespace/commas, never a mid-clause fragment like "a chunky". Returns "" if
+   unusable. Mirrors the inline server.mjs helper. */
+function safeStyleLabel(style) {
+  const s = String(style || "").trim();
+  if (!s) return "";
+  const words = s.replace(/[.!?]+$/, "").split(/[\s,;:]+/).filter(Boolean).slice(0, 10);
+  const label = words.join(" ").replace(/[,;:]+$/, "").trim();
+  return label.length >= 3 ? label.toLowerCase() : "";
 }
 
 /**
@@ -473,7 +511,31 @@ function buildSongConcept(opts) {
   if (opts.vocalistGender === "male" || opts.aboutGender === "male") personDesc = "a man";
   else if (opts.vocalistGender === "female" || opts.aboutGender === "female") personDesc = "a woman";
   else if (opts.vocalistGender === "duet") personDesc = "a man and a woman";
-  if (coverArtSubject) return coverArtSubject;
+  if (coverArtSubject) {
+    // PGFX 2026-08-10: the album/cover flow persists cover_art_subject WITHOUT the
+    // species ("Millie settles into a velvet movie theater seat" - no cow), and the
+    // old early return fed it to FLUX verbatim, so covers rendered a woman instead
+    // of the animal the lyrics describe. Enrich the subject with the lyric-proven
+    // species when the subject names the same protagonist. Subjects that do not
+    // name the protagonist (or already carry the species) stay verbatim.
+    var storyForSubject = extractLyricStory(lyrics);
+    if (storyForSubject) {
+      var speciesMatch = storyForSubject.match(/^(?:[A-Z][a-z]{2,}, a ([a-z]+),|A ([a-z]+),)/);
+      if (speciesMatch) {
+        var species = speciesMatch[1] || speciesMatch[2];
+        var lowerSubject = coverArtSubject.toLowerCase();
+        var speciesRe = new RegExp(`(^|[^a-z0-9])${species}s?([^a-z0-9]|$)`);
+        var nameMatch = storyForSubject.match(/^([A-Z][a-z]{2,}), a /);
+        if (!speciesRe.test(lowerSubject) && nameMatch) {
+          var firstWord = coverArtSubject.split(/[\s,]+/)[0].replace(/[^\w]/g, "");
+          if (firstWord === nameMatch[1]) {
+            return coverArtSubject.replace(new RegExp(`^${nameMatch[1]}`), `${nameMatch[1]}, a ${species},`);
+          }
+        }
+      }
+    }
+    return coverArtSubject;
+  }
   // PGFX 2026-08-09: the LYRIC STORY is the strongest signal — it drives the scene
   // before the title ever gets a chance (the old order let "Movie Seat" match
   // "ocean" and never read the lyrics that describe a cow in a cinema).
@@ -528,6 +590,11 @@ function buildCoverArtPrompt(opts) {
     var styleLabel = (style.split(",")[0] || "").trim().toLowerCase() || "music";
     sentences.push(`The scene is lit with a ${styleLabel} atmosphere.`);
   }
+  /* PGFX 2026-08-10 (FLUX.2 guide): text intended for the cover goes INSIDE
+     explicit quotes and is positioned. Opt-in via opts.titleText. */
+  if (opts.titleText && (opts.title || "").trim()) {
+    sentences.push(`The song title "${opts.title.trim()}" is rendered in elegant typography across the top of the cover.`);
+  }
   if (isSection) {
     var progress = opts.sectionIndex / Math.max(1, (opts.totalSections || 1) - 1);
     var arcDesc = progress < 0.2 ? "an opening moment"
@@ -539,8 +606,11 @@ function buildCoverArtPrompt(opts) {
     sentences.push(`This image is ${arcDesc} of the song: ${sectionMood}.`);
     sentences.push("The same characters, location and lighting continue across every image in this series, each one rendered as a separate single frame.");
   }
-  sentences.push("Each image is one full-frame scene standing completely alone — never a storyboard, comic strip, grid or collage.");
-  sentences.push("The composition is cinematic and richly detailed, with no text and no lettering anywhere.");
+  /* PGFX 2026-08-10 (FLUX.2 guide): positive bound language — describe what the
+     frame IS ("standing completely alone as one continuous composition",
+     "entirely wordless"), not what it is not. */
+  sentences.push("Each image is one full-frame scene standing completely alone, a single continuous composition.");
+  sentences.push("The composition is cinematic and richly detailed, entirely wordless.");
   // Every element must read as a complete sentence for FLUX.2 prose prompting.
   var normalizeSentence = function(s) { return s.trim().replace(/[.!?]+\s*$/, "") + "."; };
   return sentences.map(normalizeSentence).join(" ");
@@ -550,17 +620,55 @@ function buildCoverArtPrompt(opts) {
    buildSingerImagePrompt — narrative-consistent singer images across sections
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex, totalSections }) {
+/* PGFX 2026-08-11: does the song subject LITERALLY describe a person/singer?
+   Word-boundary scan of person-role + gender words. A subject like "Millie, a cow,
+   settles into a velvet movie theater seat" or "an old truck that won't start on a
+   cold morning" is NOT a person — the image must show the SUBJECT, not a singer.
+   A subject like "a lonely singer in a smoky bar" IS a person — the singer-led
+   framing stays correct. Extracted/imported by the test harness — keep comments
+   free of literal apostrophes. */
+function subjectLooksLikePerson(subject) {
+  const t = String(subject || "").toLowerCase();
+  return /(^|[^a-z0-9])(singer|vocalist|performer|performing|artist|musician|band|dj|rapper|rockstar|cowboy|cowgirl|guitarist|drummer|player|man|woman|girl|boy|lady|gentleman|her\b|him\b|she\b|he\b|herself|himself)([^a-z0-9]|$)/i.test(t);
+}
+
+function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex, totalSections, role }) {
   const scene = SINGER_SCENES[sectionType] || SINGER_SCENES.verse;
   const narrative = SECTION_NARRATIVE[sectionType] || SECTION_NARRATIVE.verse;
-  const genderWord = vocalistGender === "male" ? "a man" : vocalistGender === "female" ? "a woman" : "a singer";
+  /* PGFX 2026-08-12: A-Roll "performance" shots default the performer to a MAN
+     when the song never declares a vocalist gender (user expectation: the
+     default singer voice is a guy). Normal keyframes keep the neutral default. */
+  const performance = role === "performance";
+  const genderWord = vocalistGender === "female" ? "a woman"
+    : vocalistGender === "duet" ? "a man and a woman"
+    : vocalistGender === "male" ? "a man"
+    : performance ? "a man"
+    : "a singer";
 
-  /* PGFX 2026-08-07: the SCENE is the lyric SUBJECT — the singer performs inside the
-     song's world, never in a generic genre venue. Genre contributes lighting only. */
+  /* PGFX 2026-08-11: SUBJECT-LED framing. When the subject is NOT a person (animal,
+     object, place), the subject IS the scene and the singer must never be forced
+     into the frame (session-38 person rule — "an empty highway stays empty").
+     Gender-led singer framing only when the subject literally is a person/singer,
+     or when no subject exists at all. */
   const subjectWorld = (subject || "").trim();
-  const visualWorld = subjectWorld
-    ? `${genderWord} performing inside the song's world: ${subjectWorld}`
-    : `${genderWord} in a music performance setting`;
+  /* PGFX 2026-08-12: PERFORMANCE mode is ALWAYS singer-led — the A-Roll shows the
+     performer, and the song subject (or the story the lyrics tell) becomes the
+     world the performer sings inside of. That keeps "Millie, a cow" as the
+     backdrop while the guy fronts the shot. */
+  const subjectLed = !performance && !!subjectWorld && !subjectLooksLikePerson(subjectWorld);
+  let visualWorld;
+  if (performance) {
+    const world = subjectWorld || extractLyricStory(lyrics) || extractTitleConcept(title) || "";
+    visualWorld = world
+      ? `${genderWord} performing inside the song's world: ${world}`
+      : `${genderWord} performing, the stage and venue alive around them`;
+  } else if (subjectLed) {
+    visualWorld = `The song's world: ${subjectWorld}`;
+  } else if (subjectWorld) {
+    visualWorld = `${genderWord} performing inside the song's world: ${subjectWorld}`;
+  } else {
+    visualWorld = `${genderWord} in a music performance setting`;
+  }
 
   /* Lighting/palette tint from the genre — word-boundary first-mention, and the
      GENRE_VISUALS values are people/instrument/venue-free by design. */
@@ -584,26 +692,163 @@ function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, ti
   const visualEssence = extractVisualEssence(lyrics);
 
   const sentences = [visualWorld];
-  sentences.push(`This image belongs to a ${narrativeArc}: ${scene.mood}.`);
+  sentences.push(`This image belongs to ${narrativeArc}: ${scene.mood}.`);
   if (genreLight) sentences.push(`The scene is lit with a ${genreKey} atmosphere: ${genreLight}.`);
-  sentences.push(scene.pose);
+  /* PGFX 2026-08-11: the singer POSE only belongs to singer-led frames — a cow scene
+     must never be told to "sing into a microphone". Subject-led frames keep the
+     mood + lighting, drop the performer pose entirely. */
+  if (!subjectLed) sentences.push(scene.pose);
   if (visualEssence) sentences.push(`Imagery drawn from the lyrics: ${visualEssence}.`);
   if (title) sentences.push(`The song's theme is "${title}".`);
   /* PGFX: FLUX.2 treats "visual story/chapters" as a request for multi-panel storyboards.
      Keep per-series consistency without narrative framing; force a single frame. */
   sentences.push("The same characters, location and lighting continue across every image in this series, each one rendered as a separate single frame.");
-  sentences.push("Each image is one full-frame scene standing completely alone — never a storyboard, comic strip, grid or collage.");
-  sentences.push("Cinematic and photorealistic with dramatic lighting and no text or lettering anywhere.");
+  /* PGFX 2026-08-10 (FLUX.2 guide): positive bound language — describe what the
+     frame IS, not what it is not. */
+  sentences.push("Each image is one full-frame scene standing completely alone, a single continuous composition.");
+  sentences.push("Cinematic and photorealistic with dramatic lighting, entirely wordless.");
   return sentences.filter(Boolean).join(" ");
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   buildVideoPrompt — describes image + subtle motion for LTX2 video generation
+   buildVideoMotionPrompt — LTX 2.3 motion-first prompt (PGFX 2026-08-10)
+
+   Per the LTX 2.3 prompting guide the video prompt is NOT a still-image prompt
+   with "subtle motion" bolted on. Structure every video prompt as a flowing
+   paragraph of 4-8 sentences that leads with the SUBJECT, then a DOMINANT
+   NATURAL MOTION EVENT (verbs, not style words), then STYLE/LIGHTING, then an
+   explicit CAMERA INTENT. One dominant event per clip, 1-3 subjects max, no
+   text/logos, no complex physics, no internal emotional states described as
+   facts (show physical behavior instead).
+
+   Section-aware camera + action intent tables below.
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender }) {
-  const scene = SINGER_SCENES[sectionType] || SINGER_SCENES.verse;
-  return `${imagePrompt}. ${scene.pose}. Subtle breathing movement, hair swaying gently, ambient stage haze drifting, slow camera push-in. Cinematic, photorealistic.`;
+const VIDEO_CAMERA_INTENT = {
+  intro:        "a slow push-in from a wide establishing frame",
+  verse:        "a slow push-in into intimate close framing",
+  prechorus:    "a medium dolly-in as the energy rises",
+  chorus:       "a slow dolly-in with a slight orbit, light sweeping past the lens",
+  "post-chorus": "a gentle pull-back into warm afterglow",
+  bridge:       "a slow lateral tracking shot, contemplative and patient",
+  interlude:    "a slow drift through the scene, the camera floating without anchor",
+  outro:        "a long slow pull-back, the subject receding into distance",
+  instrumental: "a slow steady pan across the scene, gliding with the music"
+};
+
+const VIDEO_ACTION_INTENT = {
+  intro:        "the scene breathes into life: dust drifts, light settles, the world wakes slowly",
+  verse:        "the subject moves with quiet intent: a slow turn of the head, fingers tracing the air, breath visible in the cool light",
+  prechorus:    "the subject leans forward, a single step taken, fabric stirring, energy coiling beneath the surface",
+  chorus:       "the subject moves with full energy: arms rise, hair catches the light, the whole scene surges with the music",
+  "post-chorus": "the motion settles into warm stillness: slow breathing, light rippling, the afterglow of the chorus",
+  bridge:       "the subject turns inward: slow contemplative gestures, shadows deepening, the world pausing",
+  interlude:    "abstract shapes drift and bloom, light morphing slowly across the frame",
+  outro:        "the subject recedes: a final slow gesture, the scene dissolving into soft shadow",
+  instrumental: "the scene flows like the music itself: light and texture undulating in long slow waves"
+};
+
+function _ltxSectionKey(sectionType) {
+  return (sectionType || "verse").toLowerCase().replace(/\s+/g, "-");
+}
+
+/* Cut a string at a word boundary — shared with the segment image prompt builder. */
+function _ltxShorten(text, max) {
+  if (typeof text !== "string") return "";
+  const t = text.trim();
+  if (t.length <= max) return t;
+  const cut = t.substring(0, max).replace(/\s+\S*$/, "");
+  return cut.length > 30 ? cut : t.substring(0, max);
+}
+
+/* Core LTX 2.3 builder. Inputs mirror buildVideoSegmentPrompt so a single
+   Master Creative Brief can drive BOTH the FLUX.2 keyframe and the LTX motion. */
+function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender }) {
+  const sectionKey = _ltxSectionKey(sectionType);
+  const camera = VIDEO_CAMERA_INTENT[sectionKey] || VIDEO_CAMERA_INTENT.verse;
+  const action = VIDEO_ACTION_INTENT[sectionKey] || VIDEO_ACTION_INTENT.verse;
+  const lines = (segmentLines || []).map((l) => String(l).trim()).filter(Boolean);
+
+  /* 1) SUBJECT — the shared song world, kept short so the motion can breathe. */
+  const sentences = [];
+  const world = _ltxShorten(concept || "", 110);
+  if (world) sentences.push(`The song lives in this world: ${world}`);
+
+  /* 2) ACTION — the segment lyric lines become the visual moment, then
+        the section dominant motion event (verbs, one event). */
+  if (lines.length > 0) {
+    const moment = lines.join("; ").replace(/[.;,!?]+\s*$/g, "").trim();
+    sentences.push(`In this moment: ${_ltxShorten(moment, 200)}`);
+  } else {
+    sentences.push("In this moment the scene shifts and transforms");
+  }
+  sentences.push(action);
+
+  /* 3) STYLE/LIGHTING — genre tints lighting only, never a competing scene. */
+  const genreMood = matchGenreVisuals(style || "");
+  if (genreMood) sentences.push(`The scene is lit with a ${genreMood.label} atmosphere: ${genreMood.visuals}`);
+  else if (style) sentences.push(`The scene is lit with a ${safeStyleLabel(style) || "music"} atmosphere`);
+
+  /* 4) CAMERA — explicit intent closes the prompt. No text/logos directive:
+        LTX renders text only when asked, so it is never mentioned. */
+  sentences.push(camera);
+
+  const normalizeSentence = (s) => s.trim().replace(/[.!?]+\s*$/, "") + ".";
+  return sentences.map(normalizeSentence).join(" ");
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   buildH3MotionPrompt — MiniMax H3 I2V motion prompt (PGFX 2026-08-11)
+
+   H3's prompting guide differs from LTX 2.3: H3 runs 24fps on a 17k+5 latent
+   grid with NATIVE audio synthesis, and its prompts are best kept SHORT —
+   subject + one dominant motion event + lighting. No camera-intent sentence
+   (H3 composes the shot itself), no audio line here (the server appends the
+   per-section Audio bed in generate-video). Never send a FLUX.2 still-image
+   prompt to H3 — it would freeze the clip into a slowly-zooming photograph.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+function buildH3MotionPrompt({ segmentLines, sectionType, concept, style }) {
+  const sectionKey = _ltxSectionKey(sectionType);
+  const action = VIDEO_ACTION_INTENT[sectionKey] || VIDEO_ACTION_INTENT.verse;
+  const lines = (segmentLines || []).map((l) => String(l).trim()).filter(Boolean);
+
+  const sentences = [];
+  const world = _ltxShorten(concept || "", 100);
+  if (world) sentences.push(`The song lives in this world: ${world}`);
+
+  if (lines.length > 0) {
+    const moment = lines.join("; ").replace(/[.;,!?]+\s*$/g, "").trim();
+    sentences.push(`In this moment: ${_ltxShorten(moment, 160)}`);
+  } else {
+    sentences.push("In this moment the scene shifts and transforms");
+  }
+  sentences.push(action);
+
+  const genreMood = matchGenreVisuals(style || "");
+  if (genreMood) sentences.push(`The scene is lit with a ${genreMood.label} atmosphere: ${genreMood.visuals}`);
+
+  const normalizeSentence = (s) => s.trim().replace(/[.!?]+\s*$/, "") + ".";
+  return sentences.map(normalizeSentence).join(" ");
+}
+
+/* Backwards-compatible wrapper: when given a FLUX.2 still-image prompt (and no
+   segment context), extract the WORLD anchor and rebuild as a motion prompt —
+   stripping the still-image-only sentences ("Each image is one full-frame…",
+   "no text and no lettering anywhere") that would confuse a video model. */
+function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender, segmentLines, concept, style }) {
+  if (segmentLines || concept || style) {
+    return buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender });
+  }
+  if (imagePrompt) {
+    /* Reuse the image prompt first sentences as the subject anchor. */
+    const cleaned = String(imagePrompt)
+      .split(/(?<=[.!?])\s+/)
+      .filter((s) => s && !/full-frame scene standing|Each image is one|no text and no lettering|same characters, location and lighting/i.test(s))
+      .join(" ");
+    return buildVideoMotionPrompt({ segmentLines: [], sectionType, concept: _ltxShorten(cleaned, 220), style: "", vocalistGender });
+  }
+  return buildVideoMotionPrompt({ segmentLines: [], sectionType, concept: "", style: "", vocalistGender });
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -630,5 +875,10 @@ export {
   extractTitleConcept,
   buildCoverArtPrompt,
   buildSingerImagePrompt,
-  buildVideoPrompt
+  subjectLooksLikePerson,
+  buildVideoPrompt,
+  buildVideoMotionPrompt,
+  buildH3MotionPrompt,
+  VIDEO_CAMERA_INTENT,
+  VIDEO_ACTION_INTENT
 };

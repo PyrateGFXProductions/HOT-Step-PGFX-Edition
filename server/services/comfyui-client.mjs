@@ -24,7 +24,7 @@ import { randomUUID } from "crypto";
 
 const COMFYUI_URL = process.env.COMFYUI_URL || "http://127.0.0.1:8188";
 const COMFYUI_POLL_MS = 2000;
-const COMFYUI_TIMEOUT_MS = 600000; /* 10 min max per job */
+const COMFYUI_TIMEOUT_MS = Number(process.env.COMFYUI_TIMEOUT_MS) || 2400000; /* 40 min max per job (H3 segment I2V can take 10-13 min on a 5060 Ti) */
 const MAX_CONCURRENT_JOBS = 1;     /* FIFO queue: only 1 ComfyUI job at a time */
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -153,11 +153,93 @@ class ComfyUIJobQueue {
 const comfyQueue = new ComfyUIJobQueue(MAX_CONCURRENT_JOBS);
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   Model-Name Normalization
+   ─────────────────────
+   ComfyUI loader nodes (UNETLoader, UnetLoaderGGUF, VAELoader, CLIPLoader,
+   LTXICLoRALoaderModelOnly) validate their filename inputs by EXACT string
+   membership against folder_paths listings. On Windows those listings use
+   backslash separators ("FLUX.2\\flux-2-klein-9b-fp8.safetensors"), while our
+   scanner + defaults produce forward slashes ("FLUX.2/flux-2-klein-9b-fp8.safetensors").
+   A forward-slash name fails validation ("Value not in list"). We resolve every
+   loader input against ComfyUI's authoritative /object_info value list
+   (case- and separator-insensitive) and rewrite the workflow to the exact
+   canonical name before submitting.
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+let comfyObjectInfoCache = { at: 0, data: null };
+const COMFY_OBJECT_INFO_TTL_MS = 60000;
+
+async function comfyObjectInfo() {
+  if (comfyObjectInfoCache.data && Date.now() - comfyObjectInfoCache.at < COMFY_OBJECT_INFO_TTL_MS) {
+    return comfyObjectInfoCache.data;
+  }
+  const data = await comfyGet("/object_info");
+  comfyObjectInfoCache = { at: Date.now(), data };
+  return data;
+}
+
+/* Model-name inputs per loader node class — the only workflow fields that are
+   exact-string-validated file references. */
+const COMFY_MODEL_LOADER_INPUTS = {
+  UNETLoader: "unet_name",
+  UnetLoaderGGUF: "unet_name",
+  VAELoader: "vae_name",
+  CLIPLoader: "clip_name",
+  LTXICLoRALoaderModelOnly: "lora_name",
+};
+
+/* Normalize for comparison: any separator + lowercase. */
+function comfyModelKey(name) {
+  return String(name).replace(/[\\/]/g, "/").toLowerCase();
+}
+
+/* Resolve one requested model name against ComfyUI's authoritative list for a
+   loader input. Returns the canonical listed string when matched; otherwise the
+   request unchanged (ComfyUI's own validation will report the real problem). */
+async function comfyResolveModelName(classType, inputName, requested) {
+  if (!requested || requested === "auto") return requested;
+  try {
+    const info = await comfyObjectInfo();
+    const nodeInfo = info[classType];
+    const required = nodeInfo && nodeInfo.input && nodeInfo.input.required;
+    const inputDef = required && required[inputName];
+    const allowed = inputDef && Array.isArray(inputDef[0]) ? inputDef[0] : null;
+    if (!allowed || !allowed.length) return requested; /* no authoritative list */
+    if (allowed.includes(requested)) return requested; /* already canonical */
+    const wantKey = comfyModelKey(requested);
+    const hit = allowed.find(v => comfyModelKey(v) === wantKey);
+    if (hit) {
+      console.log(`[ComfyUI] Resolved model name '${requested}' -> '${hit}' (separator/case normalization)`);
+      return hit;
+    }
+    console.warn(`[ComfyUI] Model name '${requested}' not found for ${classType}.${inputName} — available: ${allowed.length} (see ComfyUI validation error)`);
+  } catch (err) {
+    console.warn(`[ComfyUI] object_info lookup failed (${classType}.${inputName}): ${err.message}`);
+  }
+  return requested;
+}
+
+/* Walk a workflow and rewrite every loader model-name input to ComfyUI's
+   canonical listing form. Called before submission so all workflows (FLUX.2,
+   LTX 2.3, cover art) get the same normalization. */
+async function comfyNormalizeWorkflowModelNames(workflow) {
+  for (const node of Object.values(workflow)) {
+    if (!node || typeof node !== "object") continue;
+    const cls = node.class_type;
+    const inputName = COMFY_MODEL_LOADER_INPUTS[cls];
+    if (!inputName || !node.inputs || typeof node.inputs[inputName] !== "string") continue;
+    node.inputs[inputName] = await comfyResolveModelName(cls, inputName, node.inputs[inputName]);
+  }
+  return workflow;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    Submit + Poll Workflow
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 async function comfySubmitAndWaitRaw(workflow, onProgress) {
   await comfyFreeVRAM();
+  await comfyNormalizeWorkflowModelNames(workflow);
   const submitResp = await comfyPost("/prompt", { prompt: workflow });
   if (submitResp.error) throw new Error(`Workflow error: ${JSON.stringify(submitResp.node_errors || submitResp.error)}`);
   const promptId = submitResp.prompt_id;
@@ -653,6 +735,196 @@ function buildFLUX2Workflow({
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   MiniMax H3 Image-to-Video Workflow Builder (PGFX 2026-08-10)
+   ──────────────────────────────────────────────
+   Mirrors the official Comfy-Org "MiniMax H3 I2V" template graph (API form):
+   - UNETLoader → CLIPLoader(type=minimax) + VAELoader(video) → MiniMaxH3ImageToVideo
+   - BasicGuider + BasicScheduler(simple) + KSamplerSelect(res_multistep) + RandomNoise
+     → SamplerCustomAdvanced (official template sampler/scheduler, NOT euler)
+   - VAEDecode (frames) + VAEDecodeAudio (native stereo audio) → VHS_VideoCombine
+     (VHS is the same output node the LTX path already uses — proven muxing +
+     comfyFindOutput compatibility)
+   Canvas follows H3's native grid: 768px short edge, capped at 768x1344 pixels,
+   rounded to a multiple of 32. Length snaps to the model's 17k+5 frame grid at
+   24fps (124 = ~5s; trained range ~124-362). Audio is native (no LoadAudio).
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+const H3_FPS = 24;
+
+function h3AdaptCanvas(width, height) {
+  const ratio = width / height;
+  const MAX_PIXELS = 768 * 1344;
+  let nomW = ratio >= 1 ? 768 * ratio : 768;
+  let nomH = ratio >= 1 ? 768 : 768 / ratio;
+  if (nomW * nomH > MAX_PIXELS) {
+    const s = Math.sqrt(MAX_PIXELS / (nomW * nomH));
+    nomW *= s;
+    nomH *= s;
+  }
+  return {
+    width: Math.max(32, Math.round(nomW / 32) * 32),
+    height: Math.max(32, Math.round(nomH / 32) * 32)
+  };
+}
+
+function h3AlignFrameCount(durationSec) {
+  /* Snap to the 17k+5 frame grid of the model at 24fps with a 5-frame floor.
+     NOTE: JS % keeps the dividend sign (Python % does not) — the +17 keeps
+     the modulo positive so the result always rounds UP to the grid. */
+  const base = Math.max(5, Math.round(durationSec * H3_FPS));
+  return base + ((5 - (base % 17) + 17) % 17);
+}
+
+function buildMiniMaxH3Workflow({
+  imageFilename,
+  videoPrompt,
+  width = 768,
+  height = 512,
+  durationSec = 5,
+  steps = 20,
+  seed = null,
+  outputPrefix = "minimaxh3_clip",
+  /* Configurable model paths — auto uses defaults (the ref2va setup on disk) */
+  unetModel = "auto",
+  vaeModel = "auto",
+  clipModel = "auto",
+  audioVaeModel = "auto",
+}) {
+  if (seed === null) seed = Math.floor(Math.random() * 2**32);
+  const canvas = h3AdaptCanvas(width, height);
+  const length = h3AlignFrameCount(durationSec);
+
+  const workflow = {
+    /* 1: UNETLoader — H3 diffusion model (ref2va or fl2va) */
+    "1": {
+      class_type: "UNETLoader",
+      inputs: {
+        unet_name: unetModel !== "auto" ? unetModel : "MiniMaxH3/minimax_h3_ref2va_pruned_nvfp4.safetensors",
+        weight_dtype: "default"
+      }
+    },
+    /* 2: CLIPLoader — Qwen3-VL 32B (minimax type) */
+    "2": {
+      class_type: "CLIPLoader",
+      inputs: {
+        clip_name: clipModel !== "auto" ? clipModel : "MiniMaxH3/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        type: "minimax",
+        device: "default"
+      }
+    },
+    /* 3: VAELoader — video VAE */
+    "3": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: vaeModel !== "auto" ? vaeModel : "MiniMaxH3/minimax_h3_video_vae_fp16.safetensors"
+      }
+    },
+    /* 4: VAELoader — audio VAE (native H3 audio) */
+    "4": {
+      class_type: "VAELoader",
+      inputs: {
+        vae_name: audioVaeModel !== "auto" ? audioVaeModel : "MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors"
+      }
+    },
+    /* 5: LoadImage — first frame keyframe */
+    "5": {
+      class_type: "LoadImage",
+      inputs: {
+        image: imageFilename
+      }
+    },
+    /* 6: MiniMaxH3ImageToVideo — conditioning + AV latent */
+    "6": {
+      class_type: "MiniMaxH3ImageToVideo",
+      inputs: {
+        clip: ["2", 0],
+        vae: ["3", 0],
+        prompt: videoPrompt,
+        width: canvas.width,
+        height: canvas.height,
+        length: length,
+        first_frame: ["5", 0]
+      }
+    },
+    /* 7: BasicGuider — model + positive conditioning (no sigma-shift node needed) */
+    "7": {
+      class_type: "BasicGuider",
+      inputs: {
+        model: ["1", 0],
+        conditioning: ["6", 0]
+      }
+    },
+    /* 8: KSamplerSelect — official template sampler */
+    "8": {
+      class_type: "KSamplerSelect",
+      inputs: {
+        sampler_name: "res_multistep"
+      }
+    },
+    /* 9: BasicScheduler — official template scheduler */
+    "9": {
+      class_type: "BasicScheduler",
+      inputs: {
+        model: ["1", 0],
+        scheduler: "simple",
+        steps: steps,
+        denoise: 1.0
+      }
+    },
+    /* 10: RandomNoise */
+    "10": {
+      class_type: "RandomNoise",
+      inputs: {
+        noise_seed: seed
+      }
+    },
+    /* 11: SamplerCustomAdvanced */
+    "11": {
+      class_type: "SamplerCustomAdvanced",
+      inputs: {
+        noise: ["10", 0],
+        guider: ["7", 0],
+        sampler: ["8", 0],
+        sigmas: ["9", 0],
+        latent_image: ["6", 1]
+      }
+    },
+    /* 12: VAEDecode — video frames */
+    "12": {
+      class_type: "VAEDecode",
+      inputs: {
+        samples: ["11", 0],
+        vae: ["3", 0]
+      }
+    },
+    /* 13: VAEDecodeAudio — native stereo audio track */
+    "13": {
+      class_type: "VAEDecodeAudio",
+      inputs: {
+        samples: ["11", 0],
+        vae: ["4", 0]
+      }
+    },
+    /* 14: VHS_VideoCombine — h264 mp4 with muxed native audio */
+    "14": {
+      class_type: "VHS_VideoCombine",
+      inputs: {
+        images: ["12", 0],
+        audio: ["13", 0],
+        frame_rate: H3_FPS,
+        loop_count: 0,
+        filename_prefix: outputPrefix,
+        format: "video/h264-mp4",
+        pingpong: false,
+        save_output: true
+      }
+    }
+  };
+
+  return workflow;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    Connection Check
    ═══════════════════════════════════════════════════════════════════════════════ */
 
@@ -688,5 +960,11 @@ export {
   comfyQueue,
   buildLTX2Workflow,
   buildFLUX2Workflow,
-  checkComfyUIConnection
+  buildMiniMaxH3Workflow,
+  h3AdaptCanvas,
+  h3AlignFrameCount,
+  checkComfyUIConnection,
+  /* Model-name normalization (exported for tests / external workflow callers) */
+  comfyResolveModelName,
+  comfyNormalizeWorkflowModelNames
 };

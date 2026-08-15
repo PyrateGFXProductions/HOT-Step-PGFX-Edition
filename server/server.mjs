@@ -17,6 +17,7 @@ import {
   comfyQueue,
   buildLTX2Workflow as buildLTX2WorkflowMod,
   buildFLUX2Workflow as buildFLUX2WorkflowMod,
+  buildMiniMaxH3Workflow as buildMiniMaxH3WorkflowMod,
   COMFYUI_URL as COMFYUI_URL_MOD
 } from "./services/comfyui-client.mjs";
 
@@ -39,7 +40,10 @@ import {
   extractTitleConcept as extractTitleConceptMod,
   buildCoverArtPrompt as buildCoverArtPromptMod,
   buildSingerImagePrompt as buildSingerImagePromptMod,
-  buildVideoPrompt as buildVideoPromptMod
+  subjectLooksLikePerson as subjectLooksLikePersonMod,
+  buildVideoPrompt as buildVideoPromptMod,
+  buildVideoMotionPrompt as buildVideoMotionPromptMod,
+  buildH3MotionPrompt as buildH3MotionPromptMod
 } from "./services/prompt-builder.mjs";
 
 import {
@@ -47680,15 +47684,9 @@ function extractLyricStory(lyrics) {
   for (const [species, words] of Object.entries(ANIMALS)) {
     if (hasAny(words)) { animal = species; break; }
   }
-  // 2. Protagonist name — a repeated capitalized proper noun (2+ times) is the
-  //    character ("Millie" repeats through every Millie song).
-  const capCount = {};
-  for (const w of cleaned.match(/\b[A-Z][a-z]{2,}\b/g) || []) capCount[w] = (capCount[w] || 0) + 1;
-  const name = Object.entries(capCount)
-    .filter(([w, c]) => c >= 2 && !["The", "I", "You", "We", "They", "She", "He", "It", "Yeah", "Oh"].includes(w))
-    .sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-  // 3. Setting — first matching place wins; cinema is checked first so "movie seat"
-  //    lands in a movie theater instead of a generic room.
+  // 2. Setting — first matching place wins; cinema is checked first so "movie seat"
+  //    lands in a movie theater instead of a generic room. Kept ABOVE the name
+  //    block so its vocabulary can be excluded from name candidates.
   const SETTINGS = [
     { words: ["movie", "cinema", "picture house", "movie seat", "velvet seat", "ticket", "popcorn", "marquee", "projector", "screen", "showtime", "matinee", "theater", "theatre", "aisle"], scene: "settles into a velvet movie theater seat", place: "a movie theater" },
     { words: ["barn", "fence", "corn bin", "tractor", "pasture", "hay", "silo", "ranch", "farm", "cattle", "field"], scene: "stands in the farmyard beside the fence", place: "a farm" },
@@ -47711,6 +47709,18 @@ function extractLyricStory(lyrics) {
     }
     if (score > settingScore) { setting = s; settingScore = score; }
   }
+  // 3. Protagonist name — a repeated capitalized proper noun (2+ times) is the
+  //    character ("Millie" repeats through every Millie song). Function words,
+  //    animal words and setting words can NEVER be a name: "Get that cow out the
+  //    cinema seat!" must not name the cow "Get" or "Cow" or "Seat".
+  const NON_NAMES = new Set(["The", "I", "You", "We", "They", "She", "He", "It", "Yeah", "Oh", "And", "But", "So", "When", "If", "Now", "Here", "There", "Well", "Never", "Every", "Gonna", "Wanna", "Cause", "Baby", "Hey", "Girl", "Boy", "Get", "Take", "Put", "Let", "Make", "Come", "Go", "Say", "Tell", "Don", "Love", "Day", "Night", "Time", "Way", "Back", "Down", "Out", "One", "Two", "What", "Why", "How", "This", "That", "Then"]);
+  for (const words of Object.values(ANIMALS)) for (const w of words) NON_NAMES.add(w.charAt(0).toUpperCase() + w.slice(1));
+  for (const s of SETTINGS) for (const w of s.words) for (const part of w.split(" ")) NON_NAMES.add(part.charAt(0).toUpperCase() + part.slice(1));
+  const capCount = {};
+  for (const w of cleaned.match(/\b[A-Z][a-z]{2,}\b/g) || []) capCount[w] = (capCount[w] || 0) + 1;
+  const name = Object.entries(capCount)
+    .filter(([w, c]) => c >= 2 && !NON_NAMES.has(w))
+    .sort((a, b) => b[1] - a[1])[0]?.[0] || "";
   // Require >= 2 occurrences of setting vocabulary — a single "home" in a generic
   // love lyric must NOT turn every love song into "a quiet scene in a quiet home".
   if (animal) {
@@ -47783,7 +47793,31 @@ function buildSongConcept(opts) {
   if (opts.vocalistGender === "male" || opts.aboutGender === "male") personDesc = "a man";
   else if (opts.vocalistGender === "female" || opts.aboutGender === "female") personDesc = "a woman";
   else if (opts.vocalistGender === "duet") personDesc = "a man and a woman";
-  if (coverArtSubject) return coverArtSubject;
+  if (coverArtSubject) {
+    // PGFX 2026-08-10: the album/cover flow persists cover_art_subject WITHOUT the
+    // species ("Millie settles into a velvet movie theater seat" - no cow), and the
+    // old early return fed it to FLUX verbatim, so covers rendered a woman instead
+    // of the animal the lyrics describe. Enrich the subject with the lyric-proven
+    // species when the subject names the same protagonist. Subjects that do not
+    // name the protagonist (or already carry the species) stay verbatim.
+    const storyForSubject = extractLyricStory(lyrics);
+    if (storyForSubject) {
+      const speciesMatch = storyForSubject.match(/^(?:[A-Z][a-z]{2,}, a ([a-z]+),|A ([a-z]+),)/);
+      if (speciesMatch) {
+        const species = speciesMatch[1] || speciesMatch[2];
+        const lowerSubject = coverArtSubject.toLowerCase();
+        const speciesRe = new RegExp(`(^|[^a-z0-9])${species}s?([^a-z0-9]|$)`);
+        const nameMatch = storyForSubject.match(/^([A-Z][a-z]{2,}), a /);
+        if (!speciesRe.test(lowerSubject) && nameMatch) {
+          const firstWord = coverArtSubject.split(/[\s,]+/)[0].replace(/[^\w]/g, "");
+          if (firstWord === nameMatch[1]) {
+            return coverArtSubject.replace(new RegExp(`^${nameMatch[1]}`), `${nameMatch[1]}, a ${species},`);
+          }
+        }
+      }
+    }
+    return coverArtSubject;
+  }
   // PGFX 2026-08-09: the LYRIC STORY is the strongest signal — it drives the scene
   // before the title ever gets a chance (the old order let "Movie Seat" match
   // "ocean" and never read the lyrics that describe a cow in a cinema).
@@ -47830,6 +47864,12 @@ function buildCoverArtPrompt(opts) {
   } else if (style) {
     sentences.push(`The scene is lit with a ${styleLabel} atmosphere.`);
   }
+  /* PGFX 2026-08-10 (FLUX.2 guide): text intended for the cover is placed INSIDE
+     explicit quotes and positioned. Opt-in via opts.titleText so wordless covers
+     stay wordless. */
+  if (opts.titleText && (opts.title || "").trim()) {
+    sentences.push(`The song title "${opts.title.trim()}" is rendered in elegant typography across the top of the cover.`);
+  }
   if (isSection) {
     const progress = opts.sectionIndex / Math.max(1, (opts.totalSections || 1) - 1);
     const arcDesc = progress < 0.2 ? "an opening moment"
@@ -47841,8 +47881,12 @@ function buildCoverArtPrompt(opts) {
     sentences.push(`This image is ${arcDesc} of the song: ${sectionMood}.`);
     sentences.push("The same characters, location and lighting continue across every image in this series, each one rendered as a separate single frame.");
   }
-  sentences.push("Each image is one full-frame scene standing completely alone — never a storyboard, comic strip, grid or collage.");
-  sentences.push("The composition is cinematic and richly detailed, with no text and no lettering anywhere.");
+  /* PGFX 2026-08-10 (FLUX.2 guide): no negative prompt language — describe what
+     you WANT. "Standing completely alone as one continuous composition" is the
+     positive bound that keeps a single frame; "entirely wordless" is the positive
+     way to say no text (the ComfyUI negative slot is ignored on this stack). */
+  sentences.push("Each image is one full-frame scene standing completely alone, a single continuous composition.");
+  sentences.push("The composition is cinematic and richly detailed, entirely wordless.");
   // Every element must read as a complete sentence for FLUX.2 prose prompting.
   const normalizeSentence = (s) => s.trim().replace(/[.!?]+\s*$/, "") + ".";
   return sentences.map(normalizeSentence).join(" ");
@@ -123041,6 +123085,16 @@ The duration is the TOTAL track length in seconds. It MUST be a realistic full-l
 - Instrumentals (lyrics are "[Instrumental]"): 60-240s.
 - NEVER write a duration below 60s unless the genre genuinely demands it (a jingle, sting, or short loop). A plain "loop" caption is NOT a reason to write 10s — treat it as a full track built around the loop.
 
+=== ACE-STEP CRAFT DISCIPLINE (caption & lyrics must agree) ===
+
+The audio engine reads the tags as the CONTRACT for the whole track, then sings the lyrics on top. Three disciplines keep the two halves consistent:
+
+1. CAPTION↔LYRICS CONSISTENCY: Whatever the tags say about the vocals must be TRUE of the lyrics. If the tags say "whispered, intimate delivery," the lyrics must be short, hushed phrases — not an operatic aria. If the tags say "call-and-response backing vocals," the lyrics must contain the echo lines. If the tags say "spoken-word verses over a beat," the verses must read like speech. A mismatch makes the engine sing a different song than the tags promised.
+
+2. SYLLABLE DISCIPLINE: Each lyric line must be singable in one breath — 6-14 syllables per line for verses, 8-16 for choruses. Long prose sentences get chopped by the audio engine and sound broken. Vary line length within a verse (short punch, long release), but never run a line past ~16 syllables.
+
+3. METAPHOR DISCIPLINE: Sonic metaphors in the tags (dimension 9) and lyric imagery must come from the SAME emotional world. If the tags say "kick drum like a racing pulse," the lyrics may say "my heart beats faster" — but not "the bass slaps." The music and the words describe the same subject with the same metaphors.
+
 === TAGS (the "tags" field) ===
 
 The tags field is the most critical part. It is a natural language description of the track's COMPLETE sonic identity \u2014 not a list of genre labels, but a vivid portrait of exactly what the listener will hear. Write it as flowing prose, 150-200+ words.
@@ -166368,7 +166422,7 @@ function timeStretchPitchShift(srcBuffer, tempoScale, pitchShift) {
   if (!ffmpegPath) {
     throw new Error("ffmpeg not available \u2014 cannot apply tempo/pitch changes");
   }
-  const tmpDir = path9.join(process.cwd(), "data", "tmp");
+  const tmpDir = path9.join(config.data.dir, "tmp");
   if (!fs11.existsSync(tmpDir)) fs11.mkdirSync(tmpDir, { recursive: true });
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const tmpIn = path9.join(tmpDir, `stretch_in_${id}.wav`);
@@ -311103,8 +311157,11 @@ function buildVideoSegmentPrompt(opts) {
   if (genreMood) sentences.push(`The scene is lit with a ${genreMood.label} atmosphere: ${genreMood.visuals}`);
   else if (style) sentences.push(`The scene is lit with a ${styleLabel} atmosphere`);
   sentences.push("The same characters, location and lighting continue from the other images in this video");
-  sentences.push("Each image is one full-frame scene standing completely alone — never a storyboard, comic strip, grid or collage");
-  sentences.push("The composition is cinematic and richly detailed, with no text and no lettering anywhere");
+  /* PGFX 2026-08-10 (FLUX.2 guide): positive bound language — "standing completely
+     alone as one continuous composition" and "entirely wordless" describe what the
+     frame IS, not what it is not. */
+  sentences.push("Each image is one full-frame scene standing completely alone, a single continuous composition");
+  sentences.push("The composition is cinematic and richly detailed, entirely wordless");
   /* Every element must read as a complete sentence for FLUX.2 prose prompting. */
   const normalizeSentence = (s) => s.trim().replace(/[.!?]+\s*$/, "") + ".";
   return sentences.map(normalizeSentence).join(" ");
@@ -311382,6 +311439,11 @@ function buildLTX2Workflow(opts) { return buildLTX2WorkflowMod(opts); }
 function buildFLUX2Workflow(opts) { return buildFLUX2WorkflowMod(opts); }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   MiniMax H3 Image-to-Video Workflow Builder — delegated to services/comfyui-client.mjs
+   ═══════════════════════════════════════════════════════════════════════ */
+function buildMiniMaxH3Workflow(opts) { return buildMiniMaxH3WorkflowMod(opts); }
+
+/* ═══════════════════════════════════════════════════════════════════════
    Singer Image Prompt Builder — delegated to services/prompt-builder.mjs
    ═══════════════════════════════════════════════════════════════════════ */
 
@@ -311395,13 +311457,24 @@ function extractVisualEssence(lyrics) {
   return extractVisualEssenceMod(lyrics);
 }
 
-function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex, totalSections }) {
-  return buildSingerImagePromptMod({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex, totalSections });
+function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex, totalSections, role }) {
+  return buildSingerImagePromptMod({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex, totalSections, role });
 }
 
-/* ── Video Prompt Builder (describes the image + action) ────────────── */
-function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender }) {
-  return buildVideoPromptMod({ imagePrompt, sectionType, vocalistGender });
+function subjectLooksLikePerson(subject) {
+  return subjectLooksLikePersonMod(subject);
+}
+
+/* ── Video Prompt Builder (LTX 2.3 motion-first; delegates to services/prompt-builder.mjs) ── */
+function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender, segmentLines, concept, style }) {
+  return buildVideoPromptMod({ imagePrompt, sectionType, vocalistGender, segmentLines, concept, style });
+}
+function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender }) {
+  return buildVideoMotionPromptMod({ segmentLines, sectionType, concept, style, vocalistGender });
+}
+/* ── MiniMax H3 I2V motion prompt (short, model-correct; delegates) ── */
+function buildH3MotionPrompt({ segmentLines, sectionType, concept, style }) {
+  return buildH3MotionPromptMod({ segmentLines, sectionType, concept, style });
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -311508,6 +311581,11 @@ router21.get("/pipeline-models", async (req, res) => {
       .filter(m => /ltx|ltxv|ltx-2/i.test(m.name))
       .map(m => ({ ...m, label: fmtSize(m.size) + " GGUF" }));
 
+    /* ── MiniMax H3 pipeline: diffusion models (ref2va/fl2va) ── */
+    const h3Unets = scanRecursive("diffusion_models", [".safetensors"], 2, true)
+      .filter(m => /minimax/i.test(m.name))
+      .map(m => ({ ...m, label: fmtSize(m.size) + (m.name.includes("nvfp4") ? " NVFP4" : " FP8") }));
+
     /* ── Text Encoder models (CLIPLoader) ── */
     const clipModels = scanRecursive("clip", [".safetensors", ".gguf", ".bin"], 2, true);
     clipModels.push(...scanRecursive("text_encoders", [".safetensors", ".gguf", ".bin"], 2, true));
@@ -311522,6 +311600,9 @@ router21.get("/pipeline-models", async (req, res) => {
       ...m,
       label: fmtSize(m.size) + (/gemma/i.test(m.name) ? " Gemma" : /connectors/i.test(m.name) ? " connectors" : "")
     }));
+    /* MiniMax H3 text encoder (Qwen3-VL 32B) */
+    const h3Clip = clipModels.filter(m => /minimax/i.test(m.name))
+      .map(m => ({ ...m, label: fmtSize(m.size) }));
 
     /* ── VAE models (VAELoader) ── */
     const vaeModels = scanRecursive("vae", [".safetensors", ".ckpt"], 2, true);
@@ -311533,6 +311614,12 @@ router21.get("/pipeline-models", async (req, res) => {
       .map(m => ({
         ...m,
         label: fmtSize(m.size) + (/video/i.test(m.name) ? " video" : /audio/i.test(m.name) ? " audio" : "")
+      }));
+    /* MiniMax H3 VAEs (video + audio) */
+    const h3Vae = vaeModels.filter(m => /minimax/i.test(m.name))
+      .map(m => ({
+        ...m,
+        label: fmtSize(m.size) + (/audio/i.test(m.name) ? " audio" : " video")
       }));
 
     /* ── LoRA models (for LTX 2.3 IC-LoRA and distillation LoRA) ── */
@@ -311568,6 +311655,12 @@ router21.get("/pipeline-models", async (req, res) => {
         icLora: "",
         upscale: "",
       },
+      minimaxH3: {
+        unet: "MiniMaxH3/minimax_h3_ref2va_pruned_nvfp4.safetensors",
+        clip: "MiniMaxH3/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        vae: "MiniMaxH3/minimax_h3_video_vae_fp16.safetensors",
+        audioVae: "MiniMaxH3/minimax_h3_audio_vae_fp32.safetensors",
+      },
     };
 
     res.json({
@@ -311581,6 +311674,9 @@ router21.get("/pipeline-models", async (req, res) => {
         ltxUnets,
         ltxClip,
         ltxVae,
+        h3Unets,
+        h3Clip,
+        h3Vae,
         ltxLoras: loraModels,
         upscale: allUpscale,
       },
@@ -311644,7 +311740,7 @@ router21.post("/comfyui/generate-image", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    let { sectionType, lyrics, style, vocalistGender, title, subject, songId, width, height, steps, cfg, seed, prompt: clientPrompt, sectionIndex, totalSections, unetModel, vaeModel, clipModel } = req.body;
+    let { sectionType, lyrics, style, vocalistGender, title, subject, songId, width, height, steps, cfg, seed, prompt: clientPrompt, sectionIndex, totalSections, unetModel, vaeModel, clipModel, role } = req.body;
 
     /* If songId provided and fields missing, look up metadata from DB */
     if (songId && (!lyrics || !style || !subject || !title)) {
@@ -311671,7 +311767,7 @@ router21.post("/comfyui/generate-image", async (req, res) => {
       sectionType = req.body.section.toLowerCase().replace(/\s+/g, "-");
     }
 
-    const imagePrompt = clientPrompt || buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex: parseInt(sectionIndex) || 0, totalSections: parseInt(totalSections) || 6 });
+    const imagePrompt = clientPrompt || buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, title, subject, sectionIndex: parseInt(sectionIndex) || 0, totalSections: parseInt(totalSections) || 6, role });
     console.log(`[MVC] Image prompt: ${imagePrompt.substring(0, 120)}...`);
     const workflow = buildFLUX2Workflow({ prompt: imagePrompt, width: width||1024, height: height||1024, steps: steps||4, cfg: cfg||1.0, seed, unetModel: unetModel||"auto", vaeModel: vaeModel||"auto", clipModel: clipModel||"auto" });
     const result = await comfySubmitAndWait(workflow);
@@ -311680,7 +311776,7 @@ router21.post("/comfyui/generate-image", async (req, res) => {
     /* Download the generated image */
     const imgFile = output.files[0];
     const imgBuffer = await comfyDownload(imgFile.filename, imgFile.subfolder, imgFile.type);
-    const outDir = path9.join(process.cwd(), "data", "mvc");
+    const outDir = path9.join(config.data.dir, "mvc");
     if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
     const localName = `singer_${uuid9().substring(0,8)}.png`;
     const localPath = path9.join(outDir, localName);
@@ -311692,22 +311788,74 @@ router21.post("/comfyui/generate-image", async (req, res) => {
   }
 });
 
+/* ═══════════════════════════════════════════════════════════════════════
+   PGFX 2026-08-11: DERIVE close-up shots from an existing keyframe via
+   ffmpeg crop — ZERO extra FLUX.2 renders. Be miserly with compute.
+
+   The MVC generates ONE full-body keyframe per lyric segment; A-Roll head
+   shots and B-Roll instrument shots are CROPS of that same image, never new
+   generations. Body: { imageUrl: "/data/mvc/singer_ab12cd34.png", region }
+   region ∈ "head" | "torso" | "instrument" | "wide". Returns the new URL.
+   ═══════════════════════════════════════════════════════════════════════ */
+router21.post("/comfyui/crop-image", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const { imageUrl, region } = req.body || {};
+    if (!imageUrl) return res.status(400).json({ error: "imageUrl required" });
+    const cropRegions = {
+      "head":       { filter: "crop=iw*0.7:ih*0.42:iw*0.15:0",           label: "head" },
+      "torso":      { filter: "crop=iw*0.6:ih*0.4:iw*0.2:ih*0.3",         label: "torso" },
+      "instrument": { filter: "crop=iw*0.6:ih*0.4:iw*0.2:ih*0.6",         label: "instrument" },
+      "wide":       { filter: "crop=iw*0.92:ih*0.92:iw*0.04:ih*0.04",     label: "wide" }
+    };
+    const spec = cropRegions[region] || cropRegions["torso"];
+    let localPath = imageUrl;
+    if (imageUrl.startsWith("/")) localPath = nleResolveLocalPath(imageUrl) || imageUrl;
+    if (!fs9.existsSync(localPath)) return res.status(404).json({ error: "Image not found: " + localPath });
+    const ffmpegPath = getFFmpegPath();
+    if (!ffmpegPath) return res.status(500).json({ error: "FFmpeg not available" });
+    const outDir = path9.join(config.data.dir, "mvc");
+    if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
+    const localName = `crop_${spec.label}_${uuid9().substring(0, 8)}.png`;
+    const localOut = path9.join(outDir, localName);
+    const args = ["-y", "-i", localPath, "-vf", spec.filter, "-frames:v", "1", localOut];
+    const { execFile } = require("child_process");
+    await new Promise((resolve, reject) => {
+      execFile(ffmpegPath, args, { timeout: 30000 }, (err) => err ? reject(new Error("Crop failed: " + err.message)) : resolve());
+    });
+    if (!fs9.existsSync(localOut)) return res.status(500).json({ error: "Crop produced no output" });
+    console.log(`[MVC] Crop derived: ${localName} (${spec.label}) from ${localPath}`);
+    res.json({ imageUrl: `/data/mvc/${localName}`, region: spec.label, source: imageUrl });
+  } catch (err) {
+    console.error("[MVC] Crop failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /* Generate video clip via LTX2.3 I2V */
 router21.post("/comfyui/generate-video", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const {
+    /* PGFX 2026-08-13: `let` — the legacy field-mapping below (prompt→videoPrompt,
+       section→sectionType, DB style lookup) REASSIGNS these bindings. Destructuring
+       them as const threw `Assignment to constant variable` on every legacy-named
+       client request (singer-shot generateVideoClip sends prompt/section), breaking
+       video generation in the MVC UI. */
+    let {
       imageUrl,         /* local path or URL to reference image */
-      audioUrl,         /* local path or URL to audio segment */
+      audioUrl,         /* local path or URL to audio segment (LTX only — H3 generates native audio) */
       videoPrompt,      /* auto-generated or user-provided */
       negativePrompt, width, height, frames,
       frameRate, cfg, imgStrength, seed,
       sectionType, vocalistGender, style,
-      unetModel, vaeModel, clipModel, audioVaeModel, icLoraModel, upscaleModel
+      unetModel, vaeModel, clipModel, audioVaeModel, icLoraModel, upscaleModel,
+      engine             /* "ltx" (default) | "minimax-h3" */
     } = req.body;
     if (!imageUrl) return res.status(400).json({ error: "imageUrl required" });
-    if (!audioUrl) return res.status(400).json({ error: "audioUrl required" });
+    const isH3 = engine === "minimax-h3";
+    if (!audioUrl && !isH3) return res.status(400).json({ error: "audioUrl required" });
 
     /* Map client field names: prompt → videoPrompt, section → sectionType */
     if (!videoPrompt && req.body.prompt) videoPrompt = req.body.prompt;
@@ -311731,79 +311879,132 @@ router21.post("/comfyui/generate-video", async (req, res) => {
 
     /* Resolve image file for upload */
     let imageLocalPath = imageUrl;
-    if (imageUrl.startsWith("/")) imageLocalPath = path9.join(process.cwd(), imageUrl.replace(/^\//, ""));
+    if (imageUrl.startsWith("/")) imageLocalPath = nleResolveLocalPath(imageUrl) || imageUrl;
     if (!fs9.existsSync(imageLocalPath)) return res.status(404).json({ error: "Image not found: " + imageLocalPath });
     const imageFileName = path9.basename(imageLocalPath);
 
-    /* Resolve audio file for upload */
-    let audioLocalPath = audioUrl;
-    if (audioUrl.startsWith("/")) audioLocalPath = path9.join(process.cwd(), audioUrl.replace(/^\//, ""));
-    if (!fs9.existsSync(audioLocalPath)) return res.status(404).json({ error: "Audio not found: " + audioLocalPath });
-    const audioFileName = path9.basename(audioLocalPath);
-
-    /* PGFX 2026-08-09: slice the audio to the clip window so the LTX audio
-       reference tokens match the video frames (previously the WHOLE song was
-       uploaded and conditioned — wrong for 4-8s segment clips). */
-    let uploadAudioPath = audioLocalPath;
-    let uploadAudioName = audioFileName;
-    const audioStart = parseFloat(req.body.audioStart);
-    const audioDur = parseFloat(req.body.audioDuration);
-    if (isFinite(audioStart) && audioStart >= 0 && isFinite(audioDur) && audioDur > 0) {
-      const ffmpegPath = getFFmpegPath();
-      if (ffmpegPath) {
-        const sliceDir = path9.join(process.cwd(), "data", "mvc");
-        if (!fs9.existsSync(sliceDir)) fs9.mkdirSync(sliceDir, { recursive: true });
-        const sliceName = `audio_slice_${uuid9().substring(0, 8)}.wav`;
-        const slicePath = path9.join(sliceDir, sliceName);
-        const args = ["-y", "-ss", String(audioStart), "-t", String(audioDur), "-i", audioLocalPath, "-vn", "-ar", "44100", "-ac", "2", slicePath];
-        try {
-          const { execFile } = require("child_process");
-          await new Promise((resolve, reject) => {
-            execFile(ffmpegPath, args, { timeout: 30000 }, (err) => err ? reject(new Error("FFmpeg slice failed: " + err.message)) : resolve());
-          });
-          if (fs9.existsSync(slicePath)) {
-            uploadAudioPath = slicePath;
-            uploadAudioName = sliceName;
-            console.log(`[MVC] Audio sliced ${audioStart}s + ${audioDur}s -> ${sliceName}`);
+    /* LTX only: resolve + slice the audio to the clip window (previously the
+       WHOLE song was uploaded and conditioned — wrong for 4-8s segment clips).
+       H3 generates native stereo audio from its own VAE — no audio input. */
+    let uploadAudioPath = null;
+    let uploadAudioName = null;
+    if (!isH3) {
+      let audioLocalPath = audioUrl;
+      if (audioUrl.startsWith("/")) audioLocalPath = nleResolveLocalPath(audioUrl) || audioUrl;
+      if (!fs9.existsSync(audioLocalPath)) return res.status(404).json({ error: "Audio not found: " + audioLocalPath });
+      const audioFileName = path9.basename(audioLocalPath);
+      uploadAudioPath = audioLocalPath;
+      uploadAudioName = audioFileName;
+      const audioStart = parseFloat(req.body.audioStart);
+      const audioDur = parseFloat(req.body.audioDuration);
+      if (isFinite(audioStart) && audioStart >= 0 && isFinite(audioDur) && audioDur > 0) {
+        const ffmpegPath = getFFmpegPath();
+        if (ffmpegPath) {
+          const sliceDir = path9.join(config.data.dir, "mvc");
+          if (!fs9.existsSync(sliceDir)) fs9.mkdirSync(sliceDir, { recursive: true });
+          const sliceName = `audio_slice_${uuid9().substring(0, 8)}.wav`;
+          const slicePath = path9.join(sliceDir, sliceName);
+          const args = ["-y", "-ss", String(audioStart), "-t", String(audioDur), "-i", audioLocalPath, "-vn", "-ar", "44100", "-ac", "2", slicePath];
+          try {
+            const { execFile } = require("child_process");
+            await new Promise((resolve, reject) => {
+              execFile(ffmpegPath, args, { timeout: 30000 }, (err) => err ? reject(new Error("FFmpeg slice failed: " + err.message)) : resolve());
+            });
+            if (fs9.existsSync(slicePath)) {
+              uploadAudioPath = slicePath;
+              uploadAudioName = sliceName;
+              console.log(`[MVC] Audio sliced ${audioStart}s + ${audioDur}s -> ${sliceName}`);
+            }
+          } catch (sliceErr) {
+            console.warn(`[MVC] Audio slice failed, using full file: ${sliceErr.message}`);
           }
-        } catch (sliceErr) {
-          console.warn(`[MVC] Audio slice failed, using full file: ${sliceErr.message}`);
         }
       }
     }
     /* LTXVImgToVideo length must be >= 9 and a multiple of 8. Round up so the
-       clip never undershoots the requested duration. */
+       clip never undershoots the requested duration. (H3 computes its own
+       17k+5 24fps grid from duration instead.) */
     const rawFrames = parseInt(frames) || 97;
     const gridFrames = Math.max(9, Math.ceil(rawFrames / 8) * 8);
 
-    /* Upload both to ComfyUI */
+    /* Upload image (both engines) + audio (LTX only) to ComfyUI */
     console.log(`[MVC] Uploading image: ${imageFileName}`);
     await comfyUpload(imageLocalPath, imageFileName);
-    console.log(`[MVC] Uploading audio: ${uploadAudioName}`);
-    await comfyUpload(uploadAudioPath, uploadAudioName);
-
-    /* Auto-generate video prompt if not provided */
-    let finalVideoPrompt = videoPrompt;
-    if (!finalVideoPrompt) {
-      const autoPrompt = buildVideoPrompt({ imagePrompt: req.body.imagePrompt || "", sectionType: sectionType || "verse", vocalistGender });
-      finalVideoPrompt = autoPrompt;
+    if (!isH3 && uploadAudioPath) {
+      console.log(`[MVC] Uploading audio: ${uploadAudioName}`);
+      await comfyUpload(uploadAudioPath, uploadAudioName);
     }
-    console.log(`[MVC] Video prompt: ${finalVideoPrompt.substring(0, 120)}...`);
 
-    /* Build workflow */
-    const workflow = buildLTX2Workflow({
-      imageFilename: imageFileName,
-      audioFilename: uploadAudioName,
-      videoPrompt: finalVideoPrompt,
-      negativePrompt, width: width||768, height: height||512,
-      frames: gridFrames, frameRate: frameRate||25,
-      steps: 20, cfg: cfg||3.0, imgStrength: imgStrength||1.0,
-      seed, outputPrefix: `mvc_${sectionType || "clip"}`,
-      unetModel: unetModel||"auto", vaeModel: vaeModel||"auto",
-      clipModel: clipModel||"auto",
-      audioVaeModel: audioVaeModel||"auto",
-      icLoraModel: icLoraModel||"auto"
-    });
+    /* Auto-generate video prompt if not provided — or if the client passed a
+       FLUX.2 STILL-IMAGE prompt as the video prompt ("Each image is one full-frame
+       scene…" is wrong for a video model). Rebuild as a motion prompt. */
+    let finalVideoPrompt = videoPrompt;
+    const stillImageMarkers = /full-frame scene standing|Each image is one|no text and no lettering/i;
+    if (!finalVideoPrompt || stillImageMarkers.test(finalVideoPrompt)) {
+      const autoPrompt = buildVideoPrompt({
+        imagePrompt: req.body.imagePrompt || "",
+        sectionType: sectionType || "verse",
+        vocalistGender,
+        segmentLines: req.body.segmentLines,
+        concept: req.body.concept,
+        style
+      });
+      finalVideoPrompt = autoPrompt;
+      if (videoPrompt && stillImageMarkers.test(videoPrompt)) {
+        console.log(`[MVC] Converted still-image prompt to motion prompt (was: ${String(videoPrompt).substring(0, 80)}...)`);
+      }
+    }
+    /* H3 generates native stereo audio — its prompt guide wants an Audio line.
+       The final export replaces this track with the real song, so keep the
+       description as a subtle ambient/SFX bed matching the segment mood. */
+    if (isH3 && !/audio:/i.test(finalVideoPrompt)) {
+      const moodAudio = {
+        "intro": "low ambient music bed and soft room tone building gently",
+        "verse": "sparse ambient music bed with soft room tone and subtle texture",
+        "pre-chorus": "ambient music bed rising slowly with light percussion",
+        "chorus": "full ambient music bed with a gentle beat and warm pads",
+        "post-chorus": "ambient music bed easing back with soft pads",
+        "bridge": "ethereal ambient music bed with a sparse piano motif",
+        "interlude": "quiet ambient bed with distant sounds",
+        "outro": "ambient music bed fading slowly to near-silence",
+        "instrumental": "atmospheric music bed with subtle rhythmic pulse",
+      };
+      const audioDesc = moodAudio[sectionType] || moodAudio["verse"];
+      finalVideoPrompt += ` Audio: ${audioDesc}.`;
+    }
+    console.log(`[MVC] Video prompt (${isH3 ? "minimax-h3" : "ltx"}): ${finalVideoPrompt.substring(0, 120)}...`);
+
+    /* Build workflow — engine-specific */
+    const workflow = isH3
+      ? buildMiniMaxH3Workflow({
+          imageFilename: imageFileName,
+          videoPrompt: finalVideoPrompt,
+          width: width || 768,
+          height: height || 512,
+          /* Client frames are 25fps NLE semantics; H3 converts to its own
+             24fps 17k+5 grid via h3AlignFrameCount inside the builder. */
+          durationSec: rawFrames / (frameRate || 25),
+          steps: 20,
+          seed,
+          outputPrefix: `mvc_h3_${sectionType || "clip"}`,
+          unetModel: unetModel || "auto",
+          vaeModel: vaeModel || "auto",
+          clipModel: clipModel || "auto",
+          audioVaeModel: audioVaeModel || "auto"
+        })
+      : buildLTX2Workflow({
+          imageFilename: imageFileName,
+          audioFilename: uploadAudioName,
+          videoPrompt: finalVideoPrompt,
+          negativePrompt, width: width||768, height: height||512,
+          frames: gridFrames, frameRate: frameRate||25,
+          steps: 20, cfg: cfg||3.0, imgStrength: imgStrength||1.0,
+          seed, outputPrefix: `mvc_${sectionType || "clip"}`,
+          unetModel: unetModel||"auto", vaeModel: vaeModel||"auto",
+          clipModel: clipModel||"auto",
+          audioVaeModel: audioVaeModel||"auto",
+          icLoraModel: icLoraModel||"auto"
+        });
 
     const result = await comfySubmitAndWait(workflow);
     const output = comfyFindOutput(result.outputs);
@@ -311811,14 +312012,14 @@ router21.post("/comfyui/generate-video", async (req, res) => {
     /* Download video */
     const vidFile = output.files[0];
     const vidBuffer = await comfyDownload(vidFile.filename, vidFile.subfolder || "", vidFile.type || "output");
-    const outDir = path9.join(process.cwd(), "data", "mvc");
+    const outDir = path9.join(config.data.dir, "mvc");
     if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
     const localName = `clip_${uuid9().substring(0,8)}.mp4`;
     if (vidBuffer.length === 0) throw new Error("ComfyUI returned empty video output");
     const localPath = path9.join(outDir, localName);
     fs9.writeFileSync(localPath, vidBuffer);
-    console.log(`[MVC] Video clip saved: ${localPath} (${(vidBuffer.length/1024/1024).toFixed(1)} MB)`);
-    res.json({ videoUrl: `/data/mvc/${localName}`, prompt: finalVideoPrompt, filename: vidFile.filename, sizeMB: (vidBuffer.length/1024/1024).toFixed(1) });
+    console.log(`[MVC] Video clip saved (${isH3 ? "minimax-h3" : "ltx"}): ${localPath} (${(vidBuffer.length/1024/1024).toFixed(1)} MB)`);
+    res.json({ videoUrl: `/data/mvc/${localName}`, prompt: finalVideoPrompt, filename: vidFile.filename, sizeMB: (vidBuffer.length/1024/1024).toFixed(1), engine: isH3 ? "minimax-h3" : "ltx" });
   } catch (err) {
     console.error("[MVC] Video generation failed:", err.message);
     res.status(500).json({ error: err.message });
@@ -311833,9 +312034,9 @@ router21.post("/comfyui/extract-audio", async (req, res) => {
     const { audioUrl, startTime, duration } = req.body;
     if (!audioUrl) return res.status(400).json({ error: "audioUrl required" });
     let audioLocalPath = audioUrl;
-    if (audioUrl.startsWith("/")) audioLocalPath = path9.join(process.cwd(), audioUrl.replace(/^\//, ""));
+    if (audioUrl.startsWith("/")) audioLocalPath = nleResolveLocalPath(audioUrl) || audioUrl;
     if (!fs9.existsSync(audioLocalPath)) return res.status(404).json({ error: "Audio not found" });
-    const outDir = path9.join(process.cwd(), "data", "mvc");
+    const outDir = path9.join(config.data.dir, "mvc");
     if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
     const outName = `audio_seg_${uuid9().substring(0,8)}.wav`;
     const outPath = path9.join(outDir, outName);
@@ -311937,6 +312138,25 @@ router21.post("/comfyui/video-plan", async (req, res) => {
         vocalistGender: vocalistGender || "",
         aboutGender: aboutGender || ""
       });
+      /* PGFX 2026-08-10: per-segment LTX 2.3 MOTION prompt — the image keyframe
+         prompt (FLUX.2) and the motion prompt (LTX 2.3) are different animals.
+         One Master Creative Brief drives both. */
+      const motionPrompt = buildVideoMotionPrompt({
+        segmentLines: sec.lines,
+        sectionType: sec.sectionType,
+        concept: songConcept,
+        style: resolvedStyle,
+        vocalistGender: vocalistGender || ""
+      });
+      /* PGFX 2026-08-11: per-model prompts — MiniMax H3 gets its OWN shorter
+         motion prompt (no LTX camera-intent sentence; H3 composes the shot
+         itself). The client picks prompt by engine. */
+      const h3MotionPrompt = buildH3MotionPrompt({
+        segmentLines: sec.lines,
+        sectionType: sec.sectionType,
+        concept: songConcept,
+        style: resolvedStyle
+      });
       return {
         index: i,
         sectionIndex: sec.sectionIndex,
@@ -311945,7 +312165,9 @@ router21.post("/comfyui/video-plan", async (req, res) => {
         startTime: r2(startTime),
         endTime: r2(endTime),
         duration: r2(Math.max(0.5, endTime - startTime)),
-        prompt
+        prompt,
+        motionPrompt,
+        h3MotionPrompt
       };
     });
     res.json({
@@ -311968,7 +312190,7 @@ router21.get("/comfyui/assets", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   try {
-    const outDir = path9.join(process.cwd(), "data", "mvc");
+    const outDir = path9.join(config.data.dir, "mvc");
     if (!fs9.existsSync(outDir)) return res.json({ assets: [] });
     const files = fs9.readdirSync(outDir).filter(f => !f.startsWith("_"));
     const assets = files.map(f => {
@@ -311986,7 +312208,7 @@ router21.delete("/comfyui/assets", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
   try {
-    const outDir = path9.join(process.cwd(), "data", "mvc");
+    const outDir = path9.join(config.data.dir, "mvc");
     if (fs9.existsSync(outDir)) {
       const files = fs9.readdirSync(outDir);
       for (const f of files) fs9.unlinkSync(path9.join(outDir, f));
@@ -312018,18 +312240,28 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const { songId, width, fps, audioSource, sections, layers, duration } = req.body;
-    if (!sections || !sections.length) return res.status(400).json({ error: "sections required" });
+    const { songId, width, height, fps, audioSource, sections, layers, duration, tracks, snap, bpm } = req.body;
+    if ((!sections || !sections.length) && (!tracks || !tracks.length)) {
+      return res.status(400).json({ error: "sections or tracks required" });
+    }
 
     const jobId = uuid9();
-    exportJobs[jobId] = { status: "queued", progress: 0, outputPath: null, error: null };
-    res.json({ jobId, status: "queued" });
+    exportJobs[jobId] = { status: "queued", progress: 0, outputPath: null, error: null, type: tracks && tracks.length ? "nle" : "legacy" };
+    res.json({ jobId, status: "queued", type: exportJobs[jobId].type });
 
     /* Run export async */
     (async () => {
       try {
         exportJobs[jobId].status = "running";
-        const outDir = path9.join(process.cwd(), "data", "mvc");
+
+        /* NLE-aware path: compose the intercut timeline (aroll/broll/viz,
+           transitions, Ken Burns, viz blended INTO the cut) */
+        if (tracks && tracks.length) {
+          runNleCompose(jobId, userId, { songId, width, height, fps, audioSource, duration, tracks, snap, bpm }, "export");
+          return;
+        }
+
+        const outDir = path9.join(config.data.dir, "mvc");
         if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
         const outName = `export_${jobId.substring(0,8)}.mp4`;
         const outPath = path9.join(outDir, outName);
@@ -312041,11 +312273,11 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
           const songData = getDb().prepare("SELECT audio_url, mastered_audio_url FROM songs WHERE id = ? AND user_id = ?").get(songId, userId);
           if (songData) {
             const rawUrl = songData.mastered_audio_url || songData.audio_url || "";
-            if (rawUrl.startsWith("/")) audioPath = path9.join(process.cwd(), rawUrl.replace(/^\//, ""));
+            if (rawUrl.startsWith("/")) audioPath = nleResolveLocalPath(rawUrl) || rawUrl;
           }
         }
         if (!audioPath && audioSource && (audioSource.startsWith("/") || audioSource.includes("."))) {
-          if (audioSource.startsWith("/")) audioPath = path9.join(process.cwd(), audioSource.replace(/^\//, ""));
+          if (audioSource.startsWith("/")) audioPath = nleResolveLocalPath(audioSource) || audioSource;
           else audioPath = audioSource;
         }
 
@@ -312063,13 +312295,13 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
           const clipPaths = [];
           for (const sec of videoSections) {
             let vPath = sec.videoUrl;
-            if (vPath.startsWith("/")) vPath = path9.join(process.cwd(), vPath.replace(/^\//, ""));
+            if (vPath.startsWith("/")) vPath = nleResolveLocalPath(vPath) || vPath;
             if (fs9.existsSync(vPath)) clipPaths.push(vPath);
           }
           /* Add image-only sections as Ken Burns clips */
           for (const sec of imageSections) {
             let iPath = sec.imageUrl;
-            if (iPath.startsWith("/")) iPath = path9.join(process.cwd(), iPath.replace(/^\//, ""));
+            if (iPath.startsWith("/")) iPath = nleResolveLocalPath(iPath) || iPath;
             if (!fs9.existsSync(iPath)) continue;
             const secDur = (sec.endTime || 0) - (sec.startTime || 0);
             if (secDur <= 0) continue;
@@ -312133,7 +312365,7 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
           let inputIdx = 0;
           for (const sec of imageSections) {
             let iPath = sec.imageUrl;
-            if (iPath.startsWith("/")) iPath = path9.join(process.cwd(), iPath.replace(/^\//, ""));
+            if (iPath.startsWith("/")) iPath = nleResolveLocalPath(iPath) || iPath;
             if (!fs9.existsSync(iPath)) continue;
             const secDur = Math.max((sec.endTime || 0) - (sec.startTime || 0), 3);
             inputs.push("-loop", "1", "-t", String(secDur), "-i", iPath);
@@ -312209,8 +312441,8 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
    ═══════════════════════════════════════════════════════════════════════ */
 function nleResolveLocalPath(url) {
   if (!url) return null;
-  if (url.startsWith("/data/mvc/")) return path9.join(process.cwd(), "data", "mvc", path9.basename(url));
-  if (url.startsWith("/data/")) return path9.join(process.cwd(), "data", path9.basename(url));
+  if (url.startsWith("/data/mvc/")) return path9.join(config.data.dir, "mvc", path9.basename(url));
+  if (url.startsWith("/data/")) return path9.join(config.data.dir, path9.basename(url));
   if (url.startsWith("/audio/")) return path9.join(config.data.audioDir, path9.basename(url));
   if (url.startsWith("/api/stem-studio/")) {
     /* /api/stem-studio/<jobId>/stem/<safeName> → data/stems/<jobId>/<safeName>.wav */
@@ -312230,7 +312462,7 @@ function nleResolveLocalPath(url) {
   }
   if (url.startsWith("/references/")) return path47.join(config.data.dir, "references", path47.basename(url));
   if (path9.isAbsolute(url)) return url;
-  return path9.join(process.cwd(), url.replace(/^\//, ""));
+  return path9.join(config.data.dir, url.replace(/^\//, ""));
 }
 
 function nleEscapeFilter(value) {
@@ -312276,23 +312508,163 @@ function nleBlendMode(b) {
   }
 }
 
+/* ── Pure NLE timeline normalization ────────────────────────────────────
+   flattenNleTimeline(tracks, opts):
+     opts: { duration, bpm, snap }
+   Normalizes a client NLE timeline into an exact-interleave structure:
+     - every clip start/end clamped to [0, duration]
+     - each lane's clips sorted by start
+     - aroll/broll overlaps WITHIN the lane deduped (earlier clip wins;
+       the later clip's overlapping portion is trimmed away and a fully
+       covered clip is dropped) so only ONE aroll/broll clip is active at
+       any moment — the "interleave"
+     - viz clips may overlap (multi-layer blending is by design)
+     - optional BPM snap rounds every boundary to the beat grid
+   Returns { aroll: [], broll: [], viz: [] }, each clip carrying
+   { start, end, duration } plus its type payload untouched.
+   Pure: no I/O, no engine calls — harness-testable. */
+function flattenNleTimeline(tracks, opts) {
+  const duration = Math.max(0.1, Number(opts && opts.duration) || 0);
+  const bpm = Number(opts && opts.bpm) || 0;
+  const snap = !!(opts && opts.snap);
+  const beat = bpm > 0 ? 60 / bpm : 0;
+  const snapT = function (t) {
+    if (!snap || beat <= 0) return t;
+    return Math.max(0, Math.round(t / beat) * beat);
+  };
+  const lanes = { aroll: [], broll: [], viz: [] };
+  for (const track of tracks || []) {
+    const type = track && track.type;
+    if (!lanes[type]) continue;
+    const normalized = [];
+    for (const clip of track.clips || []) {
+      if (!clip) continue;
+      let s = Math.max(0, Number(clip.start) || 0);
+      let e = Math.max(0, Number(clip.end) || 0);
+      if (duration > 0) {
+        s = Math.min(s, duration);
+        e = Math.min(e, duration);
+      }
+      if (e <= s) continue;
+      s = snapT(s);
+      e = snapT(e);
+      if (e <= s) continue;
+      normalized.push({ ...clip, start: s, end: e, duration: e - s });
+    }
+    normalized.sort(function (a, b) { return a.start - b.start; });
+    if (type !== "viz") {
+      const cleaned = [];
+      for (const clip of normalized) {
+        const prev = cleaned[cleaned.length - 1];
+        if (prev && clip.start < prev.end) {
+          if (clip.end <= prev.end) continue; /* fully covered by earlier clip */
+          clip.start = prev.end;
+          clip.duration = clip.end - clip.start;
+          if (clip.duration <= 0) continue; /* trimmed to nothing — drop */
+        }
+        cleaned.push(clip);
+      }
+      lanes[type] = cleaned;
+    } else {
+      lanes[type] = normalized;
+    }
+  }
+  return lanes;
+}
+
+/* Map client transition names → per-clip fade duration (seconds).
+   The overlay-chain compositor fades each clip in at its head and out at
+   its tail on its OWN local timeline; adjacent clips on a lane therefore
+   dip through the base (black) — the fast dissolve-cut that reads as a
+   professional music-video edit. 0 = hard cut (no fades). */
+function nleTransitionFade(transition) {
+  switch (String(transition || "").toLowerCase()) {
+    case "crossfade": return 0.5;
+    case "fade": return 0.6;
+    case "dip": return 0.3;
+    default: return 0; /* none / cut */
+  }
+}
+
+/* PGFX 2026-08-12: SITUATIONAL transition defaults. When a clip carries no
+   explicit user-picked transition (auto-seeded clips), choose the edit feel
+   from the shot context instead of a fixed dip:
+     - viz clips never fade (they blend into the canvas)
+     - very short shots hard-cut so a fade never eats the shot
+     - bookend sections (intro/outro) and slow sections (bridge/interlude/
+       instrumental) use the long fade
+     - chorus + pre/post-chorus dissolve longer (the big musical moments)
+     - everything else (verses, crops, singer cuts) cuts with a fast dip
+   Pure + apostrophe-free so the test harness can extract it. */
+function pickNleTransition(clip) {
+  const type = String((clip && clip.trackType) || "");
+  if (type === "viz") return "none";
+  const dur = Number((clip && clip.duration) || 0);
+  if (dur > 0 && dur < 2.5) return "none";
+  const st = String((clip && clip.sectionType) || "").toLowerCase().replace(/\s+/g, "-").replace(/-\d+$/, "");
+  if (st === "intro" || st === "outro" || st === "bridge" || st === "interlude" || st === "instrumental") return "fade";
+  if (st === "chorus" || st === "post-chorus" || st === "pre-chorus") return "crossfade";
+  const name = String((clip && clip.name) || "").toLowerCase();
+  if (name.indexOf("singer") >= 0 || name.indexOf("head") >= 0 || name.indexOf("crop") >= 0) return "dip";
+  return "dip";
+}
+
+/* PGFX 2026-08-12: shared Ken Burns zoompan expression used by B-Roll image
+   clips AND A-Roll still (singer performance) clips. Extracted from the same
+   switch in both branches so the motions can never drift apart. Apostrophe-free
+   for the test harness. */
+function nleZoompan(zoomDir, frames, W, H, fps) {
+  const f = Math.max(1, Math.round(Number(frames) || 1));
+  const w = Number(W) || 1920, h = Number(H) || 1080, r = Number(fps) || 30;
+  switch ((Number(zoomDir) || 0) % 6) {
+    case 0: return `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${f}:s=${w}x${h}:fps=${r}`;
+    case 1: return `zoompan=z='if(lte(zoom,1.0),1.15,max(zoom-0.0005,1.0))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${f}:s=${w}x${h}:fps=${r}`;
+    case 2: return `zoompan=z='min(zoom+0.0004,1.12)':x='0':y='ih/2-(ih/zoom/2)':d=${f}:s=${w}x${h}:fps=${r}`;
+    case 3: return `zoompan=z='min(zoom+0.0004,1.12)':x='iw-iw/zoom':y='ih/2-(ih/zoom/2)':d=${f}:s=${w}x${h}:fps=${r}`;
+    case 4: return `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='0':d=${f}:s=${w}x${h}:fps=${r}`;
+    default: return `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih-ih/zoom':d=${f}:s=${w}x${h}:fps=${r}`;
+  }
+}
+
 router21.post("/comfyui/compose-nle", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const { songId, width, height, fps, audioSource, duration, tracks } = req.body;
+    const { songId, width, height, fps, audioSource, duration, tracks, snap, bpm } = req.body;
     if (!tracks || !tracks.length) return res.status(400).json({ error: "tracks required" });
 
     const jobId = uuid9();
     exportJobs[jobId] = { status: "queued", progress: 0, outputPath: null, error: null, type: "nle" };
     res.json({ jobId, status: "queued", type: "nle" });
 
-    (async () => {
-      try {
-        exportJobs[jobId].status = "running";
-        const outDir = path9.join(process.cwd(), "data", "mvc");
+    runNleCompose(jobId, userId, { songId, width, height, fps, audioSource, duration, tracks, snap, bpm }, "nle");
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ── NLE compose core (shared by compose-nle and export-mp4) ────────────
+   runNleCompose(jobId, userId, params, outPrefix)
+   params: { songId, width, height, fps, audioSource, duration, tracks, snap, bpm }
+   Owns its job state: sets exportJobs[jobId] running → completed/failed.
+   Composes the flattened NLE timeline onto one canvas (Z-order bottom→top:
+   black base → aroll → broll → viz):
+     - aroll video inputs are STREAM-LOOPED so one singer performance clip
+       can bed across many timeline windows and stretch beyond its source
+       length without dropping out
+     - per-clip transitions (dip/crossfade/fade) become in/out fades on each
+       clip's own local timeline — adjacent clips dip through black
+     - viz clips drive ffmpeg audio-viz filters from their stem (or master
+       audio) and blend INTO the cut per their blend mode, never stacked
+       above it
+   Muxes song audio; writes data/mvc/<prefix>_<jobid8>.mp4. */
+async function runNleCompose(jobId, userId, params, outPrefix) {
+  try {
+    exportJobs[jobId].status = "running";
+    const { songId, width, height, fps, audioSource, duration, tracks, snap, bpm } = params || {};
+        const outDir = path9.join(config.data.dir, "mvc");
         if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
-        const outName = `nle_${jobId.substring(0,8)}.mp4`;
+        const outName = `${outPrefix || "nle"}_${jobId.substring(0,8)}.mp4`;
         const outPath = path9.join(outDir, outName);
         const ffmpegPath = getFFmpegPath() || path9.join(process.cwd(), "ffmpeg.exe");
 
@@ -312308,10 +312680,8 @@ router21.post("/comfyui/compose-nle", async (req, res) => {
           if (songData) {
             const rawUrl = songData.mastered_audio_url || songData.audio_url || "";
             if (rawUrl.startsWith("/")) {
-              /* URL-style path: try data/audio, then cwd-relative */
-              const candidate = path9.join(config.data.audioDir, path9.basename(rawUrl));
-              if (fs9.existsSync(candidate)) audioPath = candidate;
-              else audioPath = path9.join(process.cwd(), rawUrl.replace(/^\//, ""));
+              /* URL-style path: canonical resolver (audio/ → data/audio, data/ → data) */
+              audioPath = nleResolveLocalPath(rawUrl) || null;
             } else if (rawUrl) {
               audioPath = path9.join(config.data.audioDir, path9.basename(rawUrl));
             }
@@ -312320,12 +312690,12 @@ router21.post("/comfyui/compose-nle", async (req, res) => {
         if (!audioPath && audioSource) audioPath = nleResolveLocalPath(audioSource);
         if (audioPath && !fs9.existsSync(audioPath)) audioPath = null;
 
-        /* Collect all clips in Z-order (array order = bottom→top) */
+        /* Flatten + interleave the timeline (pure normalization: clamp to
+           duration, sort, dedupe aroll/broll lane overlaps, optional BPM snap) */
+        const lanes = flattenNleTimeline(tracks, { duration: totalDur, bpm, snap });
         const clips = [];
-        for (const track of tracks || []) {
-          for (const clip of track.clips || []) {
-            clips.push({ trackType: track.type, ...clip });
-          }
+        for (const type of ["aroll", "broll", "viz"]) {
+          for (const clip of lanes[type] || []) clips.push({ trackType: type, ...clip });
         }
         if (!clips.length) throw new Error("No clips in timeline");
 
@@ -312349,8 +312719,15 @@ router21.post("/comfyui/compose-nle", async (req, res) => {
 
         for (const clip of clips) {
           if (clip.trackType === "aroll") {
-            const vp = nleResolveLocalPath(clip.videoUrl || clip.imageUrl);
-            if (vp && fs9.existsSync(vp)) regAsset(videoInputs, videoPathToIdx, vp);
+            if (clip.videoUrl) {
+              const vp = nleResolveLocalPath(clip.videoUrl);
+              if (vp && fs9.existsSync(vp)) regAsset(videoInputs, videoPathToIdx, vp);
+            } else if (clip.imageUrl) {
+              /* A-Roll still (singer performance shot): render like B-Roll
+                 with Ken Burns motion — register as an image input. */
+              const ip = nleResolveLocalPath(clip.imageUrl);
+              if (ip && fs9.existsSync(ip)) regAsset(imageInputs, imagePathToIdx, ip);
+            }
           } else if (clip.trackType === "broll") {
             const ip = nleResolveLocalPath(clip.imageUrl);
             if (ip && fs9.existsSync(ip)) regAsset(imageInputs, imagePathToIdx, ip);
@@ -312371,7 +312748,9 @@ router21.post("/comfyui/compose-nle", async (req, res) => {
         const masterAudioIdx = 0;
 
         for (let i = 0; i < stemInputs.length; i++) inputs.push("-i", stemInputs[i]);
-        for (let i = 0; i < videoInputs.length; i++) inputs.push("-i", videoInputs[i]);
+        /* aroll videos stream-loop so a single performance clip can bed
+           across multiple timeline windows and stretch past its source */
+        for (let i = 0; i < videoInputs.length; i++) inputs.push("-stream_loop", "-1", "-i", videoInputs[i]);
         for (let i = 0; i < imageInputs.length; i++) inputs.push("-i", imageInputs[i]);
         if (audioPath) inputs.push("-i", audioPath);
 
@@ -312395,38 +312774,50 @@ router21.post("/comfyui/compose-nle", async (req, res) => {
           const dur = end - start;
           const clipLabel = `c${clipIdx}`;
           const srcLabel = `s${clipIdx}`;
+          /* transition → in/out fades on the clip's local timeline.
+             Explicit user-picked transition wins; auto-seeded clips fall
+             back to the situational default for their shot context. */
+          const fade = nleTransitionFade(clip.transition || pickNleTransition(clip));
+          const fadeStr = fade > 0 ? `,fade=t=in:st=0:d=${fade},fade=t=out:st=${Math.max(0.05, dur - fade)}:d=${fade}` : "";
 
           if (clip.trackType === "aroll") {
-            const vp = nleResolveLocalPath(clip.videoUrl || clip.imageUrl);
-            const vi = vp && fs9.existsSync(vp) ? (videoPathToIdx[vp.toLowerCase()] ?? -1) : -1;
-            if (vi < 0) { clipIdx++; continue; }
-            const inIdx = videoBase + vi;
-            filterParts.push(
-              `[${inIdx}:v]trim=start=0:end=${dur},setpts=PTS-STARTPTS,` +
-              `scale=${totalW}:${totalH}:force_original_aspect_ratio=decrease,pad=${totalW}:${totalH}:(ow-iw)/2:(oh-ih)/2,` +
-              `format=yuv420p,fps=${totalFps},setpts=PTS+${start}/TB[${srcLabel}]`
-            );
-            filterParts.push(
-              `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
-            );
+            const isStill = !clip.videoUrl && !!clip.imageUrl;
+            if (isStill) {
+              const ip = nleResolveLocalPath(clip.imageUrl);
+              const ii = ip && fs9.existsSync(ip) ? (imagePathToIdx[ip.toLowerCase()] ?? -1) : -1;
+              if (ii < 0) { clipIdx++; continue; }
+              const inIdx = imageBase + ii;
+              const frames = Math.max(1, Math.round(dur * totalFps));
+              const zp = nleZoompan(clip.zoomDir, frames, totalW, totalH, totalFps);
+              filterParts.push(
+                `[${inIdx}:v]loop=loop=1:size=${frames},scale=${totalW*2}:${totalH*2},${zp},format=yuv420p,fps=${totalFps}${fadeStr},setpts=PTS+${start}/TB[${srcLabel}]`
+              );
+              filterParts.push(
+                `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
+              );
+            } else {
+              const vp = nleResolveLocalPath(clip.videoUrl);
+              const vi = vp && fs9.existsSync(vp) ? (videoPathToIdx[vp.toLowerCase()] ?? -1) : -1;
+              if (vi < 0) { clipIdx++; continue; }
+              const inIdx = videoBase + vi;
+              filterParts.push(
+                `[${inIdx}:v]trim=start=0:end=${dur},setpts=PTS-STARTPTS,` +
+                `scale=${totalW}:${totalH}:force_original_aspect_ratio=decrease,pad=${totalW}:${totalH}:(ow-iw)/2:(oh-ih)/2,` +
+                `format=yuv420p,fps=${totalFps}${fadeStr},setpts=PTS+${start}/TB[${srcLabel}]`
+              );
+              filterParts.push(
+                `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
+              );
+            }
           } else if (clip.trackType === "broll") {
             const ip = nleResolveLocalPath(clip.imageUrl);
             const ii = ip && fs9.existsSync(ip) ? (imagePathToIdx[ip.toLowerCase()] ?? -1) : -1;
             if (ii < 0) { clipIdx++; continue; }
             const inIdx = imageBase + ii;
-            const zoomDir = Number(clip.zoomDir) || 0;
             const frames = Math.max(1, Math.round(dur * totalFps));
-            let zp;
-            switch (zoomDir % 6) {
-              case 0: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              case 1: zp = `zoompan=z='if(lte(zoom,1.0),1.15,max(zoom-0.0005,1.0))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              case 2: zp = `zoompan=z='min(zoom+0.0004,1.12)':x='0':y='ih/2-(ih/zoom/2)':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              case 3: zp = `zoompan=z='min(zoom+0.0004,1.12)':x='iw-iw/zoom':y='ih/2-(ih/zoom/2)':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              case 4: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='0':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              default: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih-ih/zoom':d=${frames}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-            }
+            const zp = nleZoompan(clip.zoomDir, frames, totalW, totalH, totalFps);
             filterParts.push(
-              `[${inIdx}:v]loop=loop=1:size=${frames},scale=${totalW*2}:${totalH*2},${zp},format=yuv420p,fps=${totalFps},setpts=PTS+${start}/TB[${srcLabel}]`
+              `[${inIdx}:v]loop=loop=1:size=${frames},scale=${totalW*2}:${totalH*2},${zp},format=yuv420p,fps=${totalFps}${fadeStr},setpts=PTS+${start}/TB[${srcLabel}]`
             );
             filterParts.push(
               `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
@@ -312444,12 +312835,16 @@ router21.post("/comfyui/compose-nle", async (req, res) => {
 
             const vizFilter = nleVizFilter(clip.effect, totalW, totalH, totalFps, clip.color, clip.beatSensitivity);
             const blendMode = nleBlendMode(clip.blend);
-            const opacity = Math.min(1, Math.max(0, Number(clip.opacity) ?? 1));
+            /* NaN-safe opacity: Number(undefined) is NaN and `?? 1` does NOT catch
+               NaN (only null/undefined) — a clip without opacity broke the whole
+               export with colorchannelmixer=aa=NaN. Finite check + clamp, 0 valid. */
+            const opVal = Number(clip.opacity);
+            const opacity = Number.isFinite(opVal) ? Math.min(1, Math.max(0, opVal)) : 1;
 
             if (blendMode) {
               filterParts.push(
                 `[${audioInIdx}:a]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,` +
-                `${vizFilter},format=rgba,fps=${totalFps},setpts=PTS+${start}/TB[${srcLabel}]`
+                `${vizFilter},format=rgba,fps=${totalFps}${fadeStr},setpts=PTS+${start}/TB[${srcLabel}]`
               );
               filterParts.push(
                 `[${prevLabel}][${srcLabel}]blend=all_mode=${blendMode}:all_opacity=${opacity}:enable='between(t,${start},${end})'[${clipLabel}]`
@@ -312457,7 +312852,7 @@ router21.post("/comfyui/compose-nle", async (req, res) => {
             } else {
               filterParts.push(
                 `[${audioInIdx}:a]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS,` +
-                `${vizFilter},format=rgba,colorchannelmixer=aa=${opacity.toFixed(3)},fps=${totalFps},setpts=PTS+${start}/TB[${srcLabel}]`
+                `${vizFilter},format=rgba,colorchannelmixer=aa=${opacity.toFixed(3)},fps=${totalFps}${fadeStr},setpts=PTS+${start}/TB[${srcLabel}]`
               );
               filterParts.push(
                 `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
@@ -312508,11 +312903,7 @@ router21.post("/comfyui/compose-nle", async (req, res) => {
         exportJobs[jobId].status = "failed";
         exportJobs[jobId].error = err.message;
       }
-    })();
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+}
 
 /* Poll export status */
 router21.get("/comfyui/export-status/:jobId", async (req, res) => {
@@ -316985,6 +317376,41 @@ app.use("/references", import_express28.default.static(refsDir2, {
     }
   }
 }));
+/* PGFX 2026-08-10: the PGFX fork writes generated MVC media (images/videos/audio
+   slices) into data/mvc and album videos into temp/video, but neither directory
+   had a static mount — every browser fetch of /data/mvc/* or /temp/video/* fell
+   through to the SPA catch-all and returned index.html (98 KB). That is why ZIP
+   exports contained ~96 KB "mp4" files and MVC media would not render. Mount both
+   here, BEFORE the UI static + catch-all, so the URLs the server itself returns
+   actually serve the files on disk. */
+var mvcOutDir = path58.join(config.data.dir, "mvc");
+fs64.mkdirSync(mvcOutDir, { recursive: true });
+app.use("/data/mvc", import_express28.default.static(mvcOutDir, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".mp4")) {
+      res.setHeader("Content-Type", "video/mp4");
+    } else if (filePath.endsWith(".webm")) {
+      res.setHeader("Content-Type", "video/webm");
+    } else if (filePath.endsWith(".png")) {
+      res.setHeader("Content-Type", "image/png");
+    } else if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) {
+      res.setHeader("Content-Type", "image/jpeg");
+    } else if (filePath.endsWith(".wav")) {
+      res.setHeader("Content-Type", "audio/wav");
+    }
+  }
+}));
+if (typeof VIDEO_TEMP_DIR !== "undefined") {
+  app.use("/temp/video", import_express28.default.static(VIDEO_TEMP_DIR, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(".mp4")) {
+        res.setHeader("Content-Type", "video/mp4");
+      } else if (filePath.endsWith(".webm")) {
+        res.setHeader("Content-Type", "video/webm");
+      }
+    }
+  }));
+}
 var uiDistPath = path58.join(PROJECT_ROOT, "ui", "dist");
 if (fs64.existsSync(uiDistPath)) {
   app.use(import_express28.default.static(uiDistPath, {
