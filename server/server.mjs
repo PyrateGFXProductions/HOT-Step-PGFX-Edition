@@ -311132,8 +311132,28 @@ function calculateSegmentTimings(segments, sectionTimings, songDuration, caps) {
   timings[timings.length - 1] = Math.max(timings[timings.length - 1], songDuration || 0);
   return timings;
 }
+/* ═══════════════════════════════════════════════════════════════════════════
+   CINEMATIC DIRECTION (PGFX 2026-08-13) — INLINE COPY, synced with the modular
+   prompt-builder.mjs. SHOT_SCALE = the directed-edit grammar (a music video is
+   a series of SIZED shots: wide establishes, medium carries the verse,
+   close-up hits the chorus). CONTINUITY_SHOT = the scene-lock sentence every
+   clip prompt carries so the edit reads as one continuous world.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const SHOT_SCALE = {
+  intro:       "an extreme wide establishing shot of the whole scene",
+  verse:       "a medium shot framing the subject from the waist up",
+  "pre-chorus":"a medium close-up, the camera gliding slightly closer",
+  chorus:      "a close-up with an energetic push toward the subject",
+  "post-chorus":"a medium shot that holds steady",
+  bridge:      "a close-up, slow and intimate",
+  interlude:   "an extreme wide shot, the subject small within the scene",
+  outro:       "a wide shot slowly pulling back",
+  instrumental:"a medium shot with a slow drifting camera"
+};
+const CONTINUITY_SHOT = "Every shot continues the same scene: the same subject, the same location, the same light as every other shot in this video";
+
 function buildVideoSegmentPrompt(opts) {
-  /* opts: { segmentLines[], sectionType, concept, style, title, coverArtSubject, vocalistGender, aboutGender } */
+  /* opts: { segmentLines[], sectionType, concept, style, title, coverArtSubject, vocalistGender, aboutGender, shotScale, continuity } */
   const lines = (opts.segmentLines || []).map((l) => String(l).trim()).filter(Boolean);
   let concept = typeof opts.concept === "string" ? opts.concept.trim() : "";
   /* The shared world sentence must stay SHORT — a 150-char lyric blob would drown
@@ -311145,6 +311165,8 @@ function buildVideoSegmentPrompt(opts) {
   const style = (opts.style || "").trim();
   const genreMood = matchGenreVisuals(style);
   const styleLabel = safeStyleLabel(style) || "music";
+  const shotScale = opts.shotScale || SHOT_SCALE.verse;
+  const continuity = opts.continuity || CONTINUITY_SHOT;
   const sentences = [];
   if (concept) sentences.push(`The song lives in this world: ${concept}`);
   if (lines.length > 0) {
@@ -311154,9 +311176,13 @@ function buildVideoSegmentPrompt(opts) {
   } else {
     sentences.push("In this moment of the song, the scene shifts and transforms");
   }
+  /* Shot size — the directed-edit grammar (wide/medium/close per section). */
+  sentences.push(`This is ${shotScale}`);
   if (genreMood) sentences.push(`The scene is lit with a ${genreMood.label} atmosphere: ${genreMood.visuals}`);
   else if (style) sentences.push(`The scene is lit with a ${styleLabel} atmosphere`);
-  sentences.push("The same characters, location and lighting continue from the other images in this video");
+  /* Continuity lock — replaced the old "same characters, location and lighting"
+     line (its "characters" framing was wrong for subject-led scenes). */
+  sentences.push(continuity);
   /* PGFX 2026-08-10 (FLUX.2 guide): positive bound language — "standing completely
      alone as one continuous composition" and "entirely wordless" describe what the
      frame IS, not what it is not. */

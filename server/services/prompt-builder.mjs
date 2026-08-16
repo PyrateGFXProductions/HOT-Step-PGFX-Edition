@@ -752,6 +752,38 @@ function _ltxSectionKey(sectionType) {
   return (sectionType || "verse").toLowerCase().replace(/\s+/g, "-");
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   CINEMATIC DIRECTION (PGFX 2026-08-13)
+   A music video is a DIRECTED edit: every shot has a SIZE. Wides establish,
+   mediums carry the verse, close-ups hit the chorus. Injecting the scale into
+   every clip prompt is what makes consecutive clips read as one continuous
+   directed shoot instead of a row of random full-frame scenes.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const SHOT_SCALE = {
+  intro:       "an extreme wide establishing shot of the whole scene",
+  verse:       "a medium shot framing the subject from the waist up",
+  "pre-chorus":"a medium close-up, the camera gliding slightly closer",
+  chorus:      "a close-up with an energetic push toward the subject",
+  "post-chorus":"a medium shot that holds steady",
+  bridge:      "a close-up, slow and intimate",
+  interlude:   "an extreme wide shot, the subject small within the scene",
+  outro:       "a wide shot slowly pulling back",
+  instrumental:"a medium shot with a slow drifting camera"
+};
+
+/* CONTINUITY LOCK — one sentence every clip prompt carries so the whole edit
+   reads as a single continuous world: same subject, same place, same light.
+   Deliberately generic (no character or wardrobe nouns) so it holds for
+   subject-led scenes (a cow, a truck) as well as singer-led ones. This is the
+   clip-to-clip cohesion the user asked for. */
+const CONTINUITY_SHOT = "Every shot continues the same scene: the same subject, the same location, the same light as every other shot in this video";
+
+function _shotScaleFor(sectionType) {
+  const key = _ltxSectionKey(sectionType);
+  return SHOT_SCALE[key] || SHOT_SCALE.verse;
+}
+
 /* Cut a string at a word boundary — shared with the segment image prompt builder. */
 function _ltxShorten(text, max) {
   if (typeof text !== "string") return "";
@@ -762,8 +794,11 @@ function _ltxShorten(text, max) {
 }
 
 /* Core LTX 2.3 builder. Inputs mirror buildVideoSegmentPrompt so a single
-   Master Creative Brief can drive BOTH the FLUX.2 keyframe and the LTX motion. */
-function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender }) {
+   Master Creative Brief can drive BOTH the FLUX.2 keyframe and the LTX motion.
+   PGFX 2026-08-13: optional shotScale + continuity — the video-plan route
+   passes the per-section shot scale and the shared CONTINUITY_SHOT so every
+   clip carries the same directed-shot grammar and scene lock. */
+function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender, shotScale, continuity }) {
   const sectionKey = _ltxSectionKey(sectionType);
   const camera = VIDEO_CAMERA_INTENT[sectionKey] || VIDEO_CAMERA_INTENT.verse;
   const action = VIDEO_ACTION_INTENT[sectionKey] || VIDEO_ACTION_INTENT.verse;
@@ -784,12 +819,18 @@ function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, voc
   }
   sentences.push(action);
 
-  /* 3) STYLE/LIGHTING — genre tints lighting only, never a competing scene. */
+  /* 3) SHOT SIZE — the directed-edit grammar (wide/medium/close per section). */
+  if (shotScale) sentences.push(`This is ${shotScale}`);
+
+  /* 4) STYLE/LIGHTING — genre tints lighting only, never a competing scene. */
   const genreMood = matchGenreVisuals(style || "");
   if (genreMood) sentences.push(`The scene is lit with a ${genreMood.label} atmosphere: ${genreMood.visuals}`);
   else if (style) sentences.push(`The scene is lit with a ${safeStyleLabel(style) || "music"} atmosphere`);
 
-  /* 4) CAMERA — explicit intent closes the prompt. No text/logos directive:
+  /* 5) CONTINUITY — the scene-lock sentence every clip shares. */
+  if (continuity) sentences.push(continuity);
+
+  /* 6) CAMERA — explicit intent closes the prompt. No text/logos directive:
         LTX renders text only when asked, so it is never mentioned. */
   sentences.push(camera);
 
@@ -808,7 +849,7 @@ function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, voc
    prompt to H3 — it would freeze the clip into a slowly-zooming photograph.
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-function buildH3MotionPrompt({ segmentLines, sectionType, concept, style }) {
+function buildH3MotionPrompt({ segmentLines, sectionType, concept, style, shotScale, continuity }) {
   const sectionKey = _ltxSectionKey(sectionType);
   const action = VIDEO_ACTION_INTENT[sectionKey] || VIDEO_ACTION_INTENT.verse;
   const lines = (segmentLines || []).map((l) => String(l).trim()).filter(Boolean);
@@ -825,8 +866,12 @@ function buildH3MotionPrompt({ segmentLines, sectionType, concept, style }) {
   }
   sentences.push(action);
 
+  if (shotScale) sentences.push(`This is ${shotScale}`);
+
   const genreMood = matchGenreVisuals(style || "");
   if (genreMood) sentences.push(`The scene is lit with a ${genreMood.label} atmosphere: ${genreMood.visuals}`);
+
+  if (continuity) sentences.push(continuity);
 
   const normalizeSentence = (s) => s.trim().replace(/[.!?]+\s*$/, "") + ".";
   return sentences.map(normalizeSentence).join(" ");
@@ -836,9 +881,9 @@ function buildH3MotionPrompt({ segmentLines, sectionType, concept, style }) {
    segment context), extract the WORLD anchor and rebuild as a motion prompt —
    stripping the still-image-only sentences ("Each image is one full-frame…",
    "no text and no lettering anywhere") that would confuse a video model. */
-function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender, segmentLines, concept, style }) {
+function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender, segmentLines, concept, style, shotScale, continuity }) {
   if (segmentLines || concept || style) {
-    return buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender });
+    return buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender, shotScale, continuity });
   }
   if (imagePrompt) {
     /* Reuse the image prompt first sentences as the subject anchor. */
@@ -880,5 +925,7 @@ export {
   buildVideoMotionPrompt,
   buildH3MotionPrompt,
   VIDEO_CAMERA_INTENT,
-  VIDEO_ACTION_INTENT
+  VIDEO_ACTION_INTENT,
+  SHOT_SCALE,
+  CONTINUITY_SHOT
 };
