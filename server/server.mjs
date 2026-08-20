@@ -47821,8 +47821,12 @@ function buildSongConcept(opts) {
   // PGFX 2026-08-09: the LYRIC STORY is the strongest signal — it drives the scene
   // before the title ever gets a chance (the old order let "Movie Seat" match
   // "ocean" and never read the lyrics that describe a cow in a cinema).
-  const lyricStory = extractLyricStory(lyrics);
-  if (lyricStory) return lyricStory;
+  const lyricStoryExt = extractLyricStory(lyrics);
+  if (lyricStoryExt) {
+    const animalMatch = lyricStoryExt.match(/, a ([a-z]+),/);
+    if (animalMatch) personDesc = "";
+    return lyricStoryExt;
+  }
   const titleConcept = extractTitleConcept(title);
   if (titleConcept) return `In the spirit of the song "${title}", ${titleConcept}`;
   const lyricImagery = extractLyricImagery(lyrics);
@@ -311492,15 +311496,15 @@ function subjectLooksLikePerson(subject) {
 }
 
 /* ── Video Prompt Builder (LTX 2.3 motion-first; delegates to services/prompt-builder.mjs) ── */
-function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender, segmentLines, concept, style }) {
-  return buildVideoPromptMod({ imagePrompt, sectionType, vocalistGender, segmentLines, concept, style });
+function buildVideoPrompt(opts) {
+  return buildVideoPromptMod(opts);
 }
-function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender }) {
-  return buildVideoMotionPromptMod({ segmentLines, sectionType, concept, style, vocalistGender });
+function buildVideoMotionPrompt(opts) {
+  return buildVideoMotionPromptMod(opts);
 }
 /* ── MiniMax H3 I2V motion prompt (short, model-correct; delegates) ── */
-function buildH3MotionPrompt({ segmentLines, sectionType, concept, style }) {
-  return buildH3MotionPromptMod({ segmentLines, sectionType, concept, style });
+function buildH3MotionPrompt(opts) {
+  return buildH3MotionPromptMod(opts);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -312164,24 +312168,21 @@ router21.post("/comfyui/video-plan", async (req, res) => {
         vocalistGender: vocalistGender || "",
         aboutGender: aboutGender || ""
       });
-      /* PGFX 2026-08-10: per-segment LTX 2.3 MOTION prompt — the image keyframe
-         prompt (FLUX.2) and the motion prompt (LTX 2.3) are different animals.
-         One Master Creative Brief drives both. */
+      /* PGFX: Context-aware LTX 2.3 & MiniMax H3 motion prompts */
       const motionPrompt = buildVideoMotionPrompt({
         segmentLines: sec.lines,
         sectionType: sec.sectionType,
         concept: songConcept,
         style: resolvedStyle,
-        vocalistGender: vocalistGender || ""
+        vocalistGender: vocalistGender || "",
+        subject: resolvedSubject || ""
       });
-      /* PGFX 2026-08-11: per-model prompts — MiniMax H3 gets its OWN shorter
-         motion prompt (no LTX camera-intent sentence; H3 composes the shot
-         itself). The client picks prompt by engine. */
       const h3MotionPrompt = buildH3MotionPrompt({
         segmentLines: sec.lines,
         sectionType: sec.sectionType,
         concept: songConcept,
-        style: resolvedStyle
+        style: resolvedStyle,
+        subject: resolvedSubject || ""
       });
       return {
         index: i,
