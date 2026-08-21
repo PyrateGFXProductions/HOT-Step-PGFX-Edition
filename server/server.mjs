@@ -111435,17 +111435,16 @@ var init_ollama = __esm({
             { role: "user", content: userPrompt }
           ],
           stream: !!onChunk,
-          options: { num_predict: 8196 }
+          options: {
+            num_predict: 8196,
+            num_ctx: 32768,
+            temperature: options?.temperature ?? 0.7,
+            top_p: options?.top_p ?? 0.9,
+            presence_penalty: options?.presence_penalty ?? 1.5
+          }
         };
         if (noThink) {
           payload.think = false;
-          payload.options = {
-            ...payload.options,
-            temperature: options?.temperature ?? 0.7,
-            top_p: options?.top_p ?? 0.8,
-            top_k: 20,
-            presence_penalty: 1.5
-          };
         }
         const doFetch = () => fetch(url, {
           method: "POST",
@@ -117053,13 +117052,45 @@ var init_slopDetector = __esm({
 
 // server/src/services/lireek/llm/postprocess.ts
 function stripThinkingBlocks(text6) {
+  if (!text6 || !text6.trim()) return text6 || "";
   let result = text6.replace(/<think>[\s\S]*?<\/think>/g, "");
   result = result.replace(/<analysis>[\s\S]*?<\/analysis>/g, "");
   result = result.replace(/<reasoning>[\s\S]*?<\/reasoning>/g, "");
   result = result.replace(/<reflection>[\s\S]*?<\/reflection>/g, "");
   result = result.replace(/<thought>[\s\S]*?<\/thought>/g, "");
   result = result.replace(/<\|channel>thought[\s\S]*?<channel\|>/g, "");
-  result = result.replace(/<(?:think|analysis|reasoning|reflection|thought)>[\s\S]*/g, "");
+  /* Unclosed think/analysis/etc: remove from the tag to the LAST closing tag
+     of any kind, then keep whatever follows. If nothing follows, the response
+     was genuinely truncated during thinking — return raw so callers see it. */
+  for (const tag of ["think", "analysis", "reasoning", "reflection", "thought"]) {
+    const openIdx = result.indexOf("<" + tag + ">");
+    if (openIdx >= 0) {
+      /* Find the LAST possible close of any kind after this open */
+      const afterOpen = result.substring(openIdx);
+      const lastClose = Math.max(
+        afterOpen.lastIndexOf("</" + tag + ">"),
+        afterOpen.lastIndexOf("<channel|>"),
+        afterOpen.lastIndexOf("---"),
+        afterOpen.lastIndexOf("***"),
+        afterOpen.lastIndexOf("===")
+      );
+      if (lastClose > 0) {
+        /* Close exists after open — remove the block */
+        result = result.substring(0, openIdx) + afterOpen.substring(lastClose + (afterOpen.charAt(lastClose) === "<" ? ("</" + tag + ">").length : 3));
+      } else {
+        /* No close found — think block runs to EOF. Keep any text BEFORE the open. */
+        const before = result.substring(0, openIdx).trim();
+        if (before.length > 50) {
+          result = before;
+        } else {
+          /* Entire response is thinking with no content — return raw so caller
+             can attempt fallback parsing instead of silently producing "" */
+          console.warn(`[StripThink] Response is entirely an unclosed <${tag}> block (${text6.length} chars) — returning raw for fallback`);
+          return text6.trim();
+        }
+      }
+    }
+  }
   result = result.replace(/<\|channel>thought[\s\S]*/g, "");
   const cotMatch = result.match(/^(?:\s*\*+\s*)?(?:Thinking Process|Thought Process|Thinking|Reasoning):\s*[\s\S]*?(?:---|[*]{3,}|={3,})\s*/i);
   if (cotMatch) result = result.slice(cotMatch[0].length);
@@ -310277,16 +310308,13 @@ router21.post("/llm", async (req, res) => {
       `Subject: ${subject.trim()}`,
       `Language: ${langName}`,
       "",
-      "CRITICAL RULES — READ BEFORE WRITING:",
-      "- NEVER put production instructions or instrument cues in parentheses ( ). The music model sings them as lyrics. Duet lyrics and backing vocals in parens are fine \u2014 just don't put instrument/production/arrangement info there.",
-      "- NEVER use these AI-generic words: neon, analog, ethereal, shimmering, cascade, kaleidoscope, tapestry, phantom, ghostly, wailing, howling, flickering, drenched, echo-drenched, glare, haze, whispers, echoes, shadows, starlight, heartbeat, delve.",
-      "- THE 'GREASE SPOT' RULE: Write about PHYSICAL OBJECTS and MUNDANE DETAILS. Instead of abstract feelings, use concrete nouns: broken lighters, specific car models, grease spots on linoleum, receipts, license plates, cold coffee. Concrete nouns starve the AI of the abstract pathways that produce slop. But make sure physical objects interact plausibly — a cigarette pack gets torn open, not 'leaked.' A chain snaps or drags, it doesn't 'weep.' EXCEPTION for existential genres (doom, black, prog metal, folk, shoegaze): abstract language is part of their identity — ground each abstract concept with one concrete image per verse.",
-      "- NARRATIVE COHERENCE: Every image must connect to the subject. If the subject is 'the last hour of daylight,' every line should relate to fading light, dying sun, encroaching darkness, or time running out. Random objects unrelated to the subject (cold tea, copper coins, newspapers) make no sense. Each verse is a scene — images within it must rhyme thematically. The subject is the CENTER — every line orbits it.",
-      "- NEVER WRITE ABOUT THE MUSIC ITSELF: The song must be about the SUBJECT, not about the genre, the beat, the studio, the DJ, the producer, the band, or the scene. 'The bass hits hard', 'I'm spitting fire on the mic', 'the crowd goes wild', 'we rock the stage' are FAILURES unless the subject itself is literally about performing music. A song about 'a midnight drive' must describe driving — headlights, empty roads, gas stations — NOT 'I drop the beat at midnight'. The genre palette is for VOCABULARY flavor (how you say things), never the TOPIC (what you say). If the listener can't tell what the subject is from the lyrics alone, you have failed.",
-      "- META-PRODUCTION STORIES BANNED: The STYLE text above describes the SOUND, ARRANGEMENT, and production (turntables, scratches, MPCs, crate-digging, sample flips, vinyl, wax, needles, delays). Those production elements NEVER become the song's story. Do NOT write lyrics about hunting for wax, digging crates, flipping samples, scratching records, spinning, DJing, or 'the sound' — unless the SUBJECT literally is a record collector. A chorus like 'find the wax in the holler' is a FAILURE because the listener cannot tell what the song is about without seeing the genre label. If no subject is given, INVENT a human story. Pick ONE concrete subject (a person, place, object, animal, memory, or idea) that fills a real emotional role in the protagonist's life — something they are trying to get back to, trying to escape, about to lose, promised to protect, left behind, are waiting for, have outgrown, or must let go of. You choose WHAT it is freely; the only fixed thing is the RELATIONSHIP between the protagonist and the subject. Build the story around it: a protagonist, a place, a want, an obstacle, a resolution — a story that would make sense even if the genre label were removed. ROTATE every song — never reuse a subject, setting, image, or word from a previous song (especially overused Appalachian cliches like 'holler', 'ridge', 'hollow'). The music can be ABOUT the mountain; it must not be ABOUT being a bluegrass-DJ song. ANCHOR VARIETY (CRITICAL): Genre guides may list 'concrete noun anchors' — those are SOUND-WORLD examples, NOT story requirements and NOT a menu of subjects. The lyrics' concrete nouns must come from THIS song's subject and story — never default to the genre's stock imagery. If the subject is empty, let the SUBJECT ROLE guidance pick the relationship and then choose a concrete subject you have never used in a previous song. A fresh angle on a familiar theme is always better than a recycled one. The same genre must produce wildly different stories every single song — that is what makes a songwriter diverse and talented across all genres.",
-      "- 3-ACT STORY STRUCTURE: Every song tells a story. Act 1 (Verse 1): Setup — establish the world, the subject, where we are. Act 2 (Verse 2-3): Tension — deepen the conflict, raise stakes, build pressure. Act 3 (Verse 4+): Resolution — climax, transformation, the final image that lingers. A song with 4 verses of unrelated images is a list, not a story. The listener needs to feel the song went SOMEWHERE.",
-      "- Write like a REAL PERSON from this genre would write, not like an AI. A punk singer doesn't say 'analog heart'. A reggae artist doesn't say 'neon rain'.",
-      "- VOCABULARY VARIETY (CRITICAL): Do NOT repeat the same key words or phrases across verses. If you use a strong word in Verse 1, find a DIFFERENT word for the same idea in Verse 2. Real songwriters avoid repeating their best lines — each verse should feel like a fresh take. Your lyric vocabulary comes ONLY from the subject's world — what the protagonist sees, touches, remembers, and wants. Genre and style words (wax, crates, needles, holler, turntables, samples) are SOUND descriptors for the 'tags' field; they NEVER belong in the lyrics as topics, settings, or subjects.",
+      "DECIDE THE STORY BEFORE YOU WRITE:",
+      "1. SUBJECT: The Subject line above is the ONLY character, place, and event in this song. Everything in every verse must be traceable back to it. A cow going to the movies means: cow, corral, movie theater, the journey, the movies she watches. Nothing else exists.",
+      "2. GENRE = SOUND ONLY: Genre and style control HOW the song sounds (rhythm, instrumentation, vocal style, vocabulary flavor). Genre does NOT control WHAT the song is about. A DJ genre means the music scratches \u2014 it does NOT mean the lyrics are about DJing. A reggae genre means the groove is laid-back \u2014 it does NOT mean the story is about Jamaica.",
+      "3. ARC: Verse 1 = setup (introduce the character and world). Verses 2\u20133 = tension (raise stakes, deepen conflict). Verse 4+ = resolution (climax, final image that lingers).",
+      "4. CONCRETE: Use physical objects from the SUBJECT's world \u2014 not the genre's world. Ground abstract feelings with one specific image each (a grease spot, a ticket stub, a milk pail).",
+      "5. STYLE: No AI-generic words (neon, ethereal, shimmering, cascade, tapestry, phantom, haze, whispers, echoes, shadows, starlight, heartbeat, delve). No instrument or production cues in ( ) \u2014 the engine sings them as lyrics. Vary word choices between verses.",
+      "6. VOICE: Write like a real person from this genre, not like an AI. No explanations or notes \u2014 lyrics only.",
       "",
       "Generate the complete song now:"
     ].join("\n");
@@ -310491,10 +310519,8 @@ router21.post("/llm", async (req, res) => {
       }
     }
     // ── REGGAE GENRE BLENDING (when reggae + other genres are combined) ──────────
-    // When reggae is in the selection (primary or secondary) and other non-reggae
-    // genres are also selected, explicitly tell the LLM that reggae/Patois is the
-    // FOUNDATION and the other genres only add musical flavor — they do NOT change
-    // the language.
+    // When reggae is in the selection and other non-reggae genres are also selected,
+    // enforce Patois language while redirecting the story to the subject.
     if (genreKeys.includes("reggae") && genreKeys.length > 1) {
       const otherGenreNames = genres.filter(g => {
         const gLower = g.toLowerCase().trim();
@@ -310508,26 +310534,24 @@ router21.post("/llm", async (req, res) => {
           const isBilingualBlend = !nonPatoisLangCodes.includes(userLangCode);
           if (isBilingualBlend) {
             const blendTargetLang = LANGUAGE_NAMES[userLangCode] || userLangCode;
-            enhancedUserPrompt += `\n\nGENRE BLEND RULE (MANDATORY): This is a ${genreStr} track. Reggae, Jamaican Patois, and ${blendTargetLang} are the FOUNDATION — the bilingual language identity, rhythm, and cultural identity of the song. The ${otherGenreNames.join(", ")} element adds MUSICAL flavor (instrumentation, production style, tempo feel) but does NOT change the bilingual lyrical identity. The lyrics MUST naturally code-switch between ${blendTargetLang} and Jamaican Patois throughout. Think: a ${blendTargetLang} reggae artist meets ${otherGenreNames[0]} — the bilingual flow stays, the instruments change.`;
+            enhancedUserPrompt += `\n\nLANG: The story is the Subject above. The music SOUNDS like ${genreStr} \u2014 write in BOTH ${blendTargetLang} and Jamaican Patois, naturally code-switching throughout. The ${otherGenreNames.join(", ")} element changes the instrumentation, not the language.`;
           } else {
-            enhancedUserPrompt += `\n\nGENRE BLEND RULE (MANDATORY): This is a ${genreStr} track. Reggae and Jamaican Patois are the FOUNDATION — the language, rhythm, and cultural identity of the song. The ${otherGenreNames.join(", ")} element adds MUSICAL flavor (instrumentation, production style, tempo feel) but does NOT change the language or lyrical identity. The lyrics MUST remain entirely in Jamaican Patois. Think: Bob Marley meets ${otherGenreNames[0]} — the Patois stays, the instruments change.`;
+            enhancedUserPrompt += `\n\nLANG: The story is the Subject above. The music SOUNDS like ${genreStr} \u2014 the lyrics MUST be entirely in Jamaican Patois. The ${otherGenreNames.join(", ")} element changes the instrumentation, not the language.`;
           }
         } else {
-          enhancedUserPrompt += `\n\nGENRE BLEND RULE (MANDATORY): This is a ${genreStr} track. Reggae is the FOUNDATION — the rhythm, groove, and cultural identity of the song. The ${otherGenreNames.join(", ")} element adds MUSICAL flavor (instrumentation, production style, tempo feel) but does NOT change the lyrical identity. You MAY use Jamaican Patois for maximum authenticity, or write in standard English with a warm, rhythmic, grounded feel. Either approach is valid — the key is that the song SOUNDS like reggae. Think: Bob Marley meets ${otherGenreNames[0]} — the groove stays, the instruments change.`;
+          enhancedUserPrompt += `\n\nLANG: The story is the Subject above. The music SOUNDS like reggae \u2014 you may use Jamaican Patois for authenticity, or standard English with a warm rhythmic feel. The ${otherGenreNames.join(", ")} element changes the instrumentation, not the story.`;
         }
       }
     }
     // ── DJ GENRE BLENDING (when DJ + other genres are combined) ─────────────────
-    // When DJ/turntablism is in the selection and other genres are also selected,
-    // tell the LLM that turntablism is the FOUNDATION — scratch breaks, cuts,
-    // and DJ routines are the defining character. Other genres add musical flavor.
+    // Redirect to the subject — genre is the SOUND, not the STORY.
     if ((genreKeys.includes("dj") || genreKeys.includes("dualdj") || genreKeys.includes("sampledj")) && genreKeys.length > 1) {
       const otherGenreNames = genres.filter(g => {
         const gLower = g.toLowerCase().trim();
         return !["dj", "dual dj", "sample dj", "sampling", "sample-based", "crate digger", "turntablism", "scratch", "scratch battle", "turntable"].some(alias => gLower.includes(alias));
       });
       if (otherGenreNames.length > 0) {
-        enhancedUserPrompt += `\n\nGENRE BLEND RULE (MANDATORY): This is a ${genreStr} track. DJ culture is the FOUNDATION — ${genreKeys.includes("sampledj") ? "sampling, crate digging, and sample flips" : "scratching, cutting, beat-juggling, and DJ routines"} are the defining character of the song. The ${otherGenreNames.join(", ")} element adds MUSICAL flavor (beat style, tempo, harmonic content) but the DJ/sampling element must be prominent. ${genreKeys.includes("sampledj") ? "Include Sample Flip and Crate Dig sections with a unique source genre + chop technique pair — no two songs should flip the same record the same way." : "Include scratch breaks, cut-up vocal samples, and turntable techniques throughout. SCRATCH DIVERSITY: Use a unique combination of techniques (transforms, flares, chirps, crabs, orbits, hydroplanes, twiddles, stabs, rubs, tears, scribbles, drags) with a unique sample source and scratch pattern structure — no two songs should sound the same."} Think: ${genreKeys.includes("sampledj") ? "DJ Shadow meets" : "L'Entourloop meets"} ${otherGenreNames[0]} — ${genreKeys.includes("sampledj") ? "the crate is the lead instrument" : "the decks are the lead instrument"}.`;
+        enhancedUserPrompt += `\n\nSTRUCTURE: The story is the Subject above. The production SOUNDS like ${genreKeys.includes("sampledj") ? "crate digging and sampling" : "scratching and turntablism"} \u2014 ${genreKeys.includes("sampledj") ? "include [Sample Flip] and [Crate Dig] sections with unique source+technique pairs." : "include scratch breaks and cut-up vocal samples with technique variety (transforms, flares, chirps, crabs)."}`;
       }
     }
     // Inject language fallback guidance
@@ -310554,6 +310578,7 @@ router21.post("/llm", async (req, res) => {
     });
     raw = stripThinkingBlocks(raw);
     raw = raw.replace(/<\|[a-z_]+\|>/g, "");
+    console.log(`[Inspire/LLM] Raw response after strip: ${raw.length} chars, starts: "${raw.substring(0, 120).replace(/\n/g, " ")}"`);
     let structuredResult = parseStructuredLlmResponse(raw);
     if (structuredResult) {
       let lyrics = structuredResult.lyrics || "";
@@ -311619,13 +311644,13 @@ router21.get("/pipeline-models", async (req, res) => {
     /* ── Text Encoder models (CLIPLoader) ── */
     const clipModels = scanRecursive("clip", [".safetensors", ".gguf", ".bin"], 2, true);
     clipModels.push(...scanRecursive("text_encoders", [".safetensors", ".gguf", ".bin"], 2, true));
-    /* FLUX.2 text encoders */
+    /* FLUX.2 text encoders (Qwen3 8B only — FLUX.2 does NOT use SD1.5 CLIP) */
     const fluxClip = clipModels.filter(m =>
-      /qwen_3_8|t5xxl|clip_l/i.test(m.name)
+      /qwen_3_8/i.test(m.name)
     ).map(m => ({ ...m, label: fmtSize(m.size) }));
-    /* LTX 2.3 text encoders (Gemma + embeddings connectors) */
+    /* LTX 2.5 / 2.3 text encoders (Gemma + embeddings connectors) */
     const ltxClip = clipModels.filter(m =>
-      /gemma_3_12|ltx.*embed|ltx.*connectors/i.test(m.name)
+      /gemma|ltx.*embed|ltx.*connectors|ltx-2\.[35]/i.test(m.name)
     ).map(m => ({
       ...m,
       label: fmtSize(m.size) + (/gemma/i.test(m.name) ? " Gemma" : /connectors/i.test(m.name) ? " connectors" : "")
@@ -311639,8 +311664,8 @@ router21.get("/pipeline-models", async (req, res) => {
     /* FLUX.2 VAEs */
     const fluxVae = vaeModels.filter(m => /flux2|flux.*ae/i.test(m.name))
       .map(m => ({ ...m, label: fmtSize(m.size) }));
-    /* LTX 2.3 VAEs (video + audio) */
-    const ltxVae = vaeModels.filter(m => /ltx.*video|ltx.*audio/i.test(m.name))
+    /* LTX 2.5 / 2.3 VAEs (video + audio) */
+    const ltxVae = vaeModels.filter(m => /ltx.*video|ltx.*audio|ltx-2\.[35]/i.test(m.name))
       .map(m => ({
         ...m,
         label: fmtSize(m.size) + (/video/i.test(m.name) ? " video" : /audio/i.test(m.name) ? " audio" : "")
@@ -311652,9 +311677,9 @@ router21.get("/pipeline-models", async (req, res) => {
         label: fmtSize(m.size) + (/audio/i.test(m.name) ? " audio" : " video")
       }));
 
-    /* ── LoRA models (for LTX 2.3 IC-LoRA and distillation LoRA) ── */
+    /* ── LoRA models (for LTX 2.5/2.3 IC-LoRA and distillation LoRA) ── */
     const loraModels = scanRecursive("loras", [".safetensors"], 2, true)
-      .filter(m => /ltx.*2\.3/i.test(m.name))
+      .filter(m => /ltx.*2\.[35]|ltx/i.test(m.name))
       .map(m => ({
         ...m,
         label: fmtSize(m.size) + (/_ic[_-]lora/i.test(m.name) ? " IC-LoRA" : /distilled/i.test(m.name) ? " Distill" : "")
@@ -311678,14 +311703,14 @@ router21.get("/pipeline-models", async (req, res) => {
         clip: "qwen_3_8b_fp8mixed.safetensors",
       },
       ltx2: {
-        unet: "ltx2.3/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf",
-        vae: "ltx2.3/ltx-2.3-22b-distilled_video_vae.safetensors",
-        clip: "ltx2.3/ltx-2.3-22b-distilled_embeddings_connectors.safetensors",
-        audioVae: "ltx2.3/ltx-2.3-22b-distilled_audio_vae.safetensors",
+        unet: ltxUnets.some(m => /2\.5/i.test(m.name)) ? "ltx2.5/LTX-2.5-22B-distilled-transformer-bf16.safetensors" : "ltx2.3/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf",
+        vae: ltxVae.some(m => /2\.5.*video/i.test(m.name)) ? "ltx2.5/ltx-2.5-video-vae-bf16.safetensors" : "ltx2.3/ltx-2.3-22b-distilled_video_vae.safetensors",
+        clip: ltxClip.some(m => /2\.5/i.test(m.name)) ? "ltx2.5/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors" : "ltx2.3/ltx-2.3-22b-distilled_embeddings_connectors.safetensors",
+        audioVae: ltxVae.some(m => /2\.5.*audio/i.test(m.name)) ? "ltx2.5/ltx-2.5-audio-vae-bf16.safetensors" : "ltx2.3/ltx-2.3-22b-distilled_audio_vae.safetensors",
         icLora: "",
         upscale: "",
       },
-      minimaxH3: {
+    minimaxH3: {
         unet: "MiniMaxH3/minimax_h3_ref2va_pruned_nvfp4.safetensors",
         clip: "MiniMaxH3/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
         vae: "MiniMaxH3/minimax_h3_video_vae_fp16.safetensors",
@@ -312155,9 +312180,41 @@ router21.post("/comfyui/video-plan", async (req, res) => {
       aboutGender: aboutGender || ""
     });
     const r2 = (v) => Math.round(v * 100) / 100;
+
+    /* -- Shot type assignment (deterministic) --
+       A-Roll = performer/singer (Chorus, Bridge, emotional vocal peaks)
+       B-Roll = narrative/subject (Verse, story-driven)
+       Viz-Roll = abstract stem-driven (Intro, Outro, Instrumental, Interlude) */
+    const SHOT_TYPE_MAP = {
+      intro: "viz", verse: "broll", "pre-chorus": "aroll", chorus: "aroll",
+      "post-chorus": "viz", bridge: "aroll", interlude: "viz", outro: "viz",
+      instrumental: "viz", sample_flip: "broll", crate_dig: "broll",
+      vocal_chop: "viz", breakdown: "aroll", drop: "viz", build: "viz", fill: "viz"
+    };
+
+    /* Story beat: extract the visual image from each segment's lyrics */
+    function extractStoryBeat(lines, shotType) {
+      if (!lines || lines.length === 0) {
+        return shotType === "aroll" ? "Singer performs"
+          : shotType === "broll" ? "The story unfolds" : "The music flows";
+      }
+      var best = lines.reduce(function(a, b) { return b.trim().length > a.trim().length ? b : a; }, lines[0]).trim();
+      var sentence = best.split(/[,;]/)[0].trim();
+      return sentence.length > 120 ? sentence.substring(0, 117) + "..." : sentence;
+    }
+
     const segments = flatSegments.map((sec, i) => {
       const startTime = segmentTimings[i] || 0;
       const endTime = segmentTimings[i + 1] ?? songDuration;
+
+      /* Shot type from section type, alternate if same as previous to prevent streaks */
+      let shotType = SHOT_TYPE_MAP[sec.sectionType] || "broll";
+      if (i > 0 && flatSegments[i - 1]._shotType === shotType && shotType !== "viz") {
+        shotType = shotType === "aroll" ? "broll" : "aroll";
+      }
+      sec._shotType = shotType;
+      const storyBeat = extractStoryBeat(sec.lines, shotType);
+
       const prompt = buildVideoSegmentPrompt({
         segmentLines: sec.lines,
         sectionType: sec.sectionType,
@@ -312188,6 +312245,8 @@ router21.post("/comfyui/video-plan", async (req, res) => {
         index: i,
         sectionIndex: sec.sectionIndex,
         sectionType: sec.sectionType,
+        shotType,
+        storyBeat,
         lines: sec.lines,
         startTime: r2(startTime),
         endTime: r2(endTime),
@@ -312203,7 +312262,13 @@ router21.post("/comfyui/video-plan", async (req, res) => {
       duration: songDuration,
       bpm: effectiveBpm,
       concept: songConcept,
+      subject: resolvedSubject,
       sections: sections.map((s, i) => ({ index: i, type: s.sectionType, startTime: r2(sectionTimings[i] || 0), endTime: r2(sectionTimings[i + 1] ?? songDuration) })),
+      shotSummary: {
+        aroll: segments.filter(s => s.shotType === "aroll").length,
+        broll: segments.filter(s => s.shotType === "broll").length,
+        viz: segments.filter(s => s.shotType === "viz").length
+      },
       segments
     });
   } catch (err) {
@@ -312267,7 +312332,7 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const { songId, width, height, fps, audioSource, sections, layers, duration, tracks, snap, bpm } = req.body;
+    const { songId, width, height, fps, audioSource, sections, layers, duration, tracks, snap, bpm, burnSubtitles, subtitles } = req.body;
     if ((!sections || !sections.length) && (!tracks || !tracks.length)) {
       return res.status(400).json({ error: "sections or tracks required" });
     }
@@ -312284,7 +312349,7 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
         /* NLE-aware path: compose the intercut timeline (aroll/broll/viz,
            transitions, Ken Burns, viz blended INTO the cut) */
         if (tracks && tracks.length) {
-          runNleCompose(jobId, userId, { songId, width, height, fps, audioSource, duration, tracks, snap, bpm }, "export");
+          runNleCompose(jobId, userId, { songId, width, height, fps, audioSource, duration, tracks, snap, bpm, burnSubtitles, subtitles }, "export");
           return;
         }
 
@@ -312688,7 +312753,7 @@ router21.post("/comfyui/compose-nle", async (req, res) => {
 async function runNleCompose(jobId, userId, params, outPrefix) {
   try {
     exportJobs[jobId].status = "running";
-    const { songId, width, height, fps, audioSource, duration, tracks, snap, bpm } = params || {};
+    const { songId, width, height, fps, audioSource, duration, tracks, snap, bpm, burnSubtitles, subtitles } = params || {};
         const outDir = path9.join(config.data.dir, "mvc");
         if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
         const outName = `${outPrefix || "nle"}_${jobId.substring(0,8)}.mp4`;
@@ -312896,7 +312961,35 @@ async function runNleCompose(jobId, userId, params, outPrefix) {
 
         if (prevLabel === baseLabel) throw new Error("No renderable clips in timeline");
 
-        const mapOut = prevLabel;
+        let mapOut = prevLabel;
+        if (burnSubtitles && subtitles && Array.isArray(subtitles) && subtitles.length > 0) {
+          const srtPath = path9.join(outDir, `sub_${jobId.substring(0,8)}.srt`);
+          const formatTime = (sec) => {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const sRem = sec % 60;
+            const sInt = Math.floor(sRem);
+            const ms = Math.floor((sRem - sInt) * 1000);
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sInt).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
+          };
+          const srtLines = [];
+          let srtIdx = 1;
+          for (const s of subtitles) {
+            const txt = (s.text || s.lines || "").trim();
+            if (!txt) continue;
+            const st = Math.max(0, Number(s.startTime || s.start) || 0);
+            const et = Math.min(totalDur, Number(s.endTime || s.end) || totalDur);
+            if (et <= st) continue;
+            srtLines.push(`${srtIdx++}\n${formatTime(st)} --> ${formatTime(et)}\n${txt}\n`);
+          }
+          if (srtLines.length > 0) {
+            fs9.writeFileSync(srtPath, srtLines.join("\n"), "utf-8");
+            const escapedSrt = srtPath.replace(/\\/g, "/").replace(/:/g, "\\:");
+            const subLabel = "subtitles_out";
+            filterParts.push(`[${prevLabel}]subtitles='${escapedSrt}':force_style='FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,Outline=2,Shadow=1,MarginV=30,Alignment=2'[${subLabel}]`);
+            mapOut = subLabel;
+          }
+        }
         const args = ["-y", ...inputs, "-filter_complex", filterParts.join(";"), "-map", `[${mapOut}]`];
         if (audioPath) args.push("-map", `${masterIdx}:a`);
         args.push("-c:v", "libx264", "-preset", "fast", "-crf", "20");

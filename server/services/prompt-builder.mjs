@@ -708,6 +708,18 @@ const VIDEO_CAMERA_INTENT = {
   instrumental: "a slow steady pan across the scene, gliding with the music"
 };
 
+const CAMERA_MOTION_PRESETS = {
+  auto:            null,
+  push_in:         "a slow, steady cinematic push-in toward the subject with intimate focal compression",
+  pull_back:       "a smooth slow pull-back revealing the wider surroundings, subject remaining centered",
+  drone_reveal:    "a dynamic rising crane and drone reveal, camera elevating smoothly over the scene",
+  orbit_360:       "a smooth 360-degree parallax orbit gliding around the subject with light sweeping across",
+  tracking_fast:   "a high-speed dynamic tracking shot moving alongside the subject with lateral motion blur",
+  ground_skim:     "a low-angle ground-skimming camera rushing forward with dramatic perspective",
+  tripod_lock:     "a locked-off static tripod shot with zero camera shake, all movement coming from the subject",
+  handheld_subtle: "subtle natural handheld camera breathing with organic micro-movements and cinematic depth"
+};
+
 const PERFORMER_ACTION_INTENT = {
   intro:        "the performer takes the stage: gentle posture, subtle breath, lighting gradually catching their silhouette",
   verse:        "the performer delivers with intimate intent: subtle head movement, expressive gaze, locked into the rhythm",
@@ -790,9 +802,11 @@ function _ltxShorten(text, max) {
   return cut.length > 30 ? cut : t.substring(0, max);
 }
 
-function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender, shotScale, continuity, role, subject }) {
+function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender, shotScale, continuity, role, subject, cameraPreset }) {
   const sectionKey = _ltxSectionKey(sectionType);
-  const camera = VIDEO_CAMERA_INTENT[sectionKey] || VIDEO_CAMERA_INTENT.verse;
+  const camera = (cameraPreset && CAMERA_MOTION_PRESETS[cameraPreset])
+    ? CAMERA_MOTION_PRESETS[cameraPreset]
+    : (VIDEO_CAMERA_INTENT[sectionKey] || VIDEO_CAMERA_INTENT.verse);
   const isPerformer = role === "performance" || (!role && subjectLooksLikePerson(subject || concept));
   const action = _selectActionIntent(sectionKey, subject || concept, isPerformer);
   const lines = (segmentLines || []).map((l) => String(l).trim()).filter(Boolean);
@@ -825,7 +839,7 @@ function buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, voc
   return sentences.map(normalizeSentence).join(" ");
 }
 
-function buildH3MotionPrompt({ segmentLines, sectionType, concept, style, shotScale, continuity, role, subject }) {
+function buildH3MotionPrompt({ segmentLines, sectionType, concept, style, shotScale, continuity, role, subject, cameraPreset }) {
   const sectionKey = _ltxSectionKey(sectionType);
   const isPerformer = role === "performance" || (!role && subjectLooksLikePerson(subject || concept));
   const action = _selectActionIntent(sectionKey, subject || concept, isPerformer);
@@ -852,22 +866,41 @@ function buildH3MotionPrompt({ segmentLines, sectionType, concept, style, shotSc
   const resolvedContinuity = continuity || CONTINUITY_SHOT;
   if (resolvedContinuity) sentences.push(resolvedContinuity);
 
+  if (cameraPreset && CAMERA_MOTION_PRESETS[cameraPreset]) {
+    sentences.push(CAMERA_MOTION_PRESETS[cameraPreset]);
+  }
+
+  /* MiniMax H3 native audio soundscape / ambient bed matching section mood */
+  const moodAudio = {
+    intro: "gentle ambient room tone, soft acoustic resonance building slowly",
+    verse: "intimate ambient texture, subtle natural room tone and quiet acoustic bed",
+    "pre-chorus": "rising atmospheric tension with light rhythmic pulse and swelling ambient pads",
+    chorus: "dynamic full soundscape, vibrant acoustic presence and energetic musical rhythm",
+    "post-chorus": "warm reverberant afterglow, gentle decaying echoes and smooth ambient bed",
+    bridge: "dreamlike atmospheric depth, ethereal ambient textures and distant melodic reverb",
+    interlude: "suspended ambient silence, spacious room tone and subtle airy textures",
+    outro: "calm fading ambiance, gentle harmonic decay receding into silence",
+    instrumental: "rich atmospheric soundstage with dynamic rhythmic pulse and flowing textures"
+  };
+  const audioBed = moodAudio[sectionKey] || moodAudio.verse;
+  sentences.push(`Audio: ${audioBed}`);
+
   const normalizeSentence = (s) => s.trim().replace(/[.!?]+\s*$/, "") + ".";
   return sentences.map(normalizeSentence).join(" ");
 }
 
-function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender, segmentLines, concept, style, shotScale, continuity, role, subject }) {
+function buildVideoPrompt({ imagePrompt, sectionType, vocalistGender, segmentLines, concept, style, shotScale, continuity, role, subject, cameraPreset }) {
   if (segmentLines || concept || style) {
-    return buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender, shotScale, continuity, role, subject });
+    return buildVideoMotionPrompt({ segmentLines, sectionType, concept, style, vocalistGender, shotScale, continuity, role, subject, cameraPreset });
   }
   if (imagePrompt) {
     const cleaned = String(imagePrompt)
       .split(/(?<=[.!?])\s+/)
       .filter((s) => s && !/full-frame scene standing|Each image is one|no text and no lettering|same characters, location and lighting|Single full-frame/i.test(s))
       .join(" ");
-    return buildVideoMotionPrompt({ segmentLines: [], sectionType, concept: _ltxShorten(cleaned, 220), style: "", vocalistGender, shotScale, continuity, role, subject });
+    return buildVideoMotionPrompt({ segmentLines: [], sectionType, concept: _ltxShorten(cleaned, 220), style: "", vocalistGender, shotScale, continuity, role, subject, cameraPreset });
   }
-  return buildVideoMotionPrompt({ segmentLines: [], sectionType, concept: "", style: "", vocalistGender, shotScale, continuity, role, subject });
+  return buildVideoMotionPrompt({ segmentLines: [], sectionType, concept: "", style: "", vocalistGender, shotScale, continuity, role, subject, cameraPreset });
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -885,6 +918,7 @@ export {
   MUSIC_TERM_VISUAL,
   SECTION_NARRATIVE,
   VIDEO_CAMERA_INTENT,
+  CAMERA_MOTION_PRESETS,
   PERFORMER_ACTION_INTENT,
   OBJECT_ANIMAL_ACTION_INTENT,
   ENVIRONMENT_ACTION_INTENT,

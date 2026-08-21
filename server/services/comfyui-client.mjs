@@ -344,15 +344,17 @@ function buildLTX2Workflow({
 }) {
   if (seed === null) seed = Math.floor(Math.random() * 2**32);
 
+  /* ── Auto-detect GGUF vs safetensors UNet ── */
+  const resolvedUnet = unetModel !== "auto" ? unetModel : "ltx2.3/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf";
+  const isGGUF = resolvedUnet.toLowerCase().endsWith(".gguf");
+  const unetNode = isGGUF
+    ? { class_type: "UnetLoaderGGUF", inputs: { unet_name: resolvedUnet } }
+    : { class_type: "UNETLoader", inputs: { unet_name: resolvedUnet, weight_dtype: "default" } };
+
   /* ── Model Loading ── */
   const workflow = {
-    /* 1: Load UNet (GGUF quantized) */
-    "1": {
-      class_type: "UnetLoaderGGUF",
-      inputs: {
-        unet_name: unetModel !== "auto" ? unetModel : "ltx2.3/LTX-2.3-22B-distilled-1.1-Q4_K_M.gguf"
-      }
-    },
+    /* 1: Load UNet (GGUF or safetensors) */
+    "1": unetNode,
     /* 2: Load VAE (video) */
     "2": {
       class_type: "VAELoader",

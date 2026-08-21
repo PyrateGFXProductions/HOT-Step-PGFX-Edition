@@ -290,8 +290,8 @@ input,select,textarea{font-family:inherit}
       </div>
     </div>
 
-    <!-- Image Generation -->
-    <div class="right-section">
+    <!-- Image Generation (hidden: unified into segment pipeline) -->
+    <div class="right-section" style="display:none">
       <div class="right-section-header" data-toggle="image-body">Image Generation <span class="chevron">&#9660;</span></div>
       <div class="right-section-body" id="image-body">
         <div class="gen-field">
@@ -312,13 +312,27 @@ input,select,textarea{font-family:inherit}
       </div>
     </div>
 
-    <!-- Video Generation -->
-    <div class="right-section">
+    <!-- Video Generation (hidden: unified into segment pipeline) -->
+    <div class="right-section" style="display:none">
       <div class="right-section-header" data-toggle="video-body">Video Generation <span class="chevron">&#9660;</span></div>
       <div class="right-section-body" id="video-body">
         <div class="gen-field">
           <label>Section</label>
           <select id="vid-section"></select>
+        </div>
+        <div class="gen-field">
+          <label>Camera Motion</label>
+          <select id="vid-motion">
+            <option value="auto" selected>Auto (Director Choice)</option>
+            <option value="push_in">Cinematic Push-In</option>
+            <option value="pull_back">Slow Pull-Back</option>
+            <option value="drone_reveal">Drone & Crane Reveal</option>
+            <option value="orbit_360">360° Parallax Orbit</option>
+            <option value="tracking_fast">High-Speed Tracking</option>
+            <option value="ground_skim">Ground Skim</option>
+            <option value="tripod_lock">Static Tripod Lock</option>
+            <option value="handheld_subtle">Organic Handheld</option>
+          </select>
         </div>
         <div class="gen-field">
           <label>Prompt</label>
@@ -334,15 +348,30 @@ input,select,textarea{font-family:inherit}
       </div>
     </div>
 
-    <!-- Lyric Segments (PGFX 2026-08-09): lyrics-driven 4-8s clips -->
+    <!-- Video Pipeline: Story, Shot List, Segments, Generate -->
     <div class="right-section">
-      <div class="right-section-header" data-toggle="segments-body">Lyric Segments <span class="chevron">&#9660;</span></div>
+      <div class="right-section-header" data-toggle="segments-body">Video Pipeline <span class="chevron">&#9660;</span></div>
       <div class="right-section-body" id="segments-body">
+        <div id="shot-summary" style="display:none;font-size:10px;color:var(--text3);padding:4px 0;border-bottom:1px solid var(--border);margin-bottom:6px"></div>
         <div class="gen-field" style="display:flex;align-items:center;gap:8px">
           <label style="margin:0;text-transform:none">Engine</label>
           <select id="seg-engine" style="flex:1">
             <option value="minimax-h3" selected>MiniMax H3 (I2V, native audio, fast)</option>
-            <option value="ltx">LTX 2.3 (audio-conditioned)</option>
+            <option value="ltx">LTX 2.5 / 2.3 (audio-conditioned)</option>
+          </select>
+        </div>
+        <div class="gen-field" style="display:flex;align-items:center;gap:8px">
+          <label style="margin:0;text-transform:none">Motion</label>
+          <select id="seg-motion" style="flex:1">
+            <option value="auto" selected>Auto (Director Choice)</option>
+            <option value="push_in">Cinematic Push-In</option>
+            <option value="pull_back">Slow Pull-Back</option>
+            <option value="drone_reveal">Drone &amp; Crane Reveal</option>
+            <option value="orbit_360">360 Parallax Orbit</option>
+            <option value="tracking_fast">High-Speed Tracking</option>
+            <option value="ground_skim">Ground Skim</option>
+            <option value="tripod_lock">Static Tripod Lock</option>
+            <option value="handheld_subtle">Organic Handheld</option>
           </select>
         </div>
         <div class="gen-field" style="display:flex;align-items:center;gap:8px">
@@ -355,8 +384,8 @@ input,select,textarea{font-family:inherit}
           </select>
         </div>
         <div class="gen-btns">
-          <button class="btn btn-primary btn-sm" id="btn-gen-all-segments">Generate All Segments</button>
-          <button class="btn btn-sm" id="btn-rebuild-plan" title="Rebuild the lyric segment plan">Rebuild Plan</button>
+          <button class="btn btn-primary btn-sm" id="btn-gen-all-segments">Generate All</button>
+          <button class="btn btn-sm" id="btn-rebuild-plan" title="Rebuild the video plan">Rebuild Plan</button>
         </div>
         <div class="gen-progress" id="seg-progress"><div class="gen-progress-fill" id="seg-progress-fill"></div></div>
         <div class="gen-status" id="seg-status"></div>
@@ -471,10 +500,17 @@ input,select,textarea{font-family:inherit}
 <div class="modal-overlay" id="export-modal">
   <div class="modal-box">
     <h3>Export MP4</h3>
-    <p>Server-side FFmpeg will composite LTX video clips, visualization frames, Ken Burns on static images, crossfade transitions, and audio.</p>
-    <div class="gen-field"><label>Resolution</label><select id="export-res"><option value="1920x1080">1080p (1920x1080)</option><option value="1280x720">720p (1280x720)</option><option value="3840x2160">4K (3840x2160)</option></select></div>
-    <div class="gen-field"><label>FPS</label><select id="export-fps"><option value="30">30</option><option value="24">24</option><option value="60">60</option></select></div>
-    <div class="gen-field"><label>Audio</label><select id="export-audio"><option value="mix">Original Mix</option><option value="stems">Stem Mix</option></select></div>
+    <p>Server-side FFmpeg will composite video clips, audio-reactive visualizations, Ken Burns moves, crossfades, master audio, and optional lyric subtitles.</p>
+    <div class="gen-field"><label>Format / Aspect Ratio</label><select id="export-res">
+      <option value="1920x1080" selected>16:9 Landscape - 1080p (1920x1080)</option>
+      <option value="1080x1920">9:16 Vertical - TikTok/Reels/Shorts (1080x1920)</option>
+      <option value="1080x1080">1:1 Square - Square Video (1080x1080)</option>
+      <option value="1280x720">16:9 Landscape - 720p (1280x720)</option>
+      <option value="3840x2160">16:9 4K Ultra HD (3840x2160)</option>
+    </select></div>
+    <div class="gen-field"><label>FPS</label><select id="export-fps"><option value="30" selected>30</option><option value="24">24</option><option value="60">60</option></select></div>
+    <div class="gen-field"><label>Audio Source</label><select id="export-audio"><option value="mix" selected>Original Mix</option><option value="stems">Stem Mix</option></select></div>
+    <div class="gen-field"><label style="display:flex;align-items:center;gap:8px;text-transform:none;cursor:pointer;font-weight:600"><input type="checkbox" id="export-subtitles" checked style="width:auto"> Burn Lyric Subtitles (Karaoke/Music Video Style)</label></div>
     <div class="gen-progress" id="export-progress"><div class="gen-progress-fill" id="export-progress-fill"></div></div>
     <div class="gen-status" id="export-status"></div>
     <div style="display:flex;gap:6px;justify-content:flex-end">
@@ -505,6 +541,17 @@ const EFFECTS = [
   {id:'spectrum',name:'Spectrum',color:'#ec4899'},
   {id:'galaxy',name:'Galaxy',color:'#a855f7'}
 ];
+
+const MOTION_PRESET_TEXT = {
+  push_in: "a slow, steady cinematic push-in toward the subject with intimate focal compression.",
+  pull_back: "a smooth slow pull-back revealing the wider surroundings, subject remaining centered.",
+  drone_reveal: "a dynamic rising crane and drone reveal, camera elevating smoothly over the scene.",
+  orbit_360: "a smooth 360-degree parallax orbit gliding around the subject with light sweeping across.",
+  tracking_fast: "a high-speed dynamic tracking shot moving alongside the subject with lateral motion blur.",
+  ground_skim: "a low-angle ground-skimming camera rushing forward with dramatic perspective.",
+  tripod_lock: "a locked-off static tripod shot with zero camera shake, all movement coming from the subject.",
+  handheld_subtle: "subtle natural handheld camera breathing with organic micro-movements and cinematic depth."
+};
 
 const STEMS = ['Kick','Snare','Toms','Hi-Hat','Ride','Crash','Lead Vocals','Backing Vocals','Bass','Guitar','Piano','Other'];
 const LAYER_TYPES = [...STEMS,'Image','Video'];
@@ -2157,10 +2204,16 @@ async function generateVideoClip(sectionName) {
   var section = S.sections.find(function(s) { return s.name === sectionName; });
   if (!section) return;
   var prompt = ($('vid-prompt').value || '').trim() || section.videoPrompt || '';
+  var vidPreset = ($('vid-motion') && $('vid-motion').value) || 'auto';
+  if (vidPreset !== 'auto' && MOTION_PRESET_TEXT[vidPreset]) {
+    prompt = (prompt + ' ' + MOTION_PRESET_TEXT[vidPreset]).trim();
+  }
   section.videoPrompt = prompt;
 
   $('vid-status').textContent = 'Generating video clip for ' + section.name + '...';
   $('vid-progress-fill').style.width = '10%';
+
+  var engine = (($('seg-engine') || {}).value) || 'minimax-h3';
 
   try {
     var vidResp = await comfyPost('/api/inspire/comfyui/generate-video', {
@@ -2175,13 +2228,14 @@ async function generateVideoClip(sectionName) {
       width: 1920,
       height: 1080,
       duration: section.endTime - section.startTime,
-      /* Pipeline model selections from Pipeline Config */
-      unetModel: _pipelineModels.ltx.unet,
-      vaeModel: _pipelineModels.ltx.vae,
-      clipModel: _pipelineModels.ltx.clip,
-      audioVaeModel: _pipelineModels.ltx.audioVae,
-      icLoraModel: _pipelineModels.ltx.icLora,
-      upscaleModel: _pipelineModels.ltx.upscale
+      /* Engine selector: ltx (default) | minimax-h3 */
+      engine: engine,
+      unetModel: (engine === 'minimax-h3' ? _pipelineModels.h3.unet : _pipelineModels.ltx.unet) !== 'auto' ? (engine === 'minimax-h3' ? _pipelineModels.h3.unet : _pipelineModels.ltx.unet) : undefined,
+      vaeModel: (engine === 'minimax-h3' ? _pipelineModels.h3.vae : _pipelineModels.ltx.vae) !== 'auto' ? (engine === 'minimax-h3' ? _pipelineModels.h3.vae : _pipelineModels.ltx.vae) : undefined,
+      clipModel: (engine === 'minimax-h3' ? _pipelineModels.h3.clip : _pipelineModels.ltx.clip) !== 'auto' ? (engine === 'minimax-h3' ? _pipelineModels.h3.clip : _pipelineModels.ltx.clip) : undefined,
+      audioVaeModel: (engine === 'minimax-h3' ? _pipelineModels.h3.audioVae : _pipelineModels.ltx.audioVae) !== 'auto' ? (engine === 'minimax-h3' ? _pipelineModels.h3.audioVae : _pipelineModels.ltx.audioVae) : undefined,
+      icLoraModel: engine === 'ltx' && _pipelineModels.ltx.icLora !== 'auto' ? _pipelineModels.ltx.icLora : undefined,
+      upscaleModel: engine === 'ltx' && _pipelineModels.ltx.upscale !== 'auto' ? _pipelineModels.ltx.upscale : undefined
     });
 
     var data = await vidResp.json();
@@ -2282,7 +2336,13 @@ async function loadLyricPlan() {
       $('seg-status').textContent = 'No lyric segments found (song has no lyrics?)';
       return;
     }
-    $('seg-status').textContent = S.segmentPlan.length + ' lyric segments (' + (data.duration || 0).toFixed(1) + 's)';
+    $('seg-status').textContent = S.segmentPlan.length + ' segments (' + (data.duration || 0).toFixed(1) + 's)';
+    /* Shot summary */
+    if (data.shotSummary) {
+      var sum = $('shot-summary');
+      sum.style.display = 'block';
+      sum.textContent = 'A-Roll: ' + (data.shotSummary.aroll || 0) + ' | B-Roll: ' + (data.shotSummary.broll || 0) + ' | Viz: ' + (data.shotSummary.viz || 0);
+    }
     renderSegmentPlan();
   } catch (e) {
     $('seg-status').textContent = 'Plan failed: ' + e.message;
@@ -2305,11 +2365,28 @@ function renderSegmentPlan() {
     var type = document.createElement('span');
     type.className = 'seg-type';
     type.textContent = seg.sectionType;
+    /* Shot type badge */
+    var shot = document.createElement('span');
+    shot.className = 'seg-shot';
+    shot.style.cssText = 'font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;text-transform:uppercase;margin-left:4px';
+    var shotColors = { aroll: 'rgba(56,139,253,0.3)', broll: 'rgba(139,92,246,0.3)', viz: 'rgba(255,165,0,0.3)' };
+    shot.style.background = shotColors[seg.shotType] || shotColors.broll;
+    shot.textContent = seg.shotType === 'aroll' ? 'A' : seg.shotType === 'viz' ? 'V' : 'B';
+    shot.title = seg.shotType === 'aroll' ? 'A-Roll: Performer/Singer' : seg.shotType === 'viz' ? 'Viz-Roll: Stem Visuals' : 'B-Roll: Narrative/Subject';
     var time = document.createElement('span');
     time.className = 'seg-time';
     time.textContent = formatTime(seg.startTime) + ' - ' + formatTime(seg.endTime) + ' (' + seg.duration.toFixed(1) + 's)';
-    head.appendChild(badge); head.appendChild(type); head.appendChild(time);
+    head.appendChild(badge); head.appendChild(type); head.appendChild(shot); head.appendChild(time);
     row.appendChild(head);
+
+    /* Story beat line */
+    if (seg.storyBeat) {
+      var beat = document.createElement('div');
+      beat.className = 'seg-beat';
+      beat.style.cssText = 'font-size:10px;color:var(--text2);font-style:italic;padding:2px 0 4px';
+      beat.textContent = seg.storyBeat;
+      row.appendChild(beat);
+    }
 
     var lines = document.createElement('div');
     lines.className = 'seg-lines';
@@ -2361,7 +2438,7 @@ function segThumb(idx, kind, url) {
   thumbs.appendChild(el);
 }
 
-/* Generate one segment: FLUX.2 image → LTX2.3 audio-conditioned clip */
+/* Generate one segment: FLUX.2 image (A-Roll/B-Roll) or stem viz frame (Viz-Roll) -> video clip */
 async function generateSegmentClip(idx) {
   var seg = S.segmentPlan[idx];
   if (!seg) return;
@@ -2370,28 +2447,53 @@ async function generateSegmentClip(idx) {
   var res = segResolution();
   var frames = segFrames(seg.duration);
   var clipDur = frames / 25;
+  var isViz = seg.shotType === 'viz';
 
-  segStatus(idx, 'Image...');
+  if (isViz) {
+    /* Viz-Roll: skip FLUX.2 image render, use a placeholder. The video clip
+       will be a stem-visualizer-driven abstract sequence (server-side). */
+    segStatus(idx, 'Viz clip (' + clipDur.toFixed(1) + 's)...');
+  } else {
+    segStatus(idx, 'Image...');
+  }
   if (row) row.className = 'seg-row';
   try {
-    var imgResp = await comfyPost('/api/inspire/comfyui/generate-image', {
-      songId: S.songId,
-      sectionType: seg.sectionType,
-      prompt: ($('seg-' + idx).querySelector('.seg-prompt') || {}).value || seg.prompt,
-      width: res.width,
-      height: res.height
-    });
-    var imgData = await imgResp.json();
-    if (!imgResp.ok) throw new Error(imgData.error || 'Image failed (HTTP ' + imgResp.status + ')');
-    seg.imageUrl = imgData.imageUrl;
-    segThumb(idx, 'image', imgData.imageUrl);
-    segStatus(idx, 'Clip (' + clipDur.toFixed(1) + 's)...');
+    var imageUrl = null;
+    if (!isViz) {
+      /* A-Roll / B-Roll: generate FLUX.2 keyframe image */
+      var imgResp = await comfyPost('/api/inspire/comfyui/generate-image', {
+        songId: S.songId,
+        sectionType: seg.sectionType,
+        prompt: ($('seg-' + idx).querySelector('.seg-prompt') || {}).value || seg.prompt,
+        width: res.width,
+        height: res.height
+      });
+      var imgData = await imgResp.json();
+      if (!imgResp.ok) throw new Error(imgData.error || 'Image failed (HTTP ' + imgResp.status + ')');
+      seg.imageUrl = imgData.imageUrl;
+      imageUrl = imgData.imageUrl;
+      segThumb(idx, 'image', imgData.imageUrl);
+      segStatus(idx, 'Clip (' + clipDur.toFixed(1) + 's)...');
 
-    /* PGFX 2026-08-11: CROP-REUSE — one FLUX.2 keyframe per segment; head and
-       instrument close-ups are ffmpeg CROPS of that same image, not new renders.
-       Failures are non-fatal (keyframe + video still proceed). Crops land in the
-       NLE B-Roll lane for fast-cut variety. */
-    deriveSegmentCrops(idx);
+      /* PGFX 2026-08-11: CROP-REUSE - one FLUX.2 keyframe per segment; head and
+         instrument close-ups are ffmpeg CROPS of that same image, not new renders. */
+      deriveSegmentCrops(idx);
+    } else {
+      /* Viz-Roll: still generate a base image for the video engine (required for I2V) */
+      var imgResp = await comfyPost('/api/inspire/comfyui/generate-image', {
+        songId: S.songId,
+        sectionType: seg.sectionType,
+        prompt: 'Abstract stem visualization, flowing waves of light and color driven by music, no people, no text',
+        width: res.width,
+        height: res.height
+      });
+      var imgData = await imgResp.json();
+      if (!imgResp.ok) throw new Error(imgData.error || 'Image failed (HTTP ' + imgResp.status + ')');
+      seg.imageUrl = imgData.imageUrl;
+      imageUrl = imgData.imageUrl;
+      segThumb(idx, 'image', imgData.imageUrl);
+      segStatus(idx, 'Viz clip (' + clipDur.toFixed(1) + 's)...');
+    }
 
     var engine = (($('seg-engine') || {}).value) || 'minimax-h3';
     /* PGFX 2026-08-11: model-correct prompt per engine — H3 gets its own SHORT
@@ -2400,9 +2502,13 @@ async function generateSegmentClip(idx) {
     var motionPrompt = engine === 'minimax-h3'
       ? (seg.h3MotionPrompt || seg.motionPrompt || seg.prompt)
       : (seg.motionPrompt || seg.prompt);
+    var segPreset = ($('seg-motion') && $('seg-motion').value) || 'auto';
+    if (segPreset !== 'auto' && MOTION_PRESET_TEXT[segPreset]) {
+      motionPrompt = (motionPrompt + ' ' + MOTION_PRESET_TEXT[segPreset]).trim();
+    }
 
     var vidResp = await comfyPost('/api/inspire/comfyui/generate-video', {
-      imageUrl: imgData.imageUrl,
+      imageUrl: imageUrl,
       audioUrl: S.audioUrl,
       audioStart: seg.startTime,
       audioDuration: clipDur,
@@ -2419,12 +2525,12 @@ async function generateSegmentClip(idx) {
          its OWN pipeline model selections; undefined falls back to the server's
          per-engine defaults (auto). Never cross-feed LTX models to H3. */
       engine: engine,
-      unetModel: _pipelineModels.h3.unet !== 'auto' ? _pipelineModels.h3.unet : undefined,
-      vaeModel: _pipelineModels.h3.vae !== 'auto' ? _pipelineModels.h3.vae : undefined,
-      clipModel: _pipelineModels.h3.clip !== 'auto' ? _pipelineModels.h3.clip : undefined,
-      audioVaeModel: _pipelineModels.h3.audioVae !== 'auto' ? _pipelineModels.h3.audioVae : undefined,
-      icLoraModel: _pipelineModels.ltx.icLora,
-      upscaleModel: _pipelineModels.ltx.upscale
+      unetModel: (engine === 'minimax-h3' ? _pipelineModels.h3.unet : _pipelineModels.ltx.unet) !== 'auto' ? (engine === 'minimax-h3' ? _pipelineModels.h3.unet : _pipelineModels.ltx.unet) : undefined,
+      vaeModel: (engine === 'minimax-h3' ? _pipelineModels.h3.vae : _pipelineModels.ltx.vae) !== 'auto' ? (engine === 'minimax-h3' ? _pipelineModels.h3.vae : _pipelineModels.ltx.vae) : undefined,
+      clipModel: (engine === 'minimax-h3' ? _pipelineModels.h3.clip : _pipelineModels.ltx.clip) !== 'auto' ? (engine === 'minimax-h3' ? _pipelineModels.h3.clip : _pipelineModels.ltx.clip) : undefined,
+      audioVaeModel: (engine === 'minimax-h3' ? _pipelineModels.h3.audioVae : _pipelineModels.ltx.audioVae) !== 'auto' ? (engine === 'minimax-h3' ? _pipelineModels.h3.audioVae : _pipelineModels.ltx.audioVae) : undefined,
+      icLoraModel: engine === 'ltx' && _pipelineModels.ltx.icLora !== 'auto' ? _pipelineModels.ltx.icLora : undefined,
+      upscaleModel: engine === 'ltx' && _pipelineModels.ltx.upscale !== 'auto' ? _pipelineModels.ltx.upscale : undefined
     });
     var vidData = await vidResp.json();
     if (!vidResp.ok) throw new Error(vidData.error || 'Clip failed (HTTP ' + vidResp.status + ')');
@@ -2552,6 +2658,14 @@ async function startExport() {
         muted: l.muted
       };
     });
+    var burnSubtitles = !!($('export-subtitles') && $('export-subtitles').checked);
+    var subtitleItems = (S.segmentPlan || []).map(function(s) {
+      return {
+        startTime: s.startTime,
+        endTime: s.endTime,
+        text: (s.lines && s.lines.length ? s.lines.join(' ') : (s.lyricSnippet || ''))
+      };
+    }).filter(function(s) { return !!s.text; });
 
     var resp = await comfyPost('/api/inspire/comfyui/export-mp4', {
       songId: S.songId,
@@ -2560,6 +2674,8 @@ async function startExport() {
       fps: fps,
       audioSource: audioSrc,
       duration: S.songDuration,
+      burnSubtitles: burnSubtitles,
+      subtitles: subtitleItems,
       /* NLE-aware path (server prefers tracks when present): the intercut
          aroll/broll/viz timeline with per-clip transitions. */
       tracks: buildNleTracks(),
@@ -3472,12 +3588,20 @@ $('btn-gen-all-videos').addEventListener('click', generateAllVideoClips);
 $('btn-gen-all-segments').addEventListener('click', generateAllSegments);
 $('btn-rebuild-plan').addEventListener('click', loadLyricPlan);
 
-/* Generate All (top bar) */
+/* Generate All (top bar) - unified segment pipeline */
 $('btn-generate-all').addEventListener('click', async function() {
   this.disabled = true;
-  await generateAllImages();
-  await generateAllVideoClips();
-  this.disabled = false;
+  try {
+    if (!S.segmentPlan || S.segmentPlan.length === 0) {
+      /* Auto-load plan if not present */
+      await loadLyricPlan();
+    }
+    if (S.segmentPlan && S.segmentPlan.length > 0) {
+      await generateAllSegments();
+    }
+  } finally {
+    this.disabled = false;
+  }
 });
 
 /* Export */
@@ -3684,9 +3808,9 @@ function renderPipelineConfig(data) {
   html += '</select></div>';
   html += '</div>';
 
-  /* LTX2.3 Video Pipeline */
+  /* LTX 2.5 / 2.3 Video Pipeline */
   html += '<div style="margin-bottom:12px;padding:8px;background:var(--bg2);border-radius:8px">';
-  html += '<div style="font-size:11px;font-weight:600;color:var(--pink);margin-bottom:6px">LTX2.3 Video Pipeline</div>';
+  html += '<div style="font-size:11px;font-weight:600;color:var(--pink);margin-bottom:6px">LTX 2.5 / 2.3 Video Pipeline</div>';
   html += '<div class="model-select-row"><label>UNet</label><select id="pipeline-ltx-unet" style="flex:1">';
   html += optList(m.ltxUnets || [], d.ltx2?.unet);
   html += '</select></div>';
@@ -3700,7 +3824,7 @@ function renderPipelineConfig(data) {
   html += '<option value="auto">Auto (distilled)</option>';
   html += optList((m.ltxVae || []).filter(function(v) { return /audio/i.test(v.name); }), '');
   html += '</select></div>';
-  html += '<div class="model-select-row"><label>IC-LoRA</label><select id="pipeline-ltx-ic-lora" style="flex:1">';
+  html += '<div class="model-select-row"><label>Union / IC-LoRA</label><select id="pipeline-ltx-ic-lora" style="flex:1">';
   html += '<option value="auto">None (text-to-video)</option>';
   html += optList(m.ltxLoras || [], '');
   html += '</select></div>';

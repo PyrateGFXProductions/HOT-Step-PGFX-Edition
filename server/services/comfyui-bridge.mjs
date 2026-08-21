@@ -108,8 +108,8 @@ function inferModelParameters(modelPath) {
   }
 
   /* LTX Video models */
-  if (/ltx.*2\.3|ltx.*distilled/i.test(basename)) {
-    return { steps1: 9, steps2: 4, cfg: 1.0, isDistilled: true, isLTX: true, family: "ltx2.3" };
+  if (/ltx.*2\.[35]|ltx.*distilled/i.test(basename)) {
+    return { steps1: 9, steps2: 4, cfg: 1.0, isDistilled: true, isLTX: true, family: "ltx2.5" };
   }
   if (/ltx.*2\.0|ltx.*1\.0/i.test(basename)) {
     return { steps1: 12, steps2: 8, cfg: 2.5, isDistilled: false, isLTX: true, family: "ltx" };
