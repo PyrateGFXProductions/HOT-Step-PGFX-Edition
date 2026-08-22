@@ -209,6 +209,17 @@ input,select,textarea{font-family:inherit}
 .nle-clip .handle.right{right:0;border-radius:0 4px 4px 0}
 .nle-playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--red);z-index:5;pointer-events:none;left:0}
 .nle-panel.collapsed .nle-racks,.nle-panel.collapsed .nle-ruler{display:none}
+/* ── Viz sub-channels: per-stem lanes ── */
+#viz-sublanes{display:flex;flex-direction:column;flex:1;position:relative;overflow:hidden}
+.nle-viz-sublane{position:relative;border-bottom:1px solid rgba(255,255,255,0.06);overflow:hidden}
+.nle-viz-sublane:last-child{border-bottom:none}
+.nle-viz-sublabel{position:absolute;left:2px;top:1px;font-size:7px;font-weight:700;color:var(--text3);z-index:3;text-transform:uppercase;letter-spacing:.3px;pointer-events:none;opacity:.85;white-space:nowrap}
+.nle-viz-subcontrols{position:absolute;right:2px;top:1px;z-index:4;display:flex;gap:2px;pointer-events:auto;opacity:0;transition:opacity .15s}
+.nle-viz-sublane:hover .nle-viz-subcontrols{opacity:1}
+.nle-viz-subcontrols button{background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.15);border-radius:3px;color:var(--text2);font-size:7px;padding:0 3px;cursor:pointer;line-height:14px}
+.nle-viz-subcontrols button:hover{background:rgba(255,255,255,0.15)}
+.nle-viz-subcontrols button.muted{color:var(--red)}
+.nle-viz-subbody{position:absolute;top:0;left:0;right:0;bottom:0;cursor:crosshair}
 .nle-progress{height:3px;background:var(--bg);border-radius:2px;overflow:hidden;margin:2px 8px 4px}
 .nle-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));transition:width .3s;width:0}
 /* ── Lyric Segments (PGFX 2026-08-09) ── */
@@ -429,9 +440,9 @@ input,select,textarea{font-family:inherit}
   </div>
   <div class="nle-ruler" id="nle-ruler"></div>
   <div class="nle-racks" id="nle-racks">
-    <div class="nle-lane viz" data-track="viz">
-      <div class="nle-lane-label">Visualizers</div>
-      <div class="nle-lane-body" data-track="viz"></div>
+    <div class="nle-lane viz" data-track="viz" id="viz-lane">
+      <div class="nle-lane-label">Viz</div>
+      <div id="viz-sublanes"></div>
     </div>
     <div class="nle-lane broll" data-track="broll">
       <div class="nle-lane-label">B-Roll</div>
@@ -2622,11 +2633,24 @@ function nleUpsertFromSegments() {
     if (!seg.videoUrl) return;
     var key = 'seg-' + seg.index;
     var segType = seg.sectionType || nleSectionTypeOf(seg.name);
-    if (!(NLE.tracks.aroll || []).some(function(c) { return c.name === key; })) {
-      NLE.tracks.aroll.push({ id: 'a' + NLE.seq++, start: Math.min(seg.startTime, dur - 0.05), end: Math.min(seg.endTime, dur), videoUrl: seg.videoUrl, name: key, sectionType: segType });
-    }
-    if (seg.imageUrl && !(NLE.tracks.broll || []).some(function(c) { return c.name === key; })) {
-      NLE.tracks.broll.push({ id: 'b' + NLE.seq++, start: Math.min(seg.startTime, dur - 0.05), end: Math.min(seg.endTime, dur), imageUrl: seg.imageUrl, zoomDir: (NLE.tracks.broll.length) % 6, name: key, sectionType: segType });
+    /* Route each segment to the correct NLE track based on its shot type.
+       Every clip carries BOTH videoUrl and imageUrl so the server compose
+       can render real video and the user can swap to Ken Burns in the editor.
+       shotType "viz" segments are still video clips — the viz TRACK is for
+       stem audio visualizers, not section video. */
+    var track = (seg.shotType === 'broll') ? 'broll' : 'aroll';
+    if (!(NLE.tracks[track] || []).some(function(c) { return c.name === key; })) {
+      var clip = {
+        id: track[0] + NLE.seq++,
+        start: Math.min(seg.startTime, dur - 0.05),
+        end: Math.min(seg.endTime, dur),
+        videoUrl: seg.videoUrl,
+        imageUrl: seg.imageUrl || '',
+        name: key,
+        sectionType: segType
+      };
+      if (track === 'broll') clip.zoomDir = (NLE.tracks.broll.length) % 6;
+      NLE.tracks[track].push(clip);
     }
   });
   renderNle();
@@ -2957,7 +2981,10 @@ function renderNle() {
   /* Beat grid per lane */
   var lanes = document.querySelectorAll('.nle-lane');
   lanes.forEach(function(lane) {
+    var track = lane.getAttribute('data-track');
+    if (track === 'viz') return; /* handled separately below */
     var body = lane.querySelector('.nle-lane-body');
+    if (!body) return;
     body.innerHTML = '';
     /* beat lines */
     var bStep = NLE.bpm > 0 ? 60 / NLE.bpm : 1;
@@ -2968,14 +2995,107 @@ function renderNle() {
       body.appendChild(bl);
     }
     /* clips */
-    var type = lane.getAttribute('data-track');
-    (NLE.tracks[type] || []).forEach(function(clip) {
-      renderNleClip(body, type, clip);
+    (NLE.tracks[track] || []).forEach(function(clip) {
+      renderNleClip(body, track, clip);
     });
   });
 
+  /* Viz sub-channels: one sub-lane per unique stem */
+  renderVizSubLanes(dur);
+
   var ph = $('nle-playhead');
   if (ph && audioEl) updateNlePlayhead(audioEl.currentTime / dur);
+}
+
+/* Render per-stem sub-lanes inside the Viz track.
+   Each unique stem in NLE.tracks.viz gets its own row with label,
+   mute toggle, and per-stem clips. The rack height auto-expands
+   to fit. */
+function renderVizSubLanes(dur) {
+  var container = $('viz-sublanes');
+  if (!container) return;
+  container.innerHTML = '';
+  var vizClips = NLE.tracks.viz || [];
+
+  /* Group clips by stem */
+  var byStem = {};
+  var stemOrder = [];
+  vizClips.forEach(function(c) {
+    var key = c.stem || c.layerName || 'default';
+    if (!byStem[key]) { byStem[key] = []; stemOrder.push(key); }
+    byStem[key].push(c);
+  });
+
+  if (stemOrder.length === 0) {
+    var empty = document.createElement('div');
+    empty.style.cssText = 'color:var(--text3);font-size:9px;text-align:center;padding-top:12px';
+    empty.textContent = 'No viz layers \u2014 click + Viz or add stem layers';
+    container.appendChild(empty);
+    return;
+  }
+
+  var subH = Math.max(20, Math.min(36, 110 / stemOrder.length));
+  var racksEl = $('nle-racks');
+  if (racksEl) racksEl.style.height = (118 + (stemOrder.length - 3) * subH) + 'px';
+
+  stemOrder.forEach(function(stem) {
+    var clips = byStem[stem];
+    var clip0 = clips[0] || {};
+
+    var sub = document.createElement('div');
+    sub.className = 'nle-viz-sublane';
+    sub.style.height = subH + 'px';
+
+    /* Stem label */
+    var lbl = document.createElement('div');
+    lbl.className = 'nle-viz-sublabel';
+    lbl.textContent = '\u2728 ' + stem;
+    if (clip0.color) lbl.style.color = clip0.color;
+    sub.appendChild(lbl);
+
+    /* Hover controls: mute + effect indicator */
+    var ctrls = document.createElement('div');
+    ctrls.className = 'nle-viz-subcontrols';
+    var muteBtn = document.createElement('button');
+    muteBtn.textContent = clips.some(function(c) { return c.muted; }) ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+    muteBtn.className = clips.some(function(c) { return c.muted; }) ? 'muted' : '';
+    muteBtn.title = 'Mute/unmute ' + stem;
+    muteBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var allMuted = clips.every(function(c) { return c.muted; });
+      clips.forEach(function(c) { c.muted = !allMuted; });
+      renderNle();
+    });
+    ctrls.appendChild(muteBtn);
+
+    var fxBtn = document.createElement('button');
+    fxBtn.textContent = clip0.effectId || '?';
+    fxBtn.title = 'Effect: ' + (clip0.effectId || 'none') + ' (double-click clip to change)';
+    ctrls.appendChild(fxBtn);
+    sub.appendChild(ctrls);
+
+    /* Clip container */
+    var body = document.createElement('div');
+    body.className = 'nle-viz-subbody';
+    body.setAttribute('data-track', 'viz');
+    body.setAttribute('data-stem', stem);
+    sub.appendChild(body);
+
+    container.appendChild(sub);
+
+    /* Beat lines */
+    var bStep = NLE.bpm > 0 ? 60 / NLE.bpm : 1;
+    for (var t = 0; t <= dur; t += bStep) {
+      var bl = document.createElement('div');
+      bl.className = 'nle-beatline' + ((Math.round(t / bStep) % 4 === 0) ? ' major' : '');
+      bl.style.left = nleTimeToX(t) + 'px';
+      body.appendChild(bl);
+    }
+    /* Clips for this stem */
+    clips.forEach(function(clip) {
+      renderNleClip(body, 'viz', clip);
+    });
+  });
 }
 
 function renderNleClip(body, type, clip) {
@@ -3084,13 +3204,22 @@ function openNleClipEditor(type, id) {
     });
   } else if (type === 'broll') {
     assetWrap.style.display = '';
+    /* Show both video clips and images for B-Roll — video takes priority */
     (S.sections || []).forEach(function(sec, i) {
-      if (!sec.imageUrl) return;
-      var opt = document.createElement('option');
-      opt.value = sec.imageUrl;
-      opt.textContent = sec.name + ' (image)';
-      if (sec.imageUrl === clip.imageUrl) opt.selected = true;
-      sel.appendChild(opt);
+      if (sec.videoUrl) {
+        var opt = document.createElement('option');
+        opt.value = sec.videoUrl;
+        opt.textContent = sec.name + ' (video)';
+        if (sec.videoUrl === clip.videoUrl) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      if (sec.imageUrl) {
+        var opt2 = document.createElement('option');
+        opt2.value = sec.imageUrl;
+        opt2.textContent = sec.name + ' (image)';
+        if (!clip.videoUrl && sec.imageUrl === clip.imageUrl) opt2.selected = true;
+        sel.appendChild(opt2);
+      }
     });
   } else {
     assetWrap.style.display = 'none';
@@ -3138,7 +3267,17 @@ function saveNleClipEditor() {
   clip.transition = $('nle-edit-transition-sel').value;
   if (t === 'aroll' && $('nle-edit-asset-sel').value) clip.videoUrl = $('nle-edit-asset-sel').value;
   if (t === 'broll') {
-    if ($('nle-edit-asset-sel').value) clip.imageUrl = $('nle-edit-asset-sel').value;
+    var selVal = $('nle-edit-asset-sel').value;
+    if (selVal) {
+      /* Determine if selected asset is video or image by extension */
+      var isVideo = /\.(mp4|webm|mov|avi|mkv)$/i.test(selVal);
+      if (isVideo) {
+        clip.videoUrl = selVal;
+      } else {
+        clip.imageUrl = selVal;
+        clip.videoUrl = ''; /* clear video URL when switching to image */
+      }
+    }
     clip.zoomDir = parseInt($('nle-edit-zoom-sel').value) || 0;
   }
   if (t === 'viz') clip.effectId = $('nle-edit-effect-sel').value || clip.effectId;
@@ -3313,6 +3452,19 @@ function wireNleEvents() {
       seekTo(t / S.songDuration);
     });
   });
+  /* Viz sub-body click → seek + deselect (delegated: sub-bodies are recreated each render) */
+  var vizContainer = $('viz-sublanes');
+  if (vizContainer) {
+    vizContainer.addEventListener('mousedown', function(e) {
+      var body = e.target.closest('.nle-viz-subbody');
+      if (!body || e.target !== body) return;
+      var rect = body.getBoundingClientRect();
+      var t = nleXToTime(e.clientX - rect.left);
+      NLE.selected = null;
+      renderNle();
+      seekTo(t / S.songDuration);
+    });
+  }
 
   /* Keyboard edits on selected clip: Delete / Ctrl+D duplicate / S split */
   document.addEventListener('keydown', function(e) {

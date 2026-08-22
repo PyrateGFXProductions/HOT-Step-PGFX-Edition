@@ -230,15 +230,15 @@ const MUSIC_TERM_VISUAL = {
 };
 
 const SECTION_NARRATIVE = {
-  intro:      { position: "opening", energy: "low — establishing the world, setting the scene" },
-  verse:      { position: "developing", energy: "medium — introducing characters, building context" },
-  prechorus:  { position: "building", energy: "rising — tension escalating toward the peak" },
-  chorus:     { position: "peak", energy: "high — the emotional and visual climax of this moment" },
-  "post-chorus": { position: "afterglow", energy: "falling — the echo of the peak, reflection" },
-  bridge:     { position: "turning point", energy: "shifted — a new perspective, a twist in the story" },
-  interlude:  { position: "breathing", energy: "floating — a pause between chapters" },
-  outro:      { position: "closing", energy: "fading — resolution, the final image that lingers" },
-  instrumental: { position: "abstract", energy: "pure — no words, only visual emotion" }
+  intro:      { position: "opening", energy: "low -- establishing the world, setting the scene", arcMood: "first impressions" },
+  verse:      { position: "developing", energy: "medium -- introducing characters, building context", arcMood: "developing the story" },
+  prechorus:  { position: "building", energy: "rising -- tension escalating toward the peak", arcMood: "growing intensity" },
+  chorus:     { position: "peak", energy: "high -- the emotional and visual climax of this moment", arcMood: "the defining moment" },
+  "post-chorus": { position: "afterglow", energy: "falling -- the echo of the peak, reflection", arcMood: "the echo of the peak" },
+  bridge:     { position: "turning point", energy: "shifted -- a new perspective, a twist in the story", arcMood: "a shift in perspective" },
+  interlude:  { position: "breathing", energy: "floating -- a pause between chapters", arcMood: "a pause between chapters" },
+  outro:      { position: "closing", energy: "fading -- resolution, the final image that lingers", arcMood: "final reflections" },
+  instrumental: { position: "abstract", energy: "pure -- no words, only visual emotion", arcMood: "pure visual emotion" }
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -594,35 +594,40 @@ function buildCoverArtPrompt(opts) {
   const sectionType = (opts.sectionType || "").toLowerCase().replace(/[^a-z-]/g, "");
   const isSection = typeof opts.sectionIndex === "number" && opts.sectionIndex >= 0 && (opts.totalSections || 0) > 0;
   const concept = buildSongConcept(opts);
-
-  let genreLabel = "", genreMood = "";
-  const lowerStyle = style.toLowerCase();
-  for (const [key, visuals] of Object.entries(GENRE_VISUALS)) {
-    const re = new RegExp(`(^|[^a-z0-9&+#])${key}([^a-z0-9&+#]|$)`);
-    if (re.test(lowerStyle)) { genreLabel = key; genreMood = visuals; break; }
-  }
+  const genreMood = matchGenreVisuals(style);
+  const styleLabel = safeStyleLabel(style) || "music";
   const sentences = [concept];
   if (genreMood) {
-    sentences.push(`The scene is lit with a ${genreLabel} atmosphere: ${genreMood}.`);
+    /* PGFX 2026-08-07: the concept IS the scene (lyric subject). The genre only tints
+       it -- lighting/palette/atmosphere, never a competing scene with people/instruments. */
+    sentences.push(`The scene is lit with a ${genreMood.label} atmosphere: ${genreMood.visuals}.`);
   } else if (style) {
-    const styleLabel = (style.split(",")[0] || "").trim().toLowerCase() || "music";
     sentences.push(`The scene is lit with a ${styleLabel} atmosphere.`);
   }
-
+  /* PGFX 2026-08-10 (FLUX.2 guide): text intended for the cover is placed INSIDE
+     explicit quotes and positioned. Opt-in via opts.titleText so wordless covers
+     stay wordless. */
   if (opts.titleText && (opts.title || "").trim()) {
     sentences.push(`The song title "${opts.title.trim()}" is rendered in elegant typography across the top of the cover.`);
   }
-
   if (isSection) {
+    const progress = opts.sectionIndex / Math.max(1, (opts.totalSections || 1) - 1);
+    const arcDesc = progress < 0.2 ? "an opening moment"
+      : progress < 0.4 ? "a building moment"
+      : progress < 0.6 ? "a peak emotional moment"
+      : progress < 0.8 ? "an intensifying moment"
+      : "a closing moment";
     const sectionMood = SECTION_MOOD[sectionType] || SECTION_MOOD.verse;
-    sentences.push(`Section mood: ${sectionMood}.`);
-    sentences.push("Consistent setting and lighting throughout the entire piece.");
+    sentences.push(`This image is ${arcDesc} of the song: ${sectionMood}.`);
+    sentences.push("The same characters, location and lighting continue across every image in this series, each one rendered as a separate single frame.");
   }
-
-  // Anti-storyboard positive bounds: force single frame
-  sentences.push("Single full-frame image with no borders, no panels, no comic strip layout, and no text.");
-  sentences.push("The composition is cinematic, coherent, and highly detailed.");
-
+  /* PGFX 2026-08-10 (FLUX.2 guide): no negative prompt language -- describe what
+     you WANT. "Standing completely alone as one continuous composition" is the
+     positive bound that keeps a single frame; "entirely wordless" is the positive
+     way to say no text (the ComfyUI negative slot is ignored on this stack). */
+  sentences.push("Each image is one full-frame scene standing completely alone, a single continuous composition.");
+  sentences.push("The composition is cinematic and richly detailed, entirely wordless.");
+  // Every element must read as a complete sentence for FLUX.2 prose prompting.
   const normalizeSentence = (s) => s.trim().replace(/[.!?]+\s*$/, "") + ".";
   return sentences.map(normalizeSentence).join(" ");
 }
@@ -681,14 +686,29 @@ function buildSingerImagePrompt({ sectionType, lyrics, style, vocalistGender, ti
   const visualEssence = extractVisualEssence(lyrics);
 
   const sentences = [visualWorld];
+  /* Narrative arc: position-based progression gives each section a distinct
+     emotional beat. The arcDesc carries its own article ("an opening" not
+     "a opening") so grammar stays clean at every index. Arc mood is derived
+     from the PROGRESS position (not the section type) so a verse at index 0
+     still gets "first impressions". */
+  if (typeof sectionIndex === "number" && typeof totalSections === "number" && totalSections > 0) {
+    const progress = sectionIndex / Math.max(1, totalSections - 1);
+    let arcDesc, arcMood;
+    if (progress < 0.2) { arcDesc = "an opening moment"; arcMood = "first impressions"; }
+    else if (progress < 0.4) { arcDesc = "a building moment"; arcMood = "growing intensity"; }
+    else if (progress < 0.6) { arcDesc = "a peak emotional moment"; arcMood = "the defining moment"; }
+    else if (progress < 0.8) { arcDesc = "an intensifying moment"; arcMood = "rising tension"; }
+    else { arcDesc = "a closing moment"; arcMood = "final reflections"; }
+    sentences.push(`This image belongs to ${arcDesc} of the song: ${arcMood}.`);
+  }
   sentences.push(`Atmosphere: ${scene.mood}.`);
   if (genreLight) sentences.push(`The scene is lit with a ${genreKey} atmosphere: ${genreLight}.`);
   if (!subjectLed) sentences.push(scene.pose);
   if (visualEssence) sentences.push(`Visual elements from the song: ${visualEssence}.`);
   if (title) sentences.push(`Theme: "${title}".`);
 
-  sentences.push("Single full-frame image with no borders, no panels, no comic strip layout, and no text.");
-  sentences.push("Cinematic, photorealistic composition with dramatic lighting.");
+  sentences.push("Each image is one full-frame scene standing completely alone, a single continuous composition.");
+  sentences.push("The composition is cinematic and richly detailed, entirely wordless.");
   return sentences.filter(Boolean).map((s) => s.trim().replace(/[.!?]+\s*$/, "") + ".").join(" ");
 }
 

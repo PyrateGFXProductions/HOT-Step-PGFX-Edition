@@ -120124,7 +120124,7 @@ function resolveGenreFromStyles(genres) {
     "bhangra": ["bhangra", "punjabi folk", "punjab folk", "indian folk dance", "punjabi music", "giddha"],
     "andean": ["andean", "andean folk", "quechua music", "charango music", "quena music", "andes music", "inca music", "south american folk", "latin folk andean"],
     "dubstep": ["dubstep", "brostep", "riddim dubstep", "tearout", "uk dubstep", "deep dubstep", "melodic dubstep", "english dubstep"],
-    "dubstep_patois": ["dubstep (patois)", "patois dubstep", "jamaican dubstep", "dancehall dubstep", "ragga dubstep", "dubstep patois", "raggamuffin dubstep"],
+    "dubstep_patois": ["dubstep (patois)", "dub (patois)", "patois dubstep", "patois dub", "jamaican dubstep", "jamaican dub", "dancehall dubstep", "ragga dubstep", "ragga dub", "dubstep patois", "dub patois", "raggamuffin dubstep"],
     "pop": ["pop", "pop music", "pop rock", "synthpop", "art pop", "dance pop", "electropop", "teen pop", "bedroom pop", "sunshine pop", "baroque pop", "traditional pop"],
     "rock": ["rock", "rock music", "classic rock", "hard rock", "soft rock", "arena rock", "southern rock", "garage rock", "psychedelic rock", "progressive rock", "art rock", "math rock", "post-rock", "stoner rock"],
     "country": ["country", "country music", "country pop", "country rock", "outlaw country", "country folk", "modern country", "nashville sound", "red dirt"],
@@ -310111,21 +310111,29 @@ router21.post("/", (req, res) => {
   // subject repetition across generations).
   try {
     const subjectGuidance = buildSubjectGuidance(userId, 6);
-    if (subjectGuidance) {
-      // Effective caption source mirrors translateParams' fallback chain
-      // (prompt || songDescription || caption || style) so the guidance is
-      // APPENDED to whatever the engine LM would otherwise condition on —
-      // never silently replacing a style/prompt the client sent.
-      const effective = typeof req.body.prompt === "string" && req.body.prompt.trim()
-        ? req.body.prompt
-        : (typeof req.body.songDescription === "string" && req.body.songDescription.trim())
-          ? req.body.songDescription
-          : (typeof req.body.caption === "string" && req.body.caption.trim())
-            ? req.body.caption
-            : (typeof req.body.style === "string" ? req.body.style : "");
-      req.body.caption = effective ? `${effective}\n\n${subjectGuidance}` : subjectGuidance;
-      console.log(`[Inspire] Job ${job.id} \u2014 subject-role guidance appended to engine caption (${subjectGuidance.length} chars, effective base ${effective.length} chars)`);
-    }
+    // Effective caption source mirrors translateParams' fallback chain
+    // (prompt || songDescription || caption || style) so the guidance is
+    // APPENDED to whatever the engine LM would otherwise condition on —
+    // never silently replacing a style/prompt the client sent.
+    const effective = typeof req.body.prompt === "string" && req.body.prompt.trim()
+      ? req.body.prompt
+      : (typeof req.body.songDescription === "string" && req.body.songDescription.trim())
+        ? req.body.songDescription
+        : (typeof req.body.caption === "string" && req.body.caption.trim())
+          ? req.body.caption
+          : (typeof req.body.style === "string" ? req.body.style : "");
+    // BUG 2+3 FIX: The engine LM MUST know the song's subject to write
+    // subject-driven lyrics. Previously only the genre/style reached the engine,
+    // so the LM invented lyrics about DJ culture/ganja/production instead of
+    // the user's subject. Prepend the concrete subject so it is the FIRST thing
+    // the engine LM conditions on.
+    const userSubject = typeof req.body.subject === "string" ? req.body.subject.trim() : "";
+    let captionParts = [];
+    if (effective) captionParts.push(effective);
+    if (userSubject) captionParts.push(`Song subject: ${userSubject}`);
+    if (subjectGuidance) captionParts.push(subjectGuidance);
+    req.body.caption = captionParts.join("\n\n");
+    console.log(`[Inspire] Job ${job.id} \u2014 engine caption built: effective=${effective.length} chars, subject="${userSubject.slice(0, 60)}", guidance=${subjectGuidance?.length || 0} chars`);
   } catch (e) { /* non-fatal */ }
   runInspire(job, req.body);
   res.json({
@@ -310665,17 +310673,24 @@ router21.post("/llm", async (req, res) => {
         extractedTitle = titleEndMatch[1].replace(/^["']+|["']+$/g, "").replace(/[.!?,;:]+$/, "").trim();
         raw = raw.replace(/\n\s*Title:\s*.+?\s*$/im, "").trimEnd();
       }
+      // If parseStructuredLlmResponse already extracted lyrics via _plainExtract,
+      // raw is already the lyrics text. Otherwise, try to strip preamble.
       const rawLines = raw.trim().split("\n");
+      let preambleEnd = 0;
+      // Skip preamble: blank lines, lines starting with "Here", "Below", "Sure",
+      // "Of course", or other common LLM opener phrases
+      const preambleRe = /^(?:here\s|below\s|sure[,.]?\s|of course[,.]?\s|certainly[,.]?\s|absolutely[,.]?\s|definitely[,.]?\s|yes[,.]?\s|i'?ll |let me |sure thing|okay[,.]?\s|ok[,.]?\s|alright[,.]?\s)/i;
       for (let i = 0; i < rawLines.length; i++) {
-        const match = rawLines[i].match(/^(?:Title:\s*|#\s*)(.*)/i);
-        if (match) {
-          if (!extractedTitle) extractedTitle = match[1].replace(/^["']+|["']+$/g, "").trim();
-          const rest = rawLines.slice(i + 1);
-          while (rest.length && !rest[0].trim()) rest.shift();
-          raw = rest.join("\n");
-          break;
-        }
-        if (rawLines[i].trim().startsWith("[") || rawLines[i].trim() && i > 2) break;
+        const trimmed = rawLines[i].trim();
+        if (!trimmed) { preambleEnd = i + 1; continue; } // skip blank lines
+        if (preambleRe.test(trimmed)) { preambleEnd = i + 1; continue; }
+        if (/^(?:Title|Tags|BPM|Key|Duration|Time.?Sig)\s*:/i.test(trimmed)) { preambleEnd = i + 1; continue; }
+        // Found a real line (section header or lyric) — stop skipping
+        if (trimmed.startsWith("[") || trimmed.length < 80) break;
+        preambleEnd = i + 1;
+      }
+      if (preambleEnd > 0) {
+        raw = rawLines.slice(preambleEnd).join("\n");
       }
       raw = postprocessLyrics(raw);
       // ── Apply Genre Pipeline ──────────────────────────────────────────────────
@@ -310787,28 +310802,81 @@ router21.delete("/llm/prompt", (_req, res) => {
   }
 });
 function parseStructuredLlmResponse(raw) {
+  // Step 1: Strip markdown fences, <json> wrappers, preamble/postamble
   let cleaned = raw.replace(/^```(?:json)?\s*|\s*```$/gm, "").trim();
+  cleaned = cleaned.replace(/^<json>\s*/i, "").replace(/\s*<\/json>$/i, "").trim();
+  // Step 2: Try direct parse (handles well-formed JSON)
   try {
     const parsed = JSON.parse(cleaned);
     if (parsed && typeof parsed === "object" && parsed.lyrics) return parsed;
   } catch {
   }
+  // Step 3: Find first '{' and brace-match WITH string-skip (handles preamble/postamble
+  // and JSON with braces inside string values like tags prose)
   const start = cleaned.indexOf("{");
-  if (start === -1) return null;
+  if (start === -1) {
+    // No JSON object at all — try to extract a lyrics-only blob
+    return _extractLyricsFromPlain(cleaned);
+  }
   let depth = 0;
+  let inString = false;
+  let escape = false;
   for (let i = start; i < cleaned.length; i++) {
-    if (cleaned[i] === "{") depth++;
-    else if (cleaned[i] === "}") {
+    const ch = cleaned[i];
+    if (escape) { escape = false; continue; }
+    if (ch === "\\") { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
       depth--;
       if (depth === 0) {
+        const slice = cleaned.slice(start, i + 1);
         try {
-          const parsed = JSON.parse(cleaned.slice(start, i + 1));
+          const parsed = JSON.parse(slice);
           if (parsed && typeof parsed === "object" && parsed.lyrics) return parsed;
         } catch {
+          // JSON parse failed — try repairing common LLM mistakes
+          const repaired = _repairJson(slice);
+          if (repaired) return repaired;
         }
         break;
       }
     }
+  }
+  return null;
+}
+// Attempt to repair common JSON issues from small LLMs: trailing commas,
+// unescaped newlines inside strings, single-quote wrapping, comments.
+function _repairJson(text) {
+  try {
+    // Remove JS-style comments
+    let fixed = text.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    // Remove trailing commas before } or ]
+    fixed = fixed.replace(/,\s*([}\]])/g, "$1");
+    // Try parse after trailing-comma fix
+    const parsed = JSON.parse(fixed);
+    if (parsed && typeof parsed === "object" && parsed.lyrics) return parsed;
+  } catch {
+  }
+  return null;
+}
+// When the model returns NO JSON at all (pure prose/lyrics), try to extract
+// lyrics from the text so we at least get something usable instead of 5 lines.
+function _extractLyricsFromPlain(text) {
+  const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length === 0) return null;
+  // Look for section headers [Verse], [Chorus], etc. — if found, the whole
+  // text (minus any preamble before the first header) is likely lyrics.
+  const sectionRe = /^\[(intro|verse|pre-?chorus|chorus|post-?chorus|bridge|hook|refrain|outro|interlude|instrumental|break|solo|verse\s*\d+|chorus\s*\d+)\b/i;
+  const firstSectionIdx = lines.findIndex(l => sectionRe.test(l));
+  if (firstSectionIdx >= 0) {
+    const lyrics = lines.slice(firstSectionIdx).join("\n");
+    return { lyrics, tags: "", title: "", bpm: null, key: null, time_signature: null, duration: null, _plainExtract: true };
+  }
+  // No section headers — check if enough lines look like lyrics (>5 lines, short lines)
+  if (lines.length >= 6 && lines.filter(l => l.length < 80 && !/[{}]/.test(l)).length >= lines.length * 0.6) {
+    return { lyrics: lines.join("\n"), tags: "", title: "", bpm: null, key: null, time_signature: null, duration: null, _plainExtract: true };
   }
   return null;
 }
@@ -312375,7 +312443,6 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
 
         /* Separate video sections and image-only sections */
         const videoSections = sections.filter(s => s.videoUrl);
-        const imageSections = sections.filter(s => !s.videoUrl && s.imageUrl);
         const totalW = width || 1920;
         const totalH = Math.round(totalW * 9 / 16);
         const totalFps = fps || 30;
@@ -312450,56 +312517,8 @@ router21.post("/comfyui/export-mp4", async (req, res) => {
           for (const cp of clipPaths) {
             if (cp.includes(jobId.substring(0,8))) try { fs9.unlinkSync(cp); } catch {}
           }
-        } else if (imageSections.length > 0) {
-          /* Image-only: create slideshow with Ken Burns + crossfade */
-          const inputs = [];
-          const filterParts = [];
-          let inputIdx = 0;
-          for (const sec of imageSections) {
-            let iPath = sec.imageUrl;
-            if (iPath.startsWith("/")) iPath = nleResolveLocalPath(iPath) || iPath;
-            if (!fs9.existsSync(iPath)) continue;
-            const secDur = Math.max((sec.endTime || 0) - (sec.startTime || 0), 3);
-            inputs.push("-loop", "1", "-t", String(secDur), "-i", iPath);
-            const zpIdx = inputIdx;
-            const zoomDir = inputIdx % 6;
-            let zp;
-            switch (zoomDir) {
-              case 0: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              case 1: zp = `zoompan=z='if(lte(zoom,1.0),1.15,max(zoom-0.0005,1.0))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              case 2: zp = `zoompan=z='min(zoom+0.0004,1.12)':x='0':y='ih/2-(ih/zoom/2)':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              case 3: zp = `zoompan=z='min(zoom+0.0004,1.12)':x='iw-iw/zoom':y='ih/2-(ih/zoom/2)':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              case 4: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='0':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-              case 5: zp = `zoompan=z='min(zoom+0.0005,1.15)':x='iw/2-(iw/zoom/2)':y='ih-ih/zoom':d=${Math.round(secDur*totalFps)}:s=${totalW}x${totalH}:fps=${totalFps}`; break;
-            }
-            filterParts.push(`[${inputIdx}:v]scale=${totalW*2}:${totalH*2},${zp},format=yuv420p[zp${zpIdx}]`);
-            inputIdx++;
-          }
-          if (filterParts.length === 0) throw new Error("No valid images for export");
-
-          /* Chain xfade transitions */
-          let prevLabel = `zp0`;
-          for (let i = 1; i < filterParts.length; i++) {
-            const offset = i * 4; /* rough offset */
-            const transFade = ["fade", "dissolve", "fadeblack", "smoothleft", "smoothright", "circlecrop"][i % 6];
-            filterParts.push(`[${prevLabel}][zp${i}]xfade=transition=${transFade}:duration=0.5:offset=${offset}[xf${i}]`);
-            prevLabel = `xf${i}`;
-          }
-
-          const args = ["-y", ...inputs, "-filter_complex", filterParts.join(";"), "-map", `[${prevLabel}]`];
-          if (audioPath && fs9.existsSync(audioPath)) {
-            args.push("-i", audioPath, "-map", `${inputIdx}:a`, "-c:a", "aac", "-b:a", "192k", "-shortest");
-          }
-          args.push("-c:v", "libx264", "-preset", "fast", "-crf", "20", "-movflags", "+faststart", outPath);
-
-          await new Promise((resolve, reject) => {
-            require("child_process").execFile(ffmpegPath, args, { timeout: 600000 }, (err) => {
-              if (err) reject(new Error(`FFmpeg slideshow failed: ${err.message}`));
-              else resolve();
-            });
-          });
-        } else {
-          throw new Error("No video clips or images provided");
+        } else if (videoSections.length === 0) {
+          throw new Error("No video clips provided — use the NLE Render or generate section videos first");
         }
 
         exportJobs[jobId].status = "completed";
@@ -312902,18 +312921,37 @@ async function runNleCompose(jobId, userId, params, outPrefix) {
               );
             }
           } else if (clip.trackType === "broll") {
-            const ip = nleResolveLocalPath(clip.imageUrl);
-            const ii = ip && fs9.existsSync(ip) ? (imagePathToIdx[ip.toLowerCase()] ?? -1) : -1;
-            if (ii < 0) { clipIdx++; continue; }
-            const inIdx = imageBase + ii;
-            const frames = Math.max(1, Math.round(dur * totalFps));
-            const zp = nleZoompan(clip.zoomDir, frames, totalW, totalH, totalFps);
-            filterParts.push(
-              `[${inIdx}:v]loop=loop=1:size=${frames},scale=${totalW*2}:${totalH*2},${zp},format=yuv420p,fps=${totalFps}${fadeStr},setpts=PTS+${start}/TB[${srcLabel}]`
-            );
-            filterParts.push(
-              `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
-            );
+            /* B-Roll: prefer real video clip; fall back to Ken Burns still */
+            if (clip.videoUrl) {
+              const vp = nleResolveLocalPath(clip.videoUrl);
+              const vi = vp && fs9.existsSync(vp) ? (videoPathToIdx[vp.toLowerCase()] ?? -1) : -1;
+              if (vi >= 0) {
+                const inIdx = videoBase + vi;
+                filterParts.push(
+                  `[${inIdx}:v]trim=start=0:end=${dur},setpts=PTS-STARTPTS,` +
+                  `scale=${totalW}:${totalH}:force_original_aspect_ratio=decrease,pad=${totalW}:${totalH}:(ow-iw)/2:(oh-ih)/2,` +
+                  `format=yuv420p,fps=${totalFps}${fadeStr},setpts=PTS+${start}/TB[${srcLabel}]`
+                );
+                filterParts.push(
+                  `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
+                );
+              } else {
+                clipIdx++; continue;
+              }
+            } else {
+              const ip = nleResolveLocalPath(clip.imageUrl);
+              const ii = ip && fs9.existsSync(ip) ? (imagePathToIdx[ip.toLowerCase()] ?? -1) : -1;
+              if (ii < 0) { clipIdx++; continue; }
+              const inIdx = imageBase + ii;
+              const frames = Math.max(1, Math.round(dur * totalFps));
+              const zp = nleZoompan(clip.zoomDir, frames, totalW, totalH, totalFps);
+              filterParts.push(
+                `[${inIdx}:v]loop=loop=1:size=${frames},scale=${totalW*2}:${totalH*2},${zp},format=yuv420p,fps=${totalFps}${fadeStr},setpts=PTS+${start}/TB[${srcLabel}]`
+              );
+              filterParts.push(
+                `[${prevLabel}][${srcLabel}]overlay=0:0:enable='between(t,${start},${end})':shortest=0[${clipLabel}]`
+              );
+            }
           } else if (clip.trackType === "viz") {
             if (clip.muted) { clipIdx++; continue; }
             /* audio source: stem if provided & found, else master */
