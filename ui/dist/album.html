@@ -940,17 +940,23 @@ async function autoFillAlbum() {
   try {
     const hasTheme = ALBUM_THEME && ALBUM_THEME.trim().length > 0;
     // Count tracks that already have content; if none, fill all 9
-    const activeCount = TRACKS.filter(t => t.subject || t.lyrics).length || TRACKS.length;
+    // Design the concept for EVERY track row — not just the configured ones.
+    // Previously: filter(t => t.subject || t.lyrics).length — after any partial fill
+    // (e.g. a broken run that populated only 1 row, saved to localStorage), the
+    // count degenerated to 1 and every later Auto-Fill asked for a 1-TRACK ALBUM.
+    const activeCount = TRACKS.length;
 
     let subjectPrompt = `Design a ${activeCount}-track ${albumGenreDisplay()} album`;
     if (hasTheme) subjectPrompt += ` with the concept: "${ALBUM_THEME}"`;
     if (VOCALIST_GENDER) subjectPrompt += `. The vocalist is ${VOCALIST_GENDER}`;
     if (ABOUT_GENDER) subjectPrompt += `. The songs are about a ${ABOUT_GENDER} subject`;
-    subjectPrompt += `. Generate ${activeCount} tracks that form a cohesive album.`;
+    subjectPrompt += `. Generate ${activeCount} tracks that form a cohesive album, each with a clear subject-driven story.`;
 
     const genderContext = buildGenderContext();
     const sysPrompt = `You are an expert music producer and album concept designer. You design album track listings with compelling themes and subjects.
+
 ${genderContext}
+
 Output your response in this EXACT format — one line per field, no JSON, no markdown, no code blocks:
 
 THEME: A 1-2 sentence album concept/theme description
@@ -958,15 +964,12 @@ TITLE: Album title (2-5 words, catchy)
 1: Track Title | A 2-3 sentence description of what this song is about — enough detail for a lyricist to write from. Concrete images, specific scenarios, emotional arc.
 2: Track Title | A 2-3 sentence description...
 3: Track Title | A 2-3 sentence description...
-...continue for every track...
 
 CRITICAL RULES:
 - EVERY line must start with either "THEME:", "TITLE:", or a number followed by colon.
 - Every track subject must be DIFFERENT — no two tracks about the same thing.
 - Each subject must contain CONCRETE IMAGES (places, objects, actions, sensory details) — never abstract concepts.
-- ${hasTheme
-    ? 'The tracks should tell a STORY ARC across the album: Act 1 (tracks 1-2) = Setup — introduce the world/characters. Act 2 (middle tracks) = Conflict/Journey — raise stakes, explore different angles. Final tracks = Resolution — climax, transformation, the final image.'
-    : 'Vary the mood, tempo feel, and lyrical themes across tracks. Make each track feel like a distinct chapter — different scene, different emotion, different energy level — but all belonging to the same genre universe.'}
+- The tracks should tell a STORY ARC across the album: Act 1 (tracks 1-2) = Setup — introduce the world/characters. Act 2 (middle tracks) = Conflict/Journey — raise stakes, explore different angles. Final tracks = Resolution — climax, transformation, the final image.
 - Titles should be SHORT (1-4 words), evocative, and memorable.
 - Never repeat a title word across tracks (e.g. if one track is "Midnight Rain" don't use "rain" in another title).`;
 
@@ -978,11 +981,12 @@ CRITICAL RULES:
         genres: ALBUM_GENRES,
         subject: subjectPrompt,
         language: SELECTED_LANG,
-        systemPrompt: sysPrompt
+        systemPrompt: sysPrompt,
+        rawMode: true
       })
     });
 
-    const raw = result.lyrics || '';
+    const raw = result.raw || result.lyrics || '';
     let concept = parseLLMAlbumResponse(raw);
 
     // Retry once with a simpler prompt if parsing fails
@@ -1011,10 +1015,11 @@ Do NOT add any other text, explanations, or formatting. ONLY output the lines ab
             genres: ALBUM_GENRES,
             subject: `Design a ${albumGenreDisplay()} album concept with ${activeCount} different tracks`,
             language: SELECTED_LANG,
-            systemPrompt: retryPrompt
+            systemPrompt: retryPrompt,
+            rawMode: true
           })
         });
-        const retryRaw = retryResult.lyrics || '';
+        const retryRaw = retryResult.raw || retryResult.lyrics || '';
         concept = parseLLMAlbumResponse(retryRaw);
         if (!concept || !concept.tracks || concept.tracks.length === 0) {
           console.error('[AutoFill] Retry also failed. Raw:', retryRaw.slice(0, 500));
@@ -1031,6 +1036,10 @@ Do NOT add any other text, explanations, or formatting. ONLY output the lines ab
     if (concept.title && !ALBUM_TITLE) ALBUM_TITLE = concept.title;
     if (!ARTIST_NAME) ARTIST_NAME = randomName();
 
+    // Expand rows if the concept returned MORE tracks than we have rows for.
+    while (TRACKS.length < concept.tracks.length && TRACKS.length < MAX_TRACKS) {
+      TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
+    }
     const numToFill = Math.min(concept.tracks.length, TRACKS.length);
     for (let i = 0; i < numToFill; i++) {
       const t = concept.tracks[i];
@@ -1080,7 +1089,8 @@ async function shuffleTracks() {
   if (autoBtn) autoBtn.disabled = true;
 
   try {
-    const activeCount = TRACKS.filter(t => t.subject || t.lyrics).length || TRACKS.length;
+    // Shuffle replaces ALL rows, so design for every track row (see autoFill note).
+    const activeCount = TRACKS.length;
     const hasTheme = ALBUM_THEME && ALBUM_THEME.trim().length > 0;
 
     // Build a compact summary of current state so LLM knows what to replace
@@ -1092,7 +1102,7 @@ async function shuffleTracks() {
     if (hasTheme) subjectPrompt += ` with theme: "${ALBUM_THEME}"`;
     if (VOCALIST_GENDER) subjectPrompt += `. The vocalist is ${VOCALIST_GENDER}`;
     if (ABOUT_GENDER) subjectPrompt += `. The songs are about a ${ABOUT_GENDER} subject`;
-    subjectPrompt += `. Current tracks:\n${currentSummary}\n\nGenerate completely NEW subjects and (optionally better) titles. Keep the album cohesive but make every track feel fresh — different scene, emotion, and energy.`;
+    subjectPrompt += `. Each subject must tell a story driven by its physical world — concrete images, specific scenarios, emotional arc. Keep every track distinct — no two tracks about the same thing. Keep the album cohesive but make every track feel fresh — different scene, emotion, and energy.`;
 
     const genderCtx = buildGenderContext();
     const sysPrompt = `You are an expert music producer shuffling an album's track listing.
@@ -1118,11 +1128,12 @@ RULES:
         genres: ALBUM_GENRES,
         subject: subjectPrompt,
         language: SELECTED_LANG,
-        systemPrompt: sysPrompt
+        systemPrompt: sysPrompt,
+        rawMode: true
       })
     });
 
-    const raw = result.lyrics || '';
+    const raw = result.raw || result.lyrics || '';
     const concept = parseLLMAlbumResponse(raw);
 
     if (!concept || !concept.tracks || !Array.isArray(concept.tracks)) {
@@ -1130,6 +1141,10 @@ RULES:
       throw new Error('Could not parse shuffled tracks. Check the browser console (F12) for the raw LLM response.');
     }
 
+    // Expand rows if the concept returned MORE tracks than we have rows for.
+    while (TRACKS.length < concept.tracks.length && TRACKS.length < MAX_TRACKS) {
+      TRACKS.push({subject:'',lyrics:'',title:'',genreOverride:''});
+    }
     const numToFill = Math.min(concept.tracks.length, TRACKS.length);
     for (let i = 0; i < numToFill; i++) {
       const t = concept.tracks[i];

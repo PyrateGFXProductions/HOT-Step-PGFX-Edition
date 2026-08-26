@@ -491,8 +491,12 @@
             try {
               var body = JSON.parse(opts.body);
               var creativity = parseFloat(localStorage.getItem('hs-instagen-creativity') || '0.5');
+              var emotion = localStorage.getItem('hs-instagen-emotion') || 'any';
               if (!isNaN(creativity) && creativity >= 0 && creativity <= 1) {
                 body.creativity = Math.round(creativity * 100) / 100;
+                if (emotion && emotion !== 'any') {
+                  body.emotion = emotion;
+                }
                 var newOpts = {};
                 for (var k in opts) newOpts[k] = opts[k];
                 newOpts.body = JSON.stringify(body);
@@ -1608,6 +1612,18 @@
         '<input type="range" id="cr-slider" min="0" max="1" step="0.01" value="' + currentVal + '" style="width:100%;height:6px;cursor:pointer;">' +
         '<div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin:4px 0 8px 0;">' +
         '<span>Strict</span><span style="margin-left:8px;">Balanced</span><span>Creative</span><span>Wild</span></div>' +
+        '<div id="cr-desc" style="font-size:11px;color:#94a3b8;line-height:1.4;text-align:center;">' + getDesc(currentVal) + '</div>' +
+        '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #334155;">' +
+        '<b style="font-size:11px;color:#64748b;">Emotional Tone:</b>' +
+        '<select id="cr-emotion" style="width:100%;height:28px;padding:2px 6px;font-size:12px;background:#334155;color:#e2e8f0;border:1px solid #475569;border-radius:6px;cursor:pointer;">' +
+        '<option value="any">Any</option>' +
+        '<option value="happy">Happy</option>' +
+        '<option value="melancholy">Melancholy</option>' +
+        '<option value="funny">Funny</option>' +
+        '<option value="energetic">Energetic</option>' +
+        '<option value="noir">Noir</option>' +
+        '</select>' +
+        '</div>' +
         '<div id="cr-desc" style="font-size:11px;color:#94a3b8;line-height:1.4;text-align:center;">' + getDesc(currentVal) + '</div>';
       document.body.appendChild(panel);
 
@@ -1624,6 +1640,11 @@
       var slider = document.getElementById('cr-slider');
       var label = document.getElementById('cr-label');
       var desc = document.getElementById('cr-desc');
+      var emotionSelect = document.getElementById('cr-emotion');
+      var emotionVal = localStorage.getItem('hs-instagen-emotion');
+      if (emotionVal) {
+        emotionSelect.value = emotionVal;
+      }
       slider.oninput = function() {
         var val = parseFloat(this.value);
         currentVal = val;
@@ -1633,6 +1654,10 @@
         label.style.color = color;
         desc.textContent = getDesc(val);
         btn.style.background = 'linear-gradient(135deg,' + color + ',' + getColor(Math.min(1, val + 0.15)) + ')';
+      };
+      emotionSelect.onchange = function() {
+        var val = emotionSelect.value;
+        localStorage.setItem('hs-instagen-emotion', val);
       };
     })();
     </script>

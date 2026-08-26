@@ -111435,6 +111435,7 @@ var init_ollama = __esm({
             { role: "user", content: userPrompt }
           ],
           stream: !!onChunk,
+          keep_alive: 0,
           options: {
             num_predict: 8196,
             num_ctx: 32768,
@@ -117124,6 +117125,39 @@ function postprocessLyrics(text6) {
       resultLines.push(stripped);
     }
   }
+  // ── Deduplicate consecutive identical sections ─────────────────────────────
+  // LLMs sometimes emit [Chorus] twice in a row (same label, same or empty
+  // content). ACE-Step will sing both, producing a back-to-back chorus.
+  // Drop the duplicate header AND all its content lines.
+  // NOTE: comparison uses the FULL label (including section number) so
+  // [Verse 1] followed by [Verse 2] is NOT deduped — only exact matches.
+  {
+    const deduped = [];
+    let skipMode = false; // true when we are inside a duplicate section
+    let prevLabel = null;
+    for (const line of resultLines) {
+      const sectionMatch = /^\[(\w+)(?:\s+\d+)?\]$/.test(line.trim());
+      if (sectionMatch) {
+        const currentLabel = line.trim().toLowerCase();
+        if (currentLabel === prevLabel) {
+          // Same section label (including number) as previous — skip this header and all its content
+          skipMode = true;
+          continue;
+        }
+        // Different label — end skip mode, start tracking new section
+        skipMode = false;
+        prevLabel = currentLabel;
+      }
+      if (!skipMode) {
+        deduped.push(line);
+      }
+    }
+    // Only replace if we actually removed something
+    if (deduped.length < resultLines.length) {
+      console.log(`[PostProcess] Deduped ${resultLines.length - deduped.length} line(s) from consecutive duplicate section(s)`);
+      return deduped.join("\n");
+    }
+  }
   return resultLines.join("\n");
 }
 // ===== sanitizeDirectionLines =================================================
@@ -117145,12 +117179,22 @@ function postprocessLyrics(text6) {
 function sanitizeDirectionLines(text7) {
   if (!text7) return text7;
   const DIRECTION_LABELS = new Set([
+    // Sample DJ / Crate Digger
     "sample flip", "sampleflip", "flip", "crate dig", "cratedig", "crate-digging",
+    // Loop / Vocal
     "straight loop", "straightloop", "loop", "vocal chop", "vocalchop", "chop",
+    // DJ / Turntablism
     "dj 1 scratch", "dj 2 scratch", "dj 3 scratch", "dj scratch", "scratch",
-    "scratch battle", "dj battle", "turntablism", "turntable", "instrumental break",
-    "dub break", "beat juggle", "beat juggling", "beat switch", "rewind",
-    "drum fill", "drum solo", "bass drop", "drop", "build", "breakdown", "fill"
+    "scratch break", "scratch solo", "scratch battle", "scratch solo",
+    "dj battle", "battle", "turntablism", "turntable",
+    // Instrumental / Production
+    "instrumental break", "dub break", "dubstep break",
+    "beat juggle", "beat juggling", "beat switch", "rewind",
+    "drum fill", "drum solo", "bass drop", "drop", "build", "breakdown", "fill",
+    // Genre-specific instrumental sections (engine has no training on these)
+    "dembow", "dembow break", "dembow solo",
+    "montuno", "piano solo", "pianosolo", "horn break", "hornbreak",
+    "dance break", "dancebreak", "ad-lib break", "adlib break"
   ]);
   // Labels the server/engine understand as real sections (annotation allowed but stripped).
   const STANDARD_LABELS = new Set([
@@ -120777,27 +120821,27 @@ var GENRE_STRUCTURE_TEMPLATES = {
   // DJ / TURNTABLISM — with Single DJ and Dual DJ (battle) variations
   // ════════════════════════════════════════════════════════════════════════════════
   dj: {
-    structure: "I-Scratch-V-C-Scratch-V-C-Solo-C-Outro",
-    description: "DJ/Turntablism: Intro (needle drop, vinyl crackle, beat drop) → Scratch Break (turntable showcase) → Verse (rapped or spoken over beat) → Chorus (catchy, scratch-hook or vocal hook) → Scratch Break → Verse → Chorus → Scratch Solo (extended turntable solo, the centerpiece) → Chorus → Outro (fade, rewind sound, or abrupt stop). The DJ IS the instrument — scratching, cutting, beat-juggling, effects are as important as the vocals. Think L'Entourloop, DJ Shadow, Cut Chemist, Mix Master Mike. The scratch sections should feel like improvised solos — not scripted, but spontaneous bursts of turntable creativity.",
+    structure: "I-Inst-V-C-Inst-V-C-Solo-C-Outro",
+    description: "DJ/Turntablism: Intro (needle drop, vinyl crackle, beat drop) → Instrumental (turntable showcase — scratching, cutting, beat-juggling) → Verse (rapped or spoken over beat) → Chorus (catchy, scratch-hook or vocal hook) → Instrumental (second scratch showcase) → Verse → Chorus → Solo (extended turntable solo, the centerpiece — transforms, flares, chirps, crab scratches) → Chorus → Outro (fade, rewind sound, or abrupt stop). The DJ IS the instrument — scratching, cutting, beat-juggling, effects are as important as the vocals. Think L'Entourloop, DJ Shadow, Cut Chemist, Mix Master Mike. The scratch sections should feel like improvised solos — not scripted, but spontaneous bursts of turntable creativity.",
     verseLines: "4-8 lines; rhythmic, confident, can be rapped, spoken, or chanted. The beat and scratches do the heavy lifting.",
     chorusLines: "4 lines; catchy, hooky, often a scratched vocal sample or a simple repeated phrase. The scratch IS the hook.",
-    bridgeNotes: "Replaced by Scratch Solo — an extended turntable showcase. Beat-juggling, transforms, flares, chirps, crab scratches. The DJ improvises over the beat. Think: the crowd goes wild while the DJ tears up the vinyl.",
+    bridgeNotes: "Solo section — an extended turntable showcase. Beat-juggling, transforms, flares, chirps, crab scratches. The DJ improvises over the beat. This is an INSTRUMENTAL section — no lyrics.",
     hookStyle: "Scratch-based hook — a scratched vocal sample, a cut-up phrase, or a simple chant. The turntables ARE the voice."
   },
   dualdj: {
-    structure: "I-Scratch1-V1-C-Scratch2-V2-C-Battle-C-Outro",
-    description: "Dual DJ/Turntable Battle: Intro (both DJs drop needles simultaneously) → DJ 1 Scratch Break (first DJ shows their skills) → Verse 1 (vocals over DJ 1's beat) → Chorus → DJ 2 Scratch Break (second DJ responds, matching or topping DJ 1) → Verse 2 (different vocalist or same vocalist riding DJ 2's beat) → Chorus → DJ Battle (the centerpiece — both DJs go head-to-head in an impromptu scratch duel, trading cuts back and forth, building intensity) → Chorus → Outro (both DJs layer scratches together in unison, or one fades while the other finishes). This is L'Entourloop's signature — two DJs trading bars, battling on the decks, hyping the crowd. Think DJ Jazzy Jeff & Fresh Prince, Invisibl Skratch Piklz, X-Ecutioners, Beat Junkies. The BATTLE is the song.",
+    structure: "I-Inst-V1-C-Inst-V2-C-Inst-C-Outro",
+    description: "Dual DJ/Turntable Battle: Intro (both DJs drop needles simultaneously) → Instrumental (DJ 1 scratch showcase) → Verse 1 (vocals over DJ 1's beat) → Chorus → Instrumental (DJ 2 scratch response, matching or topping DJ 1) → Verse 2 (different vocalist or same vocalist riding DJ 2's beat) → Chorus → Instrumental (DJ Battle — both DJs go head-to-head in a scratch duel, trading cuts, building intensity) → Chorus → Outro (both DJs layer scratches together in unison, or one fades while the other finishes). This is L'Entourloop's signature — two DJs trading bars, battling on the decks, hyping the crowd. Think DJ Jazzy Jeff & Fresh Prince, Invisibl Skratch Piklz, X-Ecutioners, Beat Junkies. The BATTLE is the song.",
     verseLines: "4-8 lines per DJ's verse; each DJ's verse should feel distinct — different energy, different flow. DJ 1 might be smooth and technical; DJ 2 might be aggressive and flashy.",
     chorusLines: "4 lines; both DJs scratch together in unison, or one scratches while the other cuts. The chorus is where both energies merge.",
-    bridgeNotes: "DJ Battle is THE SECTION — the climax. Both DJs trade scratch patterns back and forth. Each round escalates. The crowd reacts. Short phrases like 'top that', 'follow that', 'your turn', 'my turn' can frame the battle. Use [DJ1] and [DJ2] markers if possible to indicate who's scratching.",
-    hookStyle: "Dual scratch hook — both DJs scratching in unison, layered, complex. Think: two turntables weaving together into one massive scratch pattern. Crowd hype phrases: 'put your hands up', 'rewind', 'wheel and come again'."
+    bridgeNotes: "DJ Battle section — an instrumental scratch duel. Both DJs trade patterns back and forth, each round escalating. This is an INSTRUMENTAL section — no lyrics.",
+    hookStyle: "Dual scratch hook — both DJs scratching in unison, layered, complex. Think: two turntables weaving together into one massive scratch pattern."
   },
   sampledj: {
-    structure: "I-SampleFlip-V-C-SampleFlip-V-C-CrateDig-C-Outro",
-    description: "Sample DJ / Crate Digger: Intro (needle drops onto a dusty find — a chopped clip from a forgotten record, vinyl crackle, then the boom-bap beat locks in) → Sample Flip (the centerpiece — a 2-4 second clip from a DIFFERENT genre, chopped, looped, and recontextualized over the beat) → Verse (rapped or spoken over the flip) → Chorus (the hook is the sample itself — a vocal chop, a stuttered word, the flip's most recognizable bar) → Sample Flip (a NEW flip from a DIFFERENT source genre — never repeat the same record) → Verse → Chorus → Crate Dig (a collage section where the DJ digs live — stacking new finds, layering horn stabs over a vocal chop over a funk break, escalating) → Chorus → Outro (the winning sample plays out alone, vinyl crackle, the needle lifts). Think DJ Shadow (Endtroducing), RJD2, 9th Wonder, J Dilla, Madlib, The Avalanches, L'Entourloop. The SAMPLE IS THE SONG — the flip's recognizable fragment is the melodic identity. The lyrics tell the SUBJECT's story; the sample-flip/crate-dig language is a SOUND description only, never the story topic.",
+    structure: "I-Inst-V-C-Inst-V-C-Inst-C-Outro",
+    description: "Sample DJ / Crate Digger: Intro (needle drops onto a dusty find — a chopped clip from a forgotten record, vinyl crackle, then the boom-bap beat locks in) → Instrumental (Sample Flip — a 2-4 second clip from a DIFFERENT genre, chopped, looped, and recontextualized over the beat) → Verse (rapped or spoken over the flip) → Chorus (the hook is the sample itself — a vocal chop, a stuttered word, the flip's most recognizable bar) → Instrumental (Sample Flip — a NEW flip from a DIFFERENT source genre — never repeat the same record) → Verse → Chorus → Instrumental (Crate Dig — a collage section where the DJ layers new finds in real time: horn stabs, vocal chops, funk breaks, escalating energy) → Chorus → Outro (the winning sample plays out alone, vinyl crackle, the needle lifts). Think DJ Shadow (Endtroducing), RJD2, 9th Wonder, J Dilla, Madlib, The Avalanches, L'Entourloop. The SAMPLE IS THE SONG — the flip's recognizable fragment is the melodic identity. The lyrics tell the SUBJECT's story; the sample-flip/crate-dig language is a SOUND description only, never the story topic.",
     verseLines: "4-8 lines; rhythmic, conversational, can be rapped or spoken. The flipped sample carries the melody — the vocal sits on top of the collage, doesn't fight it.",
     chorusLines: "4 lines; the hook is the SAMPLE — a chopped 2-4 word vocal phrase, a stuttered syllable, or the flip's catchiest bar repeated with variation. The sample IS the singer.",
-    bridgeNotes: "Replaced by Crate Dig — a collage section where the DJ layers new finds in real time: a horn stab here, a vocal chop there, a break underneath. Each added layer escalates the energy. This is the producer's showcase.",
+    bridgeNotes: "Instrumental collage section — the DJ layers new finds in real time: a horn stab here, a vocal chop there, a break underneath. Each added layer escalates the energy. This is an INSTRUMENTAL section — no lyrics.",
     hookStyle: "The hook is the SAMPLE FLIP — a recognizable 2-4 second clip from a different genre, recontextualized. The flip's most recognizable fragment IS the chorus. Rotate the SOURCE GENRE and the CHOP TECHNIQUE every song — no two flips alike. The flip language is SOUND description; the lyrics tell the SUBJECT's story, never a story about digging. The lyric hook is a human line from THIS song's story — a person, a want, a fear, a memory — never 'crate', 'wax', '45', or 'needle'."
   },
   // ════════════════════════════════════════════════════════════════════════════════
@@ -120879,11 +120923,11 @@ var GENRE_STRUCTURE_TEMPLATES = {
     hookStyle: "Guitar-driven. The 'hook' is the guitar tone and phrasing — B.B. King's Lucille, Stevie Ray's Stratocaster."
   },
   "piano blues": {
-    structure: "I-V-V-V-V-PianoSolo-V-Outro",
-    description: "Piano Blues: Intro (boogie-woogie left hand) → Verse (AAB, piano-driven) → Verse → Verse → Verse → Piano Solo → Verse → Outro. PIANO IS THE INSTRUMENT. Boogie-woogie left hand bass, right hand melody. Barrelhouse, honky-tonk energy.",
+    structure: "I-V-V-V-V-Solo-V-Outro",
+    description: "Piano Blues: Intro (boogie-woogie left hand) → Verse (AAB, piano-driven) → Verse → Verse → Verse → Solo (piano solo — boogie-woogie runs, trills, tremolo, the piano answers the vocal) → Verse → Outro. PIANO IS THE INSTRUMENT. Boogie-woogie left hand bass, right hand melody. Barrelhouse, honky-tonk energy.",
     verseLines: "4 lines; AAB pattern, piano-driven, barrelhouse feel",
     chorusLines: "No chorus — the piano fills serve as 'chorus' responses.",
-    bridgeNotes: "Piano solo replaces guitar solo — boogie-woogie runs, trills, tremolo. The piano 'answers' the vocal.",
+    bridgeNotes: "Piano solo section — boogie-woogie runs, trills, tremolo. The piano 'answers' the vocal. This is an INSTRUMENTAL section — no lyrics.",
     hookStyle: "Piano-driven. The 'hook' is the boogie-woogie rhythm — that rolling left hand that makes you move."
   },
   // ════════════════════════════════════════════════════════════════════════════════
@@ -120957,8 +121001,8 @@ var GENRE_STRUCTURE_TEMPLATES = {
     hookStyle: "Warm, communal refrain designed for group singing. The hook may SHIFT LYRICAL CONTENT each chorus while keeping the SAME MELODIC SHAPE — a folk hallmark. Use 2× repetition with natural variation (the story advances, so the hook adjusts). The hook should feel like a chorus the whole pub can join — simple enough to remember, meaningful enough to earn. Concrete noun anchor: specific places, objects, or people. 'The town where I was born' > 'Nostalgia.' Invites singing along without demanding it."
   },
   "celtic folk": {
-    structure: "I-V-C-V-C-Instr-V-Outro",
-    description: "Celtic Folk: Intro (tin whistle or fiddle) → Verse (storytelling, Irish lilt) → Chorus (communal, singalong) → Verse → Chorus → Instrumental Break (jig/reel, dancing) → Verse → Outro. CELTIC Folk is about COMMUNITY and DANCE. Jigs, reels, ceilidh. Instruments are as important as vocals.",
+    structure: "I-V-C-V-C-Inst-V-Outro",
+    description: "Celtic Folk: Intro (tin whistle or fiddle) → Verse (storytelling, Irish lilt) → Chorus (communal, singalong) → Verse → Chorus → Instrumental (jig/reel, dancing) → Verse → Outro. CELTIC Folk is about COMMUNITY and DANCE. Jigs, reels, ceilidh. Instruments are as important as vocals.",
     verseLines: "4 lines; storytelling, Irish/Scottish lilt, melodic delivery",
     chorusLines: "4 lines; communal, singalong, designed for pub singing",
     bridgeNotes: "Instrumental Break is KEY — jig, reel, or polka. Fiddle, tin whistle, bodhrán. This is where the dancing happens.",
@@ -120997,8 +121041,8 @@ var GENRE_STRUCTURE_TEMPLATES = {
     hookStyle: "Confessional, intimate, emotionally honest. The hook IS the raw truth — that one line the singer was afraid to say aloud. Use 2× repetition with emotional intensity building between the first and second statement. The hook should feel like a secret whispered to the listener. Concrete noun anchor required — the most specific, personal object that holds the song's emotional weight (a worn photograph, a dented wedding ring, a half-written letter). NOT abstract — the object IS the feeling. 'Hallelujah', 'Fast Car', 'Fire and Rain' energy — but built from YOUR specific details, not borrowed poetics."
   },
   "bluegrass": {
-    structure: "I-V-C-V-C-Instr-C-Outro",
-    description: "Bluegrass: Intro (banjo/mandolin break) → Verse (high lonesome, fast) → Chorus (communal, high harmony) → Verse → Chorus → Instrumental Break (banjo/fiddle showcase) → Chorus → Outro. BLUEGRASS is FAST and INSTRUMENTAL. Banjo, fiddle, mandolin, dobro. High lonesome vocals.",
+    structure: "I-V-C-V-C-Inst-C-Outro",
+    description: "Bluegrass: Intro (banjo/mandolin break) → Verse (high lonesome, fast) → Chorus (communal, high harmony) → Verse → Chorus → Instrumental (banjo/fiddle showcase) → Chorus → Outro. BLUEGRASS is FAST and INSTRUMENTAL. Banjo, fiddle, mandolin, dobro. High lonesome vocals.",
     verseLines: "4 lines; fast, high lonesome, Appalachian delivery",
     chorusLines: "4 lines; communal, high harmony, designed for picking parties",
     bridgeNotes: "Instrumental Break is KEY — banjo, fiddle, mandolin showcase. This is where the musicians show their chops.",
@@ -121032,16 +121076,16 @@ var GENRE_STRUCTURE_TEMPLATES = {
     hookStyle: "The trumpet's triumphant fanfare and the grito - that passionate shout that says LIFE."
   },
   bhangra: {
-    structure: "I-V-C-V-C-DanceBreak-C-Outro",
-    description: "Bhangra: Intro (dhol beat drop) -> Verse (energetic, Punjab themes) -> Chorus (everyone dances) -> Verse -> Chorus -> Dance Break (dhol solo) -> Chorus -> Outro. CELEBRATION personified. Energy NEVER drops.",
+    structure: "I-V-C-V-C-Solo-C-Outro",
+    description: "Bhangra: Intro (dhol beat drop) → Verse (energetic, Punjab themes) → Chorus (everyone dances) → Verse → Chorus → Solo (dhol solo / dance break — call-and-response with the crowd, energy PEAKS) → Chorus → Outro. CELEBRATION personified. Energy NEVER drops.",
     verseLines: "4 lines; energetic, Punjab village life, harvest, celebration, love. HIGH ENERGY delivery.",
     chorusLines: "4 lines; infectious, repetitive, designed for group dancing. Balle balle! / Ho ho!",
-    bridgeNotes: "Dhol solo / dance break. Call-and-response with the crowd. Energy PEAKS here.",
-    hookStyle: "The dhol beat IS the hook. That chaal rhythm is instantly recognizable."
+    bridgeNotes: "Dhol solo section — the drum leads the dance. Call-and-response with the crowd. This is an INSTRUMENTAL section — no lyrics.",
+    hookStyle: "The dhol rhythm drives everything. The hook is the RHYTHM combined with a celebratory vocal phrase."
   },
   andean: {
-    structure: "I-V-C-V-C-Instr-C-Outro",
-    description: "Andean: Intro (charango/quena solo) -> Verse (mountain imagery, Quechua/Aymara themes) -> Chorus (communal, festive) -> Verse -> Chorus -> Instrumental Break (zampona/charango) -> Chorus -> Outro. MOUNTAIN MUSIC.",
+    structure: "I-V-C-V-C-Inst-C-Outro",
+    description: "Andean: Intro (charango/quena solo) → Verse (mountain imagery, Quechua/Aymara themes) → Chorus (communal, festive) → Verse → Chorus → Instrumental (zampona/charango showcase) → Chorus → Outro. MOUNTAIN MUSIC.",
     verseLines: "4 lines; mountain imagery, Pachamama, seasons, village life. Warm, communal, acoustic.",
     chorusLines: "4 lines; festive, communal, designed for fiesta singing.",
     bridgeNotes: "Instrumental break - quena (flute) or zampoña (panpipes) solo. The Andes breathe here.",
@@ -121226,8 +121270,8 @@ var GENRE_STRUCTURE_TEMPLATES = {
     hookStyle: "The EUPHORIC MELODY is the hook. A soaring, uplifting synth line that makes you feel weightless. 'Sandstorm', 'Adagio for Strings', 'Northern Soul' energy."
   },
   ambient: {
-    structure: "I-Layer-Layer-Layer-Fade",
-    description: "Ambient: Intro (a drone, a texture, a sound) → Layer (adding elements slowly — pads, textures, field recordings) → Layer (deepening, evolving) → Layer (peak density or sparsest moment) → Fade. Ambient has NO traditional structure. No verse/chorus. It's about TEXTURE, SPACE, and ATMOSPHERE. Time is suspended. Brian Eno: 'As ignorable as it is interesting.'",
+    structure: "I-Inst-Inst-Inst-Outro",
+    description: "Ambient: Intro (a drone, a texture, a sound) → Instrumental (adding elements slowly — pads, textures, field recordings) → Instrumental (deepening, evolving) → Instrumental (peak density or sparsest moment) → Outro. Ambient has NO traditional structure. No verse/chorus. It's about TEXTURE, SPACE, and ATMOSPHERE. Time is suspended. Brian Eno: 'As ignorable as it is interesting.'",
     verseLines: "No verses — ambient is instrumental. If vocals exist: whispered, processed, treated as texture rather than narrative.",
     chorusLines: "No chorus — the entire piece IS the texture.",
     bridgeNotes: "No bridge — the piece evolves continuously. No sections, just gradations.",
@@ -121253,23 +121297,23 @@ var GENRE_STRUCTURE_TEMPLATES = {
     hookStyle: "Rhythmic, danceable, catchy. The hook is the CLAVE PATTERN combined with a vocal phrase. 'Vivir Mi Vida', 'Despacito', 'La Bamba' energy."
   },
   reggaeton: {
-    structure: "I-V-C-V-C-Dembow-C-Outro",
-    description: "Reggaeton: Intro (dembow beat drop) → Verse (rapid-fire, rhythmic) → Chorus (catchy, melodic hook) → Verse → Chorus → Dembow Break (beat showcase, dancer's moment) → Chorus → Outro. Reggaeton is the DEMBOW RHYTHM. That 'boom-ch-boom-chick' pattern is EVERYTHING. Urban Latin. Perreo. Dance floor heat.",
+    structure: "I-V-C-V-C-Inst-C-Outro",
+    description: "Reggaeton: Intro (dembow beat drop) → Verse (rapid-fire, rhythmic) → Chorus (catchy, melodic hook) → Verse → Chorus → Instrumental (the dembow beat stripped to its essence — bass, percussion, the dancer's moment, call-and-response with the crowd) → Chorus → Outro. Reggaeton is the DEMBOW RHYTHM. That 'boom-ch-boom-chick' pattern is EVERYTHING. Urban Latin. Perreo. Dance floor heat.",
     verseLines: "4 lines; rapid-fire, rhythmic, urban Spanish. Fast delivery over the dembow beat.",
     chorusLines: "4 lines; catchy, melodic, designed for perreo. Repetitive, sexy, dance floor oriented.",
-    bridgeNotes: "Dembow break — the beat stripped to its essence. The dancer's moment. Call-and-response with the crowd.",
+    bridgeNotes: "Instrumental section — the dembow beat stripped to bass and percussion. The dancer's moment. This is NOT a vocal section — no lyrics here.",
     hookStyle: "Catchy, sexy, dance floor. The hook rides the DEMBOW. 'Dákiti', 'Con Calma', 'Gasolina' energy."
   },
   salsa: {
-    structure: "I-V-C-V-C-Montuno-C-Outro",
-    description: "Salsa: Intro (percussion break — congas, timbales, clave) → Verse (romantic or storytelling) → Chorus (coro — call-and-response) → Verse → Chorus → Montuno (piano/vocal improvisation over chord changes) → Chorus → Outro. Salsa is COMPLEX RHYTHM. Clave, montuno, coro. The piano montuno is the harmonic foundation. Call-and-response between singer and chorus.",
+    structure: "I-V-C-V-C-Interlude-C-Outro",
+    description: "Salsa: Intro (percussion break — congas, timbales, clave) → Verse (romantic or storytelling) → Chorus (coro — call-and-response) → Verse → Chorus → Interlude (montuno section — the lead singer improvises call-and-response over the piano montuno, escalating energy) → Chorus → Outro. Salsa is COMPLEX RHYTHM. Clave, montuno, coro. The piano montuno is the harmonic foundation. Call-and-response between singer and chorus.",
     verseLines: "4 lines; romantic or storytelling, Spanish delivery, rhythmic, melodic",
     chorusLines: "4 lines; coro — the CONGREGATIONAL CHORUS. Call-and-response with the lead singer.",
-    bridgeNotes: "Montuno — piano improvisation over the chord changes. The lead singer improvises (soneo) over the montuno. Call-and-response.",
+    bridgeNotes: "Interlude section — the montuno. The lead singer improvises (soneo) call-and-response with the chorus over the piano montuno. Escalating energy, building toward the final chorus.",
     hookStyle: "Rhythmic, romantic, danceable. The hook is the CORO (chorus response) combined with the clave rhythm. 'Oye Como Va', 'Vivir Mi Vida', 'Quimbara' energy."
   },
   bossa_nova: {
-    structure: "I-V-C-V-C-Instr-Outro",
+    structure: "I-V-C-V-C-Inst-Outro",
     description: "Bossa Nova: Intro (nylon guitar pattern) → Verse (whispered, intimate) → Chorus (melodic, gentle) → Verse → Chorus → Instrumental (guitar or flute solo) → Outro (fade). Bossa Nova is INTIMATE and SOPHISTICATED. Nylon guitar. Whispered vocals. Cool jazz harmonies. The sway of the rhythm — that 'bossa nova clave' — is hypnotic.",
     verseLines: "4 lines; whispered, intimate, Portuguese (or English). Short phrases. The guitar carries the rhythm.",
     chorusLines: "4 lines; melodic, gentle, sophisticated. No belting — the beauty is in the restraint.",
@@ -121291,11 +121335,11 @@ var GENRE_STRUCTURE_TEMPLATES = {
   // AFROBEAT — West African groove tradition
   // ════════════════════════════════════════════════════════════════════════════════
   afrobeat: {
-    structure: "I-V-C-V-C-HornBreak-V-C-Outro",
-    description: "Afrobeat: Intro (long groove build — percussion, bass, guitar) → Verse (polyrhythmic, political) → Chorus (chant-like, communal) → Verse → Chorus → Horn Break (brass section showcase — the PAYOFF) → Verse → Chorus → Outro (extended groove fade). Afrobeat is FELA KUTI'S LEGACY. Polyrhythms. Horn sections. Political lyrics. LONG songs (8-15 minutes). The GROOVE builds and builds and builds.",
+    structure: "I-V-C-V-C-Solo-V-C-Outro",
+    description: "Afrobeat: Intro (long groove build — percussion, bass, guitar) → Verse (polyrhythmic, political) → Chorus (chant-like, communal) → Verse → Chorus → Solo (horn section showcase — brass plays the main riff with maximum intensity, the PAYOFF) → Verse → Chorus → Outro (extended groove fade). Afrobeat is FELA KUTI'S LEGACY. Polyrhythms. Horn sections. Political lyrics. LONG songs (8-15 minutes). The GROOVE builds and builds and builds.",
     verseLines: "4-8 lines; political, storytelling, Yoruba/English. Rhythmic delivery riding the polyrhythm.",
     chorusLines: "4 lines; chant-like, communal, designed for group response. Political message.",
-    bridgeNotes: "Horn break — brass section plays the main riff with maximum intensity. The horns ARE the bridge. Fela's horns.",
+    bridgeNotes: "Horn solo section — brass section plays the main riff with maximum intensity. The horns ARE the bridge. This is an INSTRUMENTAL section — no lyrics.",
     hookStyle: "Political, rhythmic, communal. The hook is the POLYRHYTHM combined with a chant-like vocal. 'Zombie', 'Water No Get Enemy', 'Sorrow Tears and Blood' energy."
   },
   // ════════════════════════════════════════════════════════════════════════════════
@@ -121345,8 +121389,8 @@ var GENRE_STRUCTURE_TEMPLATES = {
     hookStyle: "Maximalist, absurd, catchy. The hook is the PRODUCTION — the pitched vocal, the distorted bass, the chaotic arrangement. 'Money Machine', 'Pc Music', 'Vroom Vroom' energy."
   },
   vaporwave: {
-    structure: "I-Sample-Loop-Deconstruct-Fade",
-    description: "Vaporwave: Intro (sampled 80s/90s music, slowed down) → Loop (the sample loops, slowed, reverb-drenched) → Deconstruct (the sample fragments, glitches, distorts) → Fade. Vaporwave is a SAMPLE-BASED AESTHETIC. Slowed 80s muzak, corporate music, elevator music. Reverb. Delay. Nostalgia for a future that never happened. Mallsoft. Greek busts. Windows 95.",
+    structure: "I-Inst-Inst-Inst-Outro",
+    description: "Vaporwave: Intro (sampled 80s/90s music, slowed down) → Instrumental (the sample loops, slowed, reverb-drenched) → Instrumental (the sample fragments, glitches, distorts) → Instrumental (fading, nostalgic decay) → Outro. Vaporwave is a SAMPLE-BASED AESTHETIC. Slowed 80s muzak, corporate music, elevator music. Reverb. Delay. Nostalgia for a future that never happened. Mallsoft. Greek busts. Windows 95.",
     verseLines: "If vocals: sampled, chopped, repeated fragments. The vocal is a TEXTURE, not a narrative.",
     chorusLines: "No chorus — the loop IS the song.",
     bridgeNotes: "Deconstruction — the sample glitches, fragments, distorts. The nostalgia decays.",
@@ -121364,11 +121408,11 @@ var GENRE_STRUCTURE_TEMPLATES = {
   // SKA — the original (not ska punk)
   // ════════════════════════════════════════════════════════════════════════════════
   ska: {
-    structure: "I-V-C-V-C-HornBreak-C-Outro",
-    description: "Ska: Intro (horns + upstroke guitar) \u2192 Verse (walking bass, upbeat rhythm) \u2192 Chorus (horns, catchy) \u2192 Verse \u2192 Chorus \u2192 Horn Break (brass section showcase) \u2192 Chorus \u2192 Outro. SKA is the UPBEAT RHYTHM \u2014 guitar hits on the offbeat (the 'skank'). Walking bass. Horn section. ORIGINAL Ska is Jamaican \u2014 the root of reggae. 2-Tone Ska is British \u2014 The Specials, Madness.",
+    structure: "I-V-C-V-C-Solo-C-Outro",
+    description: "Ska: Intro (horns + upstroke guitar) → Verse (walking bass, upbeat rhythm) → Chorus (horns, catchy) → Verse → Chorus → Solo (horn section showcase — trumpet, trombone, sax playing the main riff) → Chorus → Outro. SKA is the UPBEAT RHYTHM — guitar hits on the offbeat (the 'skank'). Walking bass. Horn section. ORIGINAL Ska is Jamaican — the root of reggae. 2-Tone Ska is British — The Specials, Madness.",
     verseLines: "4 lines; rhythmic, upbeat, walking bass tempo. Jamaican or British delivery.",
     chorusLines: "4 lines; horns, catchy, designed for dancing. The skank rhythm drives it.",
-    bridgeNotes: "Horn break \u2014 trumpet, trombone, sax showcase. The brass section IS the bridge. Walking bass continues underneath.",
+    bridgeNotes: "Horn solo section — trumpet, trombone, sax showcase. Walking bass continues underneath. This is an INSTRUMENTAL section — no lyrics.",
     hookStyle: "Rhythmic, upbeat, fun. The hook is the UPBEAT GUITAR combined with the horn melody. 'A Message to You Rudy', 'One Step Beyond', 'Monkey Man' energy."
   },
   dnb: {
@@ -121588,6 +121632,25 @@ function analyzeLyricsQuality(lyrics, genreKeyOrKeys, bpm, subject) {
   const hasFlexibleVerses = primaryGenre ? FLEXIBLE_VERSE_GENRES.has(primaryGenre) : false;
   const hasNoChorus = primaryGenre ? NO_CHORUS_GENRES.has(primaryGenre) : false;
 
+  // Common English stop words — used by verse redundancy, subject relevance,
+  // and narrative coherence checks (was previously scoped inside individual
+  // if-blocks, causing "stopWords is not defined" in later sections).
+  const stopWords = new Set(["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "is", "was", "are", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
+    "may", "might", "shall", "can", "this", "that", "these", "those", "it", "its",
+    "i", "you", "he", "she", "we", "they", "me", "him", "us", "them", "my", "your",
+    "his", "her", "our", "their", "what", "which", "who", "whom", "when", "where",
+    "how", "not", "no", "nor", "so", "if", "then", "than", "too", "very", "just",
+    "about", "up", "out", "off", "over", "down", "into", "through", "during",
+    "before", "after", "above", "below", "between", "under", "again", "further",
+    "once", "here", "there", "all", "each", "every", "both", "few", "more", "most",
+    "other", "some", "such", "only", "own", "same", "also", "back", "even", "still",
+    "well", "way", "take", "make", "like", "get", "got", "go", "going", "come",
+    "know", "think", "see", "want", "look", "use", "find", "give", "tell", "say",
+    "said", "let", "keep", "made", "put", "need", "try", "leave", "call", "now",
+    "oh", "yeah", "hey", "whoa", "ooh", "la", "na", "da"]);
+
   // ── Section Analysis ────────────────────────────────────────────────────────
   for (const sec of sections) {
     if (!sec.lines.length) continue;
@@ -121723,21 +121786,6 @@ function analyzeLyricsQuality(lyrics, genreKeyOrKeys, bpm, subject) {
   const verseSections = sectionDetails.filter(s => s.label === "V" && s.lineCount >= 2);
   if (verseSections.length >= 2) {
     // Extract content words (nouns, verbs) from first line of each verse
-    const stopWords = new Set(["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-      "of", "with", "by", "from", "is", "was", "are", "were", "be", "been", "being",
-      "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
-      "may", "might", "shall", "can", "this", "that", "these", "those", "it", "its",
-      "i", "you", "he", "she", "we", "they", "me", "him", "us", "them", "my", "your",
-      "his", "her", "our", "their", "what", "which", "who", "whom", "when", "where",
-      "how", "not", "no", "nor", "so", "if", "then", "than", "too", "very", "just",
-      "about", "up", "out", "off", "over", "down", "into", "through", "during",
-      "before", "after", "above", "below", "between", "under", "again", "further",
-      "once", "here", "there", "all", "each", "every", "both", "few", "more", "most",
-      "other", "some", "such", "only", "own", "same", "also", "back", "even", "still",
-      "well", "way", "take", "make", "like", "get", "got", "go", "going", "come",
-      "know", "think", "see", "want", "look", "use", "find", "give", "tell", "say",
-      "said", "let", "keep", "made", "put", "need", "try", "leave", "call", "now",
-      "oh", "yeah", "hey", "whoa", "ooh", "la", "na", "da"]);
     const getVerseWords = (idx) => {
       const sec = sections.filter(s => s.label === "V")[idx];
       if (!sec) return [];
@@ -121839,18 +121887,6 @@ function analyzeLyricsQuality(lyrics, genreKeyOrKeys, bpm, subject) {
   // is "the last hour of daylight" and the lyrics mention zero light/sun/dusk
   // words, the lyrics aren't about the subject.
   if (subject && subject.trim()) {
-    const stopWords = new Set(["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-      "of", "with", "by", "from", "is", "was", "are", "were", "be", "been", "being",
-      "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
-      "may", "might", "shall", "can", "this", "that", "these", "those", "it", "its",
-      "i", "you", "he", "she", "we", "they", "me", "him", "us", "them", "my", "your",
-      "his", "her", "our", "their", "what", "which", "who", "whom", "when", "where",
-      "how", "not", "no", "nor", "so", "if", "then", "than", "too", "very", "just",
-      "about", "up", "out", "off", "over", "down", "into", "through", "during",
-      "before", "after", "above", "below", "between", "under", "again", "further",
-      "once", "here", "there", "all", "each", "every", "both", "few", "more", "most",
-      "other", "some", "such", "only", "own", "same", "also", "back", "even", "still",
-      "well", "way", "take", "make", "like", "get", "got", "go", "going", "come"]);
     const subjectWords = subject.toLowerCase().match(/[a-z']+/g)
       ?.filter(w => w.length > 2 && !stopWords.has(w)) || [];
     if (subjectWords.length > 0) {
@@ -123056,25 +123092,11 @@ STRUCTURE RULES:
 - OUTRO RULE (MANDATORY): Every song MUST end with an [Outro] section containing 3-4 lines of actual lyrics (the sweet spot for emotional closure). The outro provides emotional closure \u2014 echo the hook, restate the central image, or leave a final aftertaste. The outro is your final emotional statement \u2014 give it enough weight that the listener feels the song ended, not that it just stopped. Do NOT introduce new themes. Do NOT end abruptly after the last chorus. The outro is the LAST thing the listener hears.
 
 CONTENT RULES:
-- The lyrics MUST be about the given subject. This is the #1 priority.
-- Match the genre's typical vocabulary, tone, and energy level.
-- Write in the specified language. If no language is specified, default to English.
-- Be specific and vivid \u2014 concrete imagery beats abstract statements.
-- THE "GREASE SPOT" RULE: Write about PHYSICAL OBJECTS and MUNDANE DETAILS, not abstract feelings. Instead of "I felt so sad", write "I stared at the grease spot on the linoleum". Instead of "my heart was broken", write "I found your lighter in the glove compartment". Concrete nouns (receipts, license plates, broken lighters, coffee stains) starve the AI of the abstract data pathways that produce slop. Every verse should contain at least 2-3 specific physical objects or locations. IMPORTANT: Physical objects must make sense together — a cigarette pack gets torn open, not "leaked." A chain snaps or drags, it doesn't "weep." Ground every detail in how the physical world actually works. EXCEPTION for existential/abstract genres (doom metal, black metal, progressive metal, folk, shoegaze, post-rock): These genres live in existential territory and that's their identity. Use abstract concepts but GROUND each one with at least one concrete image per verse — "the void" is fine if it sits next to "a rusted door hinge." Don't force a diner scene into a doom metal song about the void, but do give the listener something physical to anchor to.
-- NARRATIVE COHERENCE (CRITICAL): Every image in every verse must connect to the subject. If the subject is "the last hour of daylight," every line should relate to fading light, dying sun, encroaching darkness, or time running out. A cold tea in a mug has nothing to do with the last hour of daylight — it's a random object, not a connected image. Think of each verse as a scene in a film: the camera pans across related images that build toward the subject. Images within a verse should rhyme thematically (decay + dusk + rust work together; cold tea + copper coins + newspapers do not). The subject is the CENTER — every line orbits it.
-- 3-ACT STORY STRUCTURE (CRITICAL): Every song tells a story that progresses through at minimum 3 acts. Act 1 (Verse 1 / Setup): Establish the world, the subject, the emotional starting point — where are we, what's happening, what's the first hint of what's to come. Act 2 (Verse 2-3 / Tension): Deepen the conflict, raise the stakes, layer in details that build pressure — the subject intensifies, something shifts, the listener feels the weight growing. Act 3 (Verse 4+ / Resolution): The climax and aftermath — the subject reaches its peak, something breaks or transforms, the final image lingers. A song with 4 verses of unrelated images is not a story — it's a list. Even in genres without literal narratives (metal, ambient, punk), there's an emotional arc: something starts, something builds, something lands. The listener needs to feel that the song went SOMEWHERE.
-- META-PRODUCTION SUBJECTS BANNED (CRITICAL): The song's STORY must never be about making music, records, or the production process. Do NOT write stories about vinyl, wax, records, discs, crates, samples, flips, MPCs, turntables, decks, scratching, DJing, beats, loops, studios, microphones, or "the sound". Production elements in the style (a "needle dragging across dusty wax", a "crate dig", a "sample flip") describe the SOUND — they belong in the tags, NEVER as the lyrics' topic. A chorus about hunting for a record is a FAILURE unless the subject literally IS a record collector. If no explicit subject is given, INVENT a human story. Pick ONE concrete subject (a person, place, object, animal, memory, or idea) that fills a real emotional role in the protagonist's life — something they are trying to get back to, trying to escape, about to lose, promised to protect, left behind, are waiting for, have outgrown, or must let go of. You choose WHAT it is freely; the only fixed thing is the RELATIONSHIP between the protagonist and the subject. Build the story around it: a protagonist, a place, a want, an obstacle, a resolution — that a listener could believe without ever seeing the genre label. ROTATE every song — never reuse a subject, setting, image, or word from a previous song (especially overused Appalachian cliches like "holler", "ridge", "hollow"). The music can be ABOUT the mountain; it must not be ABOUT being a bluegrass-DJ song. ANCHOR VARIETY (CRITICAL): Genre guides may list "concrete noun anchors" — those are SOUND-WORLD examples, NOT story requirements and NOT a menu of subjects. The lyrics' concrete nouns must come from THIS song's subject and story — never default to the genre's stock imagery. If the subject is empty, let the SUBJECT ROLE guidance pick the relationship and then choose a concrete subject you have never used in a previous song. A fresh angle on a familiar theme is always better than a recycled one. The same genre must produce wildly different stories every single song — that is what makes a songwriter diverse and talented across all genres.
-- ALL CAPS AS DYNAMIC CONTRAST: If the genre calls for ALL CAPS emphasis, use it SPARINGLY — not in every verse. The release naturally lands on the last line of a verse (that's correct — tension builds, release comes at the peak). The variety is in WHETHER a verse gets ALL CAPS at all: some verses should stay entirely lowercase (sustained tension, no release), others get the ALL CAPS payoff. Not every verse deserves the release — deny it sometimes to make the times you deliver it hit harder. Think of it like dynamics in music: not every chorus is the loudest moment. Save the ALL CAPS for the verses that truly earn it — usually the emotional peak and the resolution, not every verse.
-- VARIETY IS SURVIVAL: Real songs are NOT repetitive in structure. If every verse has the same length, same cadence, same ALL CAPS placement, the listener gets bored. VARY: different verse lengths, different imagery types (some verses physical, some sensory, some dialogue), different emotional intensities (one quiet verse, one explosive), different line lengths (short punchy mixed with longer flowing).
-- CRITICAL SYLLABLE VARIANCE: AI lyrics often have exactly the same number of syllables per line. You MUST intentionally vary the syllable count of your lines. A verse should mix short punchy lines (3-5 syllables) with longer flowing lines (8-12 syllables). Standard deviation of syllables should be at least 2.0.
-- PERSISTENT PERSPECTIVE: Choose ONE narrative perspective (e.g., First Person 'I/me/my' OR Third Person 'He/she/they') and stick to it strictly throughout the entire song. Do NOT drift perspectives between verses and choruses.
-- OPENING WORD DIVERSITY: Do not start multiple sections with the same word. Vary the starting words of verses, choruses, and bridges.
-- CRITICAL SYLLABLE VARIANCE: AI lyrics often have exactly the same number of syllables per line. You MUST intentionally vary the syllable count of your lines. A verse should mix short punchy lines (3-5 syllables) with longer flowing lines (8-12 syllables). Standard deviation of syllables should be at least 2.0.
-- PERSISTENT PERSPECTIVE: Choose ONE narrative perspective (e.g., First Person 'I/me/my' OR Third Person 'He/she/they') and stick to it strictly throughout the entire song. Do NOT drift perspectives between verses and choruses.
-- OPENING WORD DIVERSITY: Do not start multiple sections with the same word. Vary the starting words of verses, choruses, and bridges.
-- Do NOT use AI-generic poetic language. NO neon, haze, ethereal, embers, silhouette, static, void, shimmering, tapestry, analog, glare, drenched, howling, wailing, flickering, phantom, ghostly, whispers, echoes, starlight, heartbeat, shadows, delve.
-- Write like a real person from that genre would write, not like an AI writing assistant.
-- Do NOT include commentary, explanations, or notes \u2014 lyrics only.
+- THE SUBJECT IS THE STORY: The subject above is the entire world of this song. Before writing any line, ask: "Does this reference something from the subject's physical world?" If the subject is "a cracked dashboard on a highway at dusk," the world is: leather seats, dust on the console, instrument lights glowing, sky fading through the windshield, the engine humming. Every line must exist inside that world \u2014 not random objects, not the genre's world. Ground details in how the physical world actually works (chains snap, coffee cools, glass cracks \u2014 things don't "weep" or "leak"). For abstract genres (doom metal, shoegaze), ground each concept with one concrete image \u2014 "the void" sits next to "a rusted door hinge."
+- STORY ARC: Every song progresses through at least 3 acts. Verse 1 introduces the character and their world. Verses 2-3 raise the stakes \u2014 something shifts, pressure builds. The final section delivers the peak or resolution. Even without a literal plot, the emotional landscape must MOVE. The listener must feel the song went SOMEWHERE.
+- REAL VOICE: Choose ONE perspective (first person "I" or third person "he/she/they") and never switch. Write like a real person from this genre \u2014 not like an AI listing images. Mix short punchy lines with longer flowing ones. Don't start every line the same way. Avoid AI-generic words: neon, haze, ethereal, shimmering, cascade, tapestry, phantom, whispers, echoes, shadows, starlight, heartbeat, embers, void, delve.
+- NO MUSIC ABOUT MUSIC: Lyrics never describe the production process, instruments, or recording. "Vinyl," "scratching," "the beat" are sounds \u2014 they belong in the tags field, not the story. The lyrics tell the subject's story, never a story about the genre's production.
+- STRUCTURE: Verses have 4 or 8 lines. Choruses have 4, 6, or 8 lines. Every song must have at least one [Chorus]. End with [Outro] (3-4 lines of actual lyrics for emotional closure). Do NOT introduce new themes in the outro.
 
 HOOK ARCHITECTURE (CRITICAL):
 - HOOK \u2260 CHORUS: The hook is a SINGLE LINE or SHORT PHRASE (4-10 syllables) that repeats within the chorus as its centerpiece. The chorus is the container; the hook is the diamond inside it.
@@ -123234,21 +123256,11 @@ STRUCTURE:
 - Add instrumental breaks between major sections where appropriate for the genre
 
 QUALITY:
-- The lyrics MUST be about the given subject \u2014 this is the #1 priority
-- Write like a real human artist \u2014 specific, vivid, concrete imagery, not abstract platitudes
-- THE "GREASE SPOT" RULE (CRITICAL): Write about PHYSICAL OBJECTS and MUNDANE DETAILS, not abstract feelings. Instead of "I felt so sad", write "I stared at the grease spot on the linoleum". Instead of "my heart was broken", write "I found your lighter in the glove compartment". Instead of "the pain inside me", write "a cold cup of coffee on the dashboard". Concrete nouns (receipts, license plates, specific car models, broken lighters, coffee stains) STARVE the AI of the abstract data pathways that produce slop like "ethereal", "cascading", and "tapestry of dreams". Every verse should contain at least 2-3 specific physical objects or locations. IMPORTANT: Physical objects must make sense together — a cigarette pack gets torn open or scattered, it doesn't "leak." A rusted chain drags or snaps, it doesn't "weep." Ground every detail in how the physical world actually works. EXCEPTION for existential/abstract genres (doom metal, black metal, progressive metal, folk, shoegaze, post-rock): These genres live in existential territory and that's their identity. Use abstract concepts but GROUND each one with at least one concrete image per verse — "the void" is fine if it sits next to "a rusted door hinge." Don't force a diner scene into a doom metal song about the void, but do give the listener something physical to anchor to.
-- NARRATIVE COHERENCE (CRITICAL): Every image in every verse must connect to the subject. If the subject is "the last hour of daylight," every line should relate to fading light, dying sun, encroaching darkness, or time running out. A cold tea in a mug has nothing to do with the last hour of daylight — it's a random object, not a connected image. Think of each verse as a scene in a film: the camera pans across related images that build toward the subject. Images within a verse should rhyme thematically (decay + dusk + rust work together; cold tea + copper coins + newspapers do not). The subject is the CENTER — every line orbits it.
-- 3-ACT STORY STRUCTURE (CRITICAL): Every song tells a story that progresses through at minimum 3 acts. Act 1 (Verse 1 / Setup): Establish the world, the subject, the emotional starting point — where are we, what's happening, what's the first hint of what's to come. Act 2 (Verse 2-3 / Tension): Deepen the conflict, raise the stakes, layer in details that build pressure — the subject intensifies, something shifts, the listener feels the weight growing. Act 3 (Verse 4+ / Resolution): The climax and aftermath — the subject reaches its peak, something breaks or transforms, the final image lingers. A song with 4 verses of unrelated images is not a story — it's a list. Even in genres without literal narratives (metal, ambient, punk), there's an emotional arc: something starts, something builds, something lands. The listener needs to feel that the song went SOMEWHERE.
-- META-PRODUCTION SUBJECTS BANNED (CRITICAL): The song's STORY must never be about making music, records, or the production process. Do NOT write stories about vinyl, wax, records, discs, crates, samples, flips, MPCs, turntables, decks, scratching, DJing, beats, loops, studios, microphones, or "the sound". Production elements in the style (a "needle dragging across dusty wax", a "crate dig", a "sample flip") describe the SOUND — they belong in the tags, NEVER as the lyrics' topic. A chorus about hunting for a record is a FAILURE unless the subject literally IS a record collector. If no explicit subject is given, INVENT a human story. Pick ONE concrete subject (a person, place, object, animal, memory, or idea) that fills a real emotional role in the protagonist's life — something they are trying to get back to, trying to escape, about to lose, promised to protect, left behind, are waiting for, have outgrown, or must let go of. You choose WHAT it is freely; the only fixed thing is the RELATIONSHIP between the protagonist and the subject. Build the story around it: a protagonist, a place, a want, an obstacle, a resolution — that a listener could believe without ever seeing the genre label. ROTATE every song — never reuse a subject, setting, image, or word from a previous song (especially overused Appalachian cliches like "holler", "ridge", "hollow"). The music can be ABOUT the mountain; it must not be ABOUT being a bluegrass-DJ song. ANCHOR VARIETY (CRITICAL): Genre guides may list "concrete noun anchors" — those are SOUND-WORLD examples, NOT story requirements and NOT a menu of subjects. The lyrics' concrete nouns must come from THIS song's subject and story — never default to the genre's stock imagery. If the subject is empty, let the SUBJECT ROLE guidance pick the relationship and then choose a concrete subject you have never used in a previous song. A fresh angle on a familiar theme is always better than a recycled one. The same genre must produce wildly different stories every single song — that is what makes a songwriter diverse and talented across all genres.
-- ALL CAPS AS DYNAMIC CONTRAST: If the genre calls for ALL CAPS emphasis, use it SPARINGLY — not in every verse. The release naturally lands on the last line of a verse (that's correct — tension builds, release comes at the peak). The variety is in WHETHER a verse gets ALL CAPS at all: some verses should stay entirely lowercase (sustained tension, no release), others get the ALL CAPS payoff. Not every verse deserves the release — deny it sometimes to make the times you deliver it hit harder. Think of it like dynamics in music: not every chorus is the loudest moment. Save the ALL CAPS for the verses that truly earn it — usually the emotional peak and the resolution, not every verse.
-- VARIETY IS SURVIVAL: Real songs are NOT repetitive in structure. If every verse has the same length, same cadence, same ALL CAPS placement, same number of physical objects \u2014 the listener gets bored. VARY: different verse lengths (some 4 lines, some 6), different imagery types (some verses physical, some sensory, some dialogue or memory), different emotional intensities (one quiet verse, one explosive), different line lengths (short punchy lines mixed with longer flowing ones). The model's biggest tell is always doing the same thing twice \u2014 break the pattern deliberately.
-- CRITICAL SYLLABLE VARIANCE: AI lyrics often have exactly the same number of syllables per line. You MUST intentionally vary the syllable count of your lines. A verse should mix short punchy lines (3-5 syllables) with longer flowing lines (8-12 syllables). Standard deviation of syllables should be at least 2.0.
-- PERSISTENT PERSPECTIVE: Choose ONE narrative perspective (e.g., First Person 'I/me/my' OR Third Person 'He/she/they') and stick to it strictly throughout the entire song. Do NOT drift perspectives between verses and choruses.
-- OPENING WORD DIVERSITY: Do not start multiple sections with the same word. Vary the starting words of verses, choruses, and bridges.
-- Match the genre's typical vocabulary, tone, and energy level
-- Write in the specified language using standard dialect (tags stay in English). Do NOT adopt regional dialects or patois unless the user explicitly requested them. IMPORTANT: If the language is "Jamaican Patois" or the genre includes a "(Patois)" variant (e.g. "Reggae (Patois)", "Dub (Patois)"), write ALL lyrics in authentic Jamaican Patois \u2014 use Patois pronouns (mi, yuh, im, dem), articles (di, inna, pon, fi), and grammar throughout. Do NOT write in English with occasional Patois words. For base reggae-family genres without "(Patois)", use standard English with optional Patois flavor \u2014 sprinkle Patois phrases for authenticity but don't force the entire song into dialect.
-- Avoid AI clich\xE9s: neon, haze, ethereal, embers, silhouette, static, void, shimmering, tapestry, starlight, whispers, echoes, shadows, heartbeat
-- HOOK ARCHITECTURE (REPLACES CHORUS HOOK REPETITION): Every chorus MUST contain a hook \u2014 a single line or phrase (4-10 syllables) that repeats at least twice within the chorus. Apply the Rule of Three: Hook \u2192 Development \u2192 Development \u2192 Hook (Varied). The hook must contain a concrete noun anchor, prefer hard consonants (K,T,P,B,D,G), pass the hum test (natural melodic rise and fall), and sit at the START or END of the chorus (not the middle). Genre flexibility: Pop/Rock/Country use strict 3\u00d7 with variation on 3rd. Hip-Hop/R&B use 2\u00d7 with ad-lib variation. Metal/Punk use shouted 2-3 word phrase 3-5\u00d7 escalating. EDM uses vocal chop repetition. Folk shifts lyrically while keeping melodic shape. Do not write a chorus without a hook.
+- THE SUBJECT IS THE STORY: The subject above is the entire world of this song. Every line must reference something from the subject's physical world \u2014 the objects, places, and details that exist in the same space as the subject. Ground every detail in how the physical world actually works (chains snap, coffee cools, glass cracks \u2014 things don't "weep" or "leak"). For abstract genres (doom metal, shoegaze), ground each concept with one concrete image.
+- STORY ARC (CRITICAL): Verse 1 = Setup: introduce the character and their world. Verses 2-3 = Tension: raise stakes, deepen conflict, layer details that build pressure. Final verse/chorus = Resolution: something breaks or transforms, the final image lingers. A song with 4 verses of unrelated images is a list, not a story. Even without a literal plot, the emotional arc must move from beginning to end.
+- REAL VOICE: Write from ONE perspective (first or third person) and never switch. Match the genre's vocabulary and energy. Write in the specified language (standard dialect unless Patois requested). No AI-generic words (neon, haze, ethereal, shimmering, cascade, tapestry, phantom, whispers, echoes, shadows, starlight, heartbeat, embers, void). Write like a real person, not an AI. Mix short punchy lines with longer flowing ones \u2014 don't start every line the same way.
+- NO MUSIC ABOUT MUSIC: Lyrics never describe the production process, instruments, or recording. Production belongs in the tags field. If no explicit subject is given, invent a human story \u2014 a character, a place, a want, and an obstacle.
+- HOOK ARCHITECTURE: Every chorus MUST contain a hook (4-10 syllable phrase repeating 2-3x). Rule of Three: Hook \u2192 Development \u2192 Development \u2192 Hook (Varied). Hard consonants (K,T,P,B,D,G) preferred. Hook at START or END of chorus. Genre flexibility: Pop/Rock strict 3\u00d7 with variation, Hip-Hop/R&B 2\u00d7 with ad-lib, Metal shouted 2-3 word phrase 3-5\u00d7 escalating.
 
 === TITLE ===
 Short (1-6 words), catchy, derived from the hook or central theme. Not just restating the subject.
@@ -169522,6 +169534,20 @@ async function runGeneration(job) {
       console.error(`[Generate] Job ${job.id} failed:`, err.message);
       failGenerationLog(job.id, err.message || "Unknown error", aceReq.task_type || "text2music");
     }
+  } finally {
+    // Unload ace-server models after generation so VRAM is freed for other consumers
+    // (Ollama, ComfyUI, etc). Engine reloads on-demand for the next generation.
+    try {
+      for (const label of ["LM", "DiT", "VAE", "PP-VAE", "Text-Enc", "Adapter"]) {
+        await fetch(`${config.aceServer.url}/models/unload`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label }),
+          signal: AbortSignal.timeout(5e3)
+        }).catch(() => {});
+      }
+      console.log(`[Generate] Job ${job.id} — ace-server models unloaded (VRAM freed)`);
+    } catch { /* best-effort */ }
   }
 }
 var pendingQueue = [];
@@ -169958,6 +169984,18 @@ router6.post("/storm/stream", async (req, res) => {
     streamControl.delete(streamId);
     console.log(`[STORM ${streamId}] stream ended after ${slotIdx} slot(s)`);
     pushLog(`[STORM ${streamId}] stream ended after ${slotIdx} slot(s)`);
+    // Unload ace-server models after STORM stream ends
+    try {
+      for (const label of ["LM", "DiT", "VAE", "PP-VAE", "Text-Enc", "Adapter"]) {
+        await fetch(`${config.aceServer.url}/models/unload`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label }),
+          signal: AbortSignal.timeout(5e3)
+        }).catch(() => {});
+      }
+      console.log(`[STORM ${streamId} ace-server models unloaded`);
+    } catch { /* best-effort */ }
     res.end();
   }
 });
@@ -309537,6 +309575,19 @@ async function runExtraction(job, ditSettings, style, lyrics) {
       job.error = err.message || "Unknown error";
       console.error(`[StemStudio] Job ${job.id}: FAILED \u2014 ${err.message}`);
     }
+  } finally {
+    // Unload ace-server models after extraction so VRAM is freed
+    try {
+      for (const label of ["LM", "DiT", "VAE", "PP-VAE", "Text-Enc", "Adapter"]) {
+        await fetch(`${config.aceServer.url}/models/unload`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label }),
+          signal: AbortSignal.timeout(5e3)
+        }).catch(() => {});
+      }
+      console.log(`[StemStudio] Job ${job.id} — ace-server models unloaded`);
+    } catch { /* best-effort */ }
   }
 }
 router18.post("/extract", (req, res) => {
@@ -310080,6 +310131,19 @@ async function runInspire(job, params) {
       job.stage = "Failed";
       console.error(`[Inspire] Job ${job.id} failed:`, err.message);
     }
+  } finally {
+    // Unload ace-server models after inspire so VRAM is freed for Ollama/ComfyUI
+    try {
+      for (const label of ["LM", "DiT", "VAE", "PP-VAE", "Text-Enc", "Adapter"]) {
+        await fetch(`${config.aceServer.url}/models/unload`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ label }),
+          signal: AbortSignal.timeout(5e3)
+        }).catch(() => {});
+      }
+      console.log(`[Inspire] Job ${job.id} — ace-server models unloaded`);
+    } catch { /* best-effort */ }
   }
 }
 router21.post("/", (req, res) => {
@@ -310264,7 +310328,7 @@ router21.post("/llm", async (req, res) => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  const { provider: providerName, model, genres, subject, language, systemPrompt: clientPrompt, creativity, caption } = req.body;
+  const { provider: providerName, model, genres, subject, language, systemPrompt: clientPrompt, creativity, caption, emotion, rawMode } = req.body;
   if (!providerName) {
     res.status(400).json({ error: "Missing provider" });
     return;
@@ -310317,12 +310381,9 @@ router21.post("/llm", async (req, res) => {
       `Language: ${langName}`,
       "",
       "DECIDE THE STORY BEFORE YOU WRITE:",
-      "1. SUBJECT: The Subject line above is the ONLY character, place, and event in this song. Everything in every verse must be traceable back to it. A cow going to the movies means: cow, corral, movie theater, the journey, the movies she watches. Nothing else exists.",
-      "2. GENRE = SOUND ONLY: Genre and style control HOW the song sounds (rhythm, instrumentation, vocal style, vocabulary flavor). Genre does NOT control WHAT the song is about. A DJ genre means the music scratches \u2014 it does NOT mean the lyrics are about DJing. A reggae genre means the groove is laid-back \u2014 it does NOT mean the story is about Jamaica.",
-      "3. ARC: Verse 1 = setup (introduce the character and world). Verses 2\u20133 = tension (raise stakes, deepen conflict). Verse 4+ = resolution (climax, final image that lingers).",
-      "4. CONCRETE: Use physical objects from the SUBJECT's world \u2014 not the genre's world. Ground abstract feelings with one specific image each (a grease spot, a ticket stub, a milk pail).",
-      "5. STYLE: No AI-generic words (neon, ethereal, shimmering, cascade, tapestry, phantom, haze, whispers, echoes, shadows, starlight, heartbeat, delve). No instrument or production cues in ( ) \u2014 the engine sings them as lyrics. Vary word choices between verses.",
-      "6. VOICE: Write like a real person from this genre, not like an AI. No explanations or notes \u2014 lyrics only.",
+      "1. WHO: The Subject above is a real character (or place, or thing) with a specific want. Put yourself inside THEIR world. Everything in every verse must be something they could see, touch, hear, or feel. If the subject is 'a cow going to the movies,' the ONLY world that exists is: the cow, the corral, the movie theater, the journey, the movies she watches. Nothing else.",
+      "2. WHAT CHANGES: Verse 1 = this is where the character starts. Verses 2-3 = something shifts, stakes rise, details build pressure. The final section = the peak or what's different now. The listener must feel the song moved from A to B.",
+      "3. HOW IT SOUNDS: Genre controls the rhythm, instruments, vocal style, and vocabulary flavor. It does NOT control what the story is about. A DJ genre means the music scratches \u2014 the lyrics still tell the Subject's story. No AI-generic words (neon, ethereal, shimmering, cascade, tapestry, phantom, haze, whispers, echoes, shadows). Write like a real person, not an AI.",
       "",
       "Generate the complete song now:"
     ].join("\n");
@@ -310522,6 +310583,10 @@ router21.post("/llm", async (req, res) => {
         }
         if (mergedMod.lineRules.allowDuetVocals) genreHints.push("This is a dual/double feature — two distinct performers trading verses or scratch patterns. Each performer should have a distinct style and energy.");
       }
+      // Emotional tone modifier — subtle nudge from creativity UI dropdown
+      if (emotion && emotion !== "any") {
+        enhancedUserPrompt += `\nEmotional tone: ${emotion}. Apply it through the subject's world and lyrical details, not by stating "I feel ${emotion}". Keep it subtle — genre atmosphere and imagery should convey the mood.`;
+      }
       if (genreHints.length) {
         enhancedUserPrompt += `\n\nGenre-Specific Instructions (${genreStr}):\n${genreHints.map(h => `- ${h}`).join("\n")}`;
       }
@@ -310576,18 +310641,66 @@ router21.post("/llm", async (req, res) => {
     console.log(`[Inspire/LLM] Genre: ${genreStr}, Subject: ${subject}, Language: ${langName}`);
     console.log(`[Inspire/LLM] Caption: ${captionText ? `${captionText.slice(0, 120)}${captionText.length > 120 ? "…" : ""}` : "(none)"}`);
     console.log(`[Inspire/LLM] Prompt source: ${clientPrompt ? "client override" : dbCustom ? "DB custom" : "default"}`);
-    // Pass explicit generation options: higher temperature for creative variety,
-    // strong presence_penalty to discourage repeating words/phrases across verses.
-    // noThink is NOT set — we keep the model's thinking mode enabled for quality.
-    let raw = await provider.call(systemPrompt, enhancedUserPrompt, effectiveModel, null, {
-      temperature: llmTemperature,
-      presence_penalty: llmPresencePenalty,
-      top_p: llmTopP
-    });
-    raw = stripThinkingBlocks(raw);
-    raw = raw.replace(/<\|[a-z_]+\|>/g, "");
-    console.log(`[Inspire/LLM] Raw response after strip: ${raw.length} chars, starts: "${raw.substring(0, 120).replace(/\n/g, " ")}"`);
-    let structuredResult = parseStructuredLlmResponse(raw);
+    // ── Free VRAM before LLM call ─────────────────────────────────────────────────
+    // ComfyUI may hold models (FLUX.2, LTX, H3) in VRAM after image/video generation.
+    // Ollama needs contiguous VRAM to load its model. Free ComfyUI first so Ollama
+    // has a clean VRAM slate. ComfyUI will reload on-demand for the next image request.
+    try {
+      await comfyFreeVRAM();
+      console.log("[Inspire/LLM] ComfyUI VRAM freed before LLM call");
+    } catch { /* best-effort */ }
+    // ── Quality-Aware Retry Loop ───────────────────────────────────────────────────
+    // Some LLM responses score poorly (too few sections, no chorus, etc). This loop
+    // retries with quality feedback appended to the prompt. Threshold: < 70 triggers
+    // a retry; up to 2 retries (3 total attempts). Returns the best-scoring attempt.
+    const MAX_LLM_ATTEMPTS = 3;
+    const QUALITY_RETRY_THRESHOLD = 70;
+    let bestAttempt = null;
+    for (let _attempt = 1; _attempt <= MAX_LLM_ATTEMPTS; _attempt++) {
+      const _attemptLabel = `[Attempt ${_attempt}/${MAX_LLM_ATTEMPTS}]`;
+      // On retry, append quality feedback so the LLM knows what went wrong
+      let _effectiveUserPrompt = enhancedUserPrompt;
+      if (_attempt > 1 && bestAttempt?.qualityReport?.issues?.length) {
+        const _feedbackIssues = bestAttempt.qualityReport.issues.join("; ");
+        _effectiveUserPrompt = enhancedUserPrompt + `\n\nQUALITY FEEDBACK (your previous attempt scored ${bestAttempt.qualityReport.score}/100 — FIX THESE):\n${_feedbackIssues}\nRewrite the COMPLETE song from scratch. Do NOT reuse any lines from the previous attempt.`;
+        console.log(`[Inspire/LLM] ${_attemptLabel} Retrying with quality feedback (${bestAttempt.qualityReport.score}/100)`);
+      }
+      // Pass explicit generation options: higher temperature for creative variety,
+      // strong presence_penalty to discourage repeating words/phrases across verses.
+      // noThink is NOT set — we keep the model's thinking mode enabled for quality.
+      let raw = await provider.call(systemPrompt, _effectiveUserPrompt, effectiveModel, null, {
+        temperature: llmTemperature,
+        presence_penalty: llmPresencePenalty,
+        top_p: llmTopP
+      });
+      raw = stripThinkingBlocks(raw);
+      raw = raw.replace(/<\|[a-z_]+\|>/g, "");
+      console.log(`[Inspire/LLM] ${_attemptLabel} Raw response: ${raw.length} chars, starts: "${raw.substring(0, 120).replace(/\n/g, " ")}"`);
+      // ── RAW MODE (Album Creator / any client that sends its own prompt format) ─
+      // The Album Creator sends a custom system prompt expecting a NON-song-format
+      // response (e.g. "THEME:/TITLE:/1: Track | Subject"). Running that through the
+      // song-lyrics pipeline (parseStructuredLlmResponse → postprocessLyrics →
+      // processLyricsWithGenre → fixAPrefix) mangles it and breaks the client parser.
+      // rawMode returns the LLM response as-is (thinking stripped) so the client's
+      // own format-specific parser sees clean text.
+      if (rawMode === true) {
+        // Empty/garbage raw responses (0-char answers happen with loaded 12B models):
+        // retry instead of returning them — the client parser has nothing to work with.
+        if (raw.trim().length < 20 && _attempt < MAX_LLM_ATTEMPTS) {
+          console.log(`[Inspire/LLM] ${_attemptLabel} RAW MODE — empty/short response (${raw.length} chars), retrying...`);
+          continue;
+        }
+        console.log(`[Inspire/LLM] ${_attemptLabel} RAW MODE — returning ${raw.length} chars without song-processing`);
+        res.json({
+          raw,
+          structured: false,
+          provider: providerName,
+          model: effectiveModel,
+          rawMode: true
+        });
+        return;
+      }
+      let structuredResult = parseStructuredLlmResponse(raw);
     if (structuredResult) {
       let lyrics = structuredResult.lyrics || "";
       lyrics = lyrics.replace(/\[?(System|User|Assistant)\]?:.*/gi, "");
@@ -310598,7 +310711,7 @@ router21.post("/llm", async (req, res) => {
       lyrics = processLyricsWithGenre(lyrics, genreKeys, langFallback, subject, wantsPatois);
       // Apply APrefix fix AFTER the genre pipeline (processLyricsWithGenre calls fixSectionLabels + enforceLineCounts)
       lyrics = fixAPrefix(lyrics);
-      console.log(`[Inspire/LLM] Structured response: ${lyrics.split("\n").length} lines, BPM=${structuredResult.bpm}, Key=${structuredResult.key}, Title="${structuredResult.title}"`);
+      console.log(`[Inspire/LLM] ${_attemptLabel} Structured response: ${lyrics.split("\n").length} lines, BPM=${structuredResult.bpm}, Key=${structuredResult.key}, Title="${structuredResult.title}"`);
       // ── BPM Clamping (genre-aware) ─────────────────────────────────────────────
       const bpmResult = clampBpmForGenre(structuredResult.bpm, genreKeys, genres);
       if (bpmResult.clamped) {
@@ -310638,32 +310751,39 @@ router21.post("/llm", async (req, res) => {
         const finalCaption = structuredResult.tags || genreStr;
         qualityReport = analyzeLyricsQuality(lyrics, genreKeys, structuredResult.bpm || 0, subject);
         captionQuality = validateCaptionQuality(finalCaption);
-        console.log(`[Inspire/LLM] Quality: lyrics=${qualityReport.score}/100 (${qualityReport.severity}), caption=${captionQuality.score}/100, ${qualityReport.issues.length} lyric issue(s), ${captionQuality.issues.length} caption issue(s)`);
-        if (qualityReport.issues.length) console.log(`[Inspire/LLM] Lyric issues: ${qualityReport.issues.join("; ")}`);
-        if (captionQuality.issues.length) console.log(`[Inspire/LLM] Caption issues: ${captionQuality.issues.join("; ")}`);
+        console.log(`[Inspire/LLM] ${_attemptLabel} Quality: lyrics=${qualityReport.score}/100 (${qualityReport.severity}), caption=${captionQuality.score}/100, ${qualityReport.issues.length} lyric issue(s), ${captionQuality.issues.length} caption issue(s)`);
+        if (qualityReport.issues.length) console.log(`[Inspire/LLM] ${_attemptLabel} Lyric issues: ${qualityReport.issues.join("; ")}`);
+        if (captionQuality.issues.length) console.log(`[Inspire/LLM] ${_attemptLabel} Caption issues: ${captionQuality.issues.join("; ")}`);
       } catch (e) {
         console.warn(`[Inspire/LLM] Quality analysis failed: ${e.message}`);
       }
-      res.json({
-        lyrics,
-        caption: structuredResult.tags || genreStr,
-        title: structuredResult.title || void 0,
-        bpm: structuredResult.bpm || void 0,
-        bpmOriginal: bpmResult.clamped ? bpmResult.original : void 0,
-        key: structuredResult.key || void 0,
-        timeSignature: structuredResult.time_signature || void 0,
-        duration: structuredResult.duration || void 0,
-        structured: true,
-        // Flag so frontend knows to skip inspire
-        provider: providerName,
-        model: effectiveModel,
-        genreModule: genreKeys.length > 0 ? genreKeys : void 0,
-        languageFallback: langFallback ? langFallback.fallback : void 0,
-        qualityReport: qualityReport || void 0,
-        captionQuality: captionQuality || void 0
-      });
+      // Track best attempt by lyric quality score
+      const _attemptScore = qualityReport?.score ?? 0;
+      const _bestScore = bestAttempt?.qualityReport?.score ?? 0;
+      if (!bestAttempt || _attemptScore > _bestScore) {
+        bestAttempt = {
+          lyrics, caption: structuredResult.tags || genreStr,
+          title: structuredResult.title, bpm: structuredResult.bpm,
+          bpmResult, key: structuredResult.key,
+          timeSig: structuredResult.time_signature,
+          duration: structuredResult.duration, structured: true,
+          qualityReport, captionQuality, attempt: _attempt
+        };
+      }
+      // If quality is acceptable, stop retrying
+      if (_attemptScore >= QUALITY_RETRY_THRESHOLD) {
+        console.log(`[Inspire/LLM] ${_attemptLabel} Score ${_attemptScore} >= ${QUALITY_RETRY_THRESHOLD} — accepting`);
+        break;
+      }
+      // If this was the last attempt, log and stop
+      if (_attempt === MAX_LLM_ATTEMPTS) {
+        console.log(`[Inspire/LLM] All ${MAX_LLM_ATTEMPTS} attempts done. Best score: ${bestAttempt.qualityReport?.score ?? "N/A"} (attempt ${bestAttempt.attempt})`);
+        break;
+      }
+      console.log(`[Inspire/LLM] ${_attemptLabel} Score ${_attemptScore} < ${QUALITY_RETRY_THRESHOLD} — retrying...`);
     } else {
-      console.log("[Inspire/LLM] Non-JSON response, falling back to lyrics-only parsing");
+      // Non-structured response — return immediately, no retry
+      console.log(`[Inspire/LLM] ${_attemptLabel} Non-JSON response, falling back to lyrics-only parsing`);
       raw = raw.replace(/\[?(System|User|Assistant)\]?:.*/gi, "");
       raw = raw.replace(/\s*\((?:Hook|You|Repeat|x\d|Refrain|Spoken|Whispered|Ad[- ]?lib|Echo)\)\s*/gi, "");
       raw = raw.replace(/ +$/gm, "");
@@ -310673,19 +310793,14 @@ router21.post("/llm", async (req, res) => {
         extractedTitle = titleEndMatch[1].replace(/^["']+|["']+$/g, "").replace(/[.!?,;:]+$/, "").trim();
         raw = raw.replace(/\n\s*Title:\s*.+?\s*$/im, "").trimEnd();
       }
-      // If parseStructuredLlmResponse already extracted lyrics via _plainExtract,
-      // raw is already the lyrics text. Otherwise, try to strip preamble.
       const rawLines = raw.trim().split("\n");
       let preambleEnd = 0;
-      // Skip preamble: blank lines, lines starting with "Here", "Below", "Sure",
-      // "Of course", or other common LLM opener phrases
       const preambleRe = /^(?:here\s|below\s|sure[,.]?\s|of course[,.]?\s|certainly[,.]?\s|absolutely[,.]?\s|definitely[,.]?\s|yes[,.]?\s|i'?ll |let me |sure thing|okay[,.]?\s|ok[,.]?\s|alright[,.]?\s)/i;
       for (let i = 0; i < rawLines.length; i++) {
         const trimmed = rawLines[i].trim();
-        if (!trimmed) { preambleEnd = i + 1; continue; } // skip blank lines
+        if (!trimmed) { preambleEnd = i + 1; continue; }
         if (preambleRe.test(trimmed)) { preambleEnd = i + 1; continue; }
         if (/^(?:Title|Tags|BPM|Key|Duration|Time.?Sig)\s*:/i.test(trimmed)) { preambleEnd = i + 1; continue; }
-        // Found a real line (section header or lyric) — stop skipping
         if (trimmed.startsWith("[") || trimmed.length < 80) break;
         preambleEnd = i + 1;
       }
@@ -310693,18 +310808,16 @@ router21.post("/llm", async (req, res) => {
         raw = rawLines.slice(preambleEnd).join("\n");
       }
       raw = postprocessLyrics(raw);
-      // ── Apply Genre Pipeline ──────────────────────────────────────────────────
       raw = processLyricsWithGenre(raw, genreKeys, langFallback, subject, wantsPatois);
       raw = fixAPrefix(raw);
-      console.log(`[Inspire/LLM] Generated ${raw.split("\n").length} lines of lyrics${extractedTitle ? `, title: "${extractedTitle}"` : ""}`);
-      // ── Quality Analysis (pure read-only, does not modify lyrics) ────────────
+      console.log(`[Inspire/LLM] ${_attemptLabel} Generated ${raw.split("\n").length} lines of lyrics${extractedTitle ? `, title: "${extractedTitle}"` : ""}`);
       let qualityReport = null;
       try {
         qualityReport = analyzeLyricsQuality(raw, genreKeys, 0, subject);
-        console.log(`[Inspire/LLM] Quality: lyrics=${qualityReport.score}/100 (${qualityReport.severity}), ${qualityReport.issues.length} issue(s)`);
-        if (qualityReport.issues.length) console.log(`[Inspire/LLM] Lyric issues: ${qualityReport.issues.join("; ")}`);
+        console.log(`[Inspire/LLM] ${_attemptLabel} Quality: lyrics=${qualityReport.score}/100 (${qualityReport.severity}), ${qualityReport.issues.length} issue(s)`);
+        if (qualityReport.issues.length) console.log(`[Inspire/LLM] ${_attemptLabel} Lyric issues: ${qualityReport.issues.join("; ")}`);
       } catch (e) {
-        console.warn(`[Inspire/LLM] Quality analysis failed: ${e.message}`);
+        console.warn(`[Inspire/LLM] ${_attemptLabel} Quality analysis failed: ${e.message}`);
       }
       res.json({
         lyrics: raw,
@@ -310716,6 +310829,30 @@ router21.post("/llm", async (req, res) => {
         genreModule: genreKeys.length > 0 ? genreKeys : void 0,
         languageFallback: langFallback ? langFallback.fallback : void 0,
         qualityReport: qualityReport || void 0
+      });
+      return; // Non-structured: don't retry
+    }
+    } // end for _attempt
+    // ── Return Best Attempt ──────────────────────────────────────────────────────
+    if (bestAttempt) {
+      res.json({
+        lyrics: bestAttempt.lyrics,
+        caption: bestAttempt.caption,
+        title: bestAttempt.title || void 0,
+        bpm: bestAttempt.bpm || void 0,
+        bpmOriginal: bestAttempt.bpmResult?.clamped ? bestAttempt.bpmResult.original : void 0,
+        key: bestAttempt.key || void 0,
+        timeSignature: bestAttempt.timeSig || void 0,
+        duration: bestAttempt.duration || void 0,
+        structured: bestAttempt.structured,
+        provider: providerName,
+        model: effectiveModel,
+        genreModule: genreKeys.length > 0 ? genreKeys : void 0,
+        languageFallback: langFallback ? langFallback.fallback : void 0,
+        qualityReport: bestAttempt.qualityReport || void 0,
+        captionQuality: bestAttempt.captionQuality || void 0,
+        llmAttempts: bestAttempt.attempt,
+        bestQualityScore: bestAttempt.qualityReport?.score
       });
     }
   } catch (err) {
@@ -310747,7 +310884,7 @@ router21.post("/llm/subject", async (req, res) => {
     const provider = getProvider(providerName);
     const effectiveModel = model || provider.defaultModel;
     const genreStr = genres?.length ? genres.join(", ") : "any genre";
-    const systemPrompt = `You generate creative, specific song subjects for songwriters. Given a musical genre, suggest ONE vivid, concrete song subject. The subject should be a brief description (1-2 sentences max) that a songwriter can write lyrics about. Be specific and interesting \u2014 avoid generic topics. Do NOT write lyrics, only the subject/concept. Output ONLY the subject, nothing else.`;
+    const systemPrompt = `You generate story-ready song subjects for songwriters. Given a musical genre, suggest ONE subject that already contains a character, a situation, and an emotional hook \u2014 a songwriter should be able to write a coherent song from this alone without inventing more context. Examples of good subjects: "an old cowboy saying goodbye to his dying horse at sunset", "a woman discovering her childhood home is being demolished tomorrow", "two friends who haven't spoken in ten years meeting at a gas station". Bad subjects: "loneliness", "the city", "a feeling" (too vague, no story). Bad subjects: "DJ culture", "the studio session" (about music, not a human story). Output ONLY the subject sentence (1-2 sentences), nothing else.`;
     const userPrompt = `Genre/Style: ${genreStr}
 
 Suggest a creative song subject:`;
@@ -311539,7 +311676,12 @@ async function comfyPost(endpoint, body) { return comfyPostMod(endpoint, body); 
 async function comfyGet(endpoint) { return comfyGetMod(endpoint); }
 async function comfyUpload(filePath, fileName) { return comfyUploadMod(filePath, fileName); }
 async function comfyDownload(filename, subfolder, type) { return comfyDownloadMod(filename, subfolder, type); }
-async function comfyFreeVRAM() { try { await comfyPostMod("/free", {}); } catch {} }
+async function comfyFreeVRAM() {
+  try {
+    await comfyPostMod("/free", { unload_models: true, free_memory: true });
+    console.log("[ComfyUI] Models unloaded from VRAM");
+  } catch {}
+}
 
 /* ── Submit + poll workflow — routed through FIFO queue ── */
 async function comfySubmitAndWait(workflow, onProgress) {
