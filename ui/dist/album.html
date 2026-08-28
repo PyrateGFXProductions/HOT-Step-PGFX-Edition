@@ -290,10 +290,11 @@ ${genderContext ? genderContext + '\n' : ''}Generate a single, original album th
         genres: ALBUM_GENRES,
         subject: prompt,
         language: SELECTED_LANG,
-        systemPrompt: 'You are an expert album concept designer. You produce short, evocative album themes that feel authentic to the genre. Output ONLY the theme text — no labels, no quotes, no extra lines.'
+        systemPrompt: 'You are an expert album concept designer. You produce short, evocative album themes that feel authentic to the genre. Output ONLY the theme text — no labels, no quotes, no extra lines.',
+        rawMode: true
       })
     });
-    let theme = (result.lyrics || '').trim();
+    let theme = (result.raw || result.lyrics || '').trim();
     // Strip surrounding quotes if present
     theme = theme.replace(/^["'"`]|["'"`]$/g, '').trim();
     // Take only the first line
@@ -1546,11 +1547,20 @@ async function openAlbumLibrary() {
       dlBtn.textContent = '\uD83D\uDCE6';
       dlBtn.title = 'Download ZIP';
       dlBtn.style.cssText = 'width:32px;height:32px;border-radius:8px;border:none;background:rgba(168,85,247,0.15);color:#a78bfa;font-size:14px;cursor:pointer;';
-      dlBtn.onclick = function(e) {
-        e.stopPropagation();
-        /* Stream the album ZIP directly from the server */
-        window.open('/api/download/album-zip?album=' + encodeURIComponent(album.name), '_blank');
-      };
+       dlBtn.onclick = function(e) {
+         e.stopPropagation();
+         /* BYPASS ALL JS INTERCEPTORS: Use a hidden anchor tag for native browser streaming.
+            This prevents "Array buffer allocation failed" by ensuring the browser handles
+            the ZIP as a file download rather than a JS blob. */
+         const url = '/api/download/album-zip?album=' + encodeURIComponent(album.name);
+         const a = document.createElement('a');
+         a.href = url;
+         a.setAttribute('download', ''); // Hint to browser to download
+         a.style.display = 'none';
+         document.body.appendChild(a);
+         a.click();
+         document.body.removeChild(a);
+       };
       row.appendChild(cover); row.appendChild(info); row.appendChild(dlBtn);
       card.appendChild(row);
 
