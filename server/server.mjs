@@ -311666,6 +311666,224 @@ router21.post("/video/create", async (req, res) => {
   }
 });
 /* ═══════════════════════════════════════════════════════════════════════
+   MODERN VIDEO CREATION (LTX 2.3 / MiniMax H3 per segment) — same pipeline as MVC
+   ═══════════════════════════════════════════════════════════════════════ */
+router21.post("/video/create-modern", async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+    /* Accept either songId or direct params (album batch) */
+    const { songId, audioUrl, lyrics, style, caption, trackTitle, coverArtSubject, vocalistGender, aboutGender, engine, width, height, frames, frameRate, cfg, imgStrength, seed, unetModel, vaeModel, clipModel, audioVaeModel, icLoraModel, upscaleModel } = req.body;
+    var songData = null;
+    var resolvedAudioUrl = audioUrl || "";
+    var resolvedLyrics = lyrics || "";
+    var resolvedStyle = style || caption || "";
+    var resolvedTitle = trackTitle || "";
+    var resolvedSubject = coverArtSubject || "";
+    /* If songId provided, fetch song data from DB */
+    if (songId) {
+      songData = getDb().prepare("SELECT * FROM songs WHERE id = ? AND user_id = ?").get(songId, userId);
+      if (!songData) { res.status(404).json({ error: "Song not found" }); return; }
+      resolvedAudioUrl = songData.audio_url || songData.mastered_audio_url || "";
+      resolvedLyrics = songData.lyrics || "";
+      resolvedStyle = songData.style || songData.caption || "";
+      resolvedTitle = songData.title || "";
+      resolvedSubject = songData.cover_art_subject || "";
+    }
+    /* Resolve audio file path */
+    if (!resolvedAudioUrl) { res.status(400).json({ error: "No audio URL provided" }); return; }
+    var audioFilename = path4.basename(resolvedAudioUrl);
+    var audioFilePath = path4.join(config.data.audioDir, audioFilename);
+    if (!fs5.existsSync(audioFilePath)) {
+      res.status(404).json({ error: "Audio file not found on disk: " + audioFilename });
+      return;
+    }
+    /* ── Step 1: Beat detection ── */
+    var beatData;
+    try { beatData = detectBeatsInAudio(audioFilePath); }
+    catch (e) { console.warn(`[VideoCreateModern] Beat detection failed: ${e.message}`); beatData = { beats: [], bpm: 0, duration: 0 }; }
+    var songDuration = beatData.duration;
+    if (!songDuration || songDuration <= 0) {
+      var wavInfo = parseWav(audioFilePath);
+      songDuration = wavInfo.samples.length / wavInfo.sampleRate;
+    }
+    var effectiveBpm = beatData.bpm || 0;
+    if ((!effectiveBpm || effectiveBpm <= 0) && songData?.bpm) effectiveBpm = songData.bpm;
+    /* ── Step 2: Parse lyrics into sections ── */
+    var sections = parseVideoSections(resolvedLyrics);
+    if (sections.length === 0) {
+      res.status(400).json({ error: "No lyrics sections found" });
+      return;
+    }
+    console.log(`[VideoCreateModern] Parsed ${sections.length} sections from lyrics (${songDuration.toFixed(1)}s, ${effectiveBpm} BPM)`);
+    /* ── Step 3: Calculate section timings ── */
+    var sectionTimings = calculateSectionTimings(sections, effectiveBpm, songDuration, beatData.beats);
+    console.log(`[VideoCreateModern] Section timings: [${sectionTimings.map(function(t) { return t.toFixed(1); }).join(", ")}]`);
+    /* Split into lyric segments (2-3 lines each) */
+    var flatSegments = [];
+    for (var sgi = 0; sgi < sections.length; sgi++) {
+      var segsFor = splitLyricsIntoSegments(sections[sgi]);
+      for (var sgj = 0; sgj < segsFor.length; sgj++) {
+        segsFor[sgj].sectionType = sections[sgi].sectionType;
+        segsFor[sgj].sectionIndex = sgi;
+        flatSegments.push(segsFor[sgj]);
+      }
+    }
+    if (flatSegments.length === 0) {
+      flatSegments = sections.map(function(s, i) {
+        return { sectionType: s.sectionType, sectionIndex: i, lines: s.lyrics.split("\n").filter(function(l) { return l.trim().length > 0; }) };
+      });
+    }
+    var segmentTimings = calculateSegmentTimings(flatSegments, sectionTimings, songDuration, { minSec: 4, maxSec: 8 });
+    console.log(`[VideoCreateModern] Lyric segments: ${flatSegments.length} (${flatSegments.map(function(s) { return s.lines.length; }).join("/")} lines each)`);
+    /* ── Step 4: Build shared song concept ── */
+    var songConcept = buildSongConcept({
+      coverArtSubject: resolvedSubject,
+      title: resolvedTitle,
+      lyrics: resolvedLyrics,
+      style: resolvedStyle,
+      vocalistGender: vocalistGender || "",
+      aboutGender: aboutGender || ""
+    });
+    console.log(`[VideoCreateModern] Song concept: "${songConcept}"`);
+    /* ── Step 5: Generate FLUX.2 keyframe + video clip per segment ── */
+    var isH3 = engine === "minimax-h3";
+    var segmentTracks = [];
+    for (var si = 0; si < flatSegments.length; si++) {
+      var sec = flatSegments[si];
+      var startTime = segmentTimings[si] || 0;
+      var endTime = segmentTimings[si + 1] || songDuration;
+      var clipDur = endTime - startTime;
+      /* Determine shot type (A-Roll / B-Roll / Viz-Roll) */
+      const SHOT_TYPE_MAP = { intro: "viz", verse: "broll", "pre-chorus": "aroll", chorus: "aroll", "post-chorus": "viz", bridge: "aroll", interlude: "viz", outro: "viz", instrumental: "viz", sample_flip: "broll", crate_dig: "broll", vocal_chop: "viz", breakdown: "aroll", drop: "viz", build: "viz", fill: "viz" };
+      var shotType = SHOT_TYPE_MAP[sec.sectionType] || "broll";
+      if (si > 0 && segmentTracks[si - 1].shotType === shotType && shotType !== "viz") {
+        shotType = shotType === "aroll" ? "broll" : "aroll";
+      }
+      /* Build FLUX.2 keyframe prompt */
+      var prompt = buildVideoSegmentPrompt({
+        segmentLines: sec.lines,
+        sectionType: sec.sectionType,
+        concept: songConcept,
+        style: resolvedStyle,
+        title: resolvedTitle,
+        coverArtSubject: resolvedSubject,
+        vocalistGender: vocalistGender || "",
+        aboutGender: aboutGender || ""
+      });
+      /* Build LTX/H3 motion prompt */
+      var motionPrompt = isH3
+        ? buildH3MotionPrompt({ segmentLines: sec.lines, sectionType: sec.sectionType, concept: songConcept, style: resolvedStyle, subject: resolvedSubject || "" })
+        : buildVideoMotionPrompt({ segmentLines: sec.lines, sectionType: sec.sectionType, concept: songConcept, style: resolvedStyle, vocalistGender: vocalistGender || "", subject: resolvedSubject || "" });
+      /* Generate FLUX.2 keyframe image */
+      console.log(`[VideoCreateModern] Segment ${si + 1}/${flatSegments.length}: Generating FLUX.2 keyframe...`);
+      var imgResult = await generateCoverImage({ prompt });
+      var imageUrl = imgResult.coverUrl;
+      /* Generate video clip (LTX 2.3 or MiniMax H3) */
+      console.log(`[VideoCreateModern] Segment ${si + 1}/${flatSegments.length}: Generating ${isH3 ? "MiniMax H3" : "LTX 2.3"} clip...`);
+      const resW = width || 768;
+      const resH = height || 512;
+      const segFrames = frames || Math.max(25, Math.round(clipDur * (frameRate || 25)));
+      /* Slice audio for LTX */
+      let audioSlicePath = null;
+      let audioSliceName = null;
+      if (!isH3) {
+        const ffmpegPath = getFFmpegPath();
+        if (ffmpegPath) {
+          const sliceDir = path9.join(config.data.dir, "mvc");
+          if (!fs9.existsSync(sliceDir)) fs9.mkdirSync(sliceDir, { recursive: true });
+          const sliceName = `audio_slice_${uuid9().substring(0, 8)}.wav`;
+          const slicePath = path9.join(sliceDir, sliceName);
+          const args = ["-y", "-ss", String(startTime), "-t", String(clipDur), "-i", audioFilePath, "-vn", "-ar", "44100", "-ac", "2", slicePath];
+          try {
+            const { execFile } = require("child_process");
+            await new Promise((resolve, reject) => {
+              execFile(ffmpegPath, args, { timeout: 30000 }, (err) => err ? reject(new Error("FFmpeg slice failed: " + err.message)) : resolve());
+            });
+            if (fs9.existsSync(slicePath)) {
+              audioSlicePath = slicePath;
+              audioSliceName = sliceName;
+            }
+          } catch (sliceErr) { console.warn(`[VideoCreateModern] Audio slice failed: ${sliceErr.message}`); }
+        }
+      }
+      /* Upload image + audio slice to ComfyUI */
+      await comfyUploadMod(imageUrl, path9.basename(imageUrl));
+      if (!isH3 && audioSlicePath) await comfyUploadMod(audioSlicePath, audioSliceName);
+      /* Build workflow */
+      const workflow = isH3
+        ? buildMiniMaxH3WorkflowMod({
+            imageFilename: path9.basename(imageUrl),
+            videoPrompt: motionPrompt,
+            width: resW, height: resH,
+            durationSec: clipDur,
+            steps: 20, seed,
+            outputPrefix: `mvc_modern_${sec.sectionType || "clip"}_${si}`,
+            unetModel: unetModel || "auto", vaeModel: vaeModel || "auto", clipModel: clipModel || "auto", audioVaeModel: audioVaeModel || "auto"
+          })
+        : buildLTX2WorkflowMod({
+            imageFilename: path9.basename(imageUrl),
+            audioFilename: audioSliceName,
+            videoPrompt: motionPrompt,
+            negativePrompt: "",
+            width: resW, height: resH,
+            frames: segFrames, frameRate: frameRate || 25,
+            steps: 20, cfg: cfg || 3.0, imgStrength: imgStrength || 1.0,
+            seed, outputPrefix: `mvc_modern_${sec.sectionType || "clip"}_${si}`,
+            unetModel: unetModel || "auto", vaeModel: vaeModel || "auto", clipModel: clipModel || "auto",
+            audioVaeModel: audioVaeModel || "auto", icLoraModel: icLoraModel || "auto", upscaleModel: upscaleModel || "auto"
+          });
+      /* Submit and wait */
+      const result = await comfySubmitAndWait(workflow);
+      const output = comfyFindOutput(result.outputs);
+      if (!output) throw new Error("No video output found for segment " + (si + 1));
+      const vidFile = output.files[0];
+      const vidBuffer = await comfyDownloadMod(vidFile.filename, vidFile.subfolder || "", vidFile.type || "output");
+      const outDir = path9.join(config.data.dir, "mvc");
+      if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
+      const localName = `clip_modern_${uuid9().substring(0,8)}.mp4`;
+      const localPath = path9.join(outDir, localName);
+      fs9.writeFileSync(localPath, vidBuffer);
+      const videoUrl = `/data/mvc/${localName}`;
+      console.log(`[VideoCreateModern] Segment ${si + 1} clip saved: ${videoUrl} (${(vidBuffer.length/1024/1024).toFixed(1)} MB, ${isH3 ? "H3" : "LTX"})`);
+      /* Add to NLE track list */
+      segmentTracks.push({
+        type: shotType,
+        start: startTime,
+        end: endTime,
+        videoUrl: videoUrl,
+        imageUrl: imageUrl,
+        name: `seg-${si}`,
+        sectionType: sec.sectionType,
+        zoomDir: shotType === "broll" ? (segmentTracks.filter(t => t.type === "broll").length % 6) : 0
+      });
+    }
+    /* ── Step 6: NLE compose all clips into final MP4 ── */
+    console.log(`[VideoCreateModern] Composing ${segmentTracks.length} clips via NLE...`);
+    const exportJobId = uuid9().substring(0, 8);
+    const outDir = path9.join(config.data.dir, "mvc");
+    if (!fs9.existsSync(outDir)) fs9.mkdirSync(outDir, { recursive: true });
+    const outName = `modern_${exportJobId}.mp4`;
+    const outPath = path9.join(outDir, outName);
+    /* Run NLE compose (async, return immediately with job ID) */
+    runNleCompose(exportJobId, userId, {
+      songId: songId || null,
+      width: 1920, height: 1080, fps: 30,
+      audioSource: resolvedAudioUrl,
+      duration: songDuration,
+      tracks: [{ type: "aroll", clips: segmentTracks.filter(t => t.type === "aroll") },
+               { type: "broll", clips: segmentTracks.filter(t => t.type === "broll") },
+               { type: "viz", clips: segmentTracks.filter(t => t.type === "viz") }],
+      snap: false, bpm: effectiveBpm
+    }, "modern");
+    /* Return immediately with job ID for polling */
+    res.json({ jobId: exportJobId, status: "running", videoUrl: null, segments: flatSegments.length, tracks: segmentTracks.length });
+  } catch (err) {
+    console.error("[VideoCreateModern] Failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+/* ═══════════════════════════════════════════════════════════════════════
    ComfyUI Client & Music Video Creator Pipeline
    ═══════════════════════════════════════════════════════════════════════ */
 /* ── Reuse existing imports: fs9 (line 133307), path9 (line 133302) ── */

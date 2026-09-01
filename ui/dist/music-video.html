@@ -3344,7 +3344,7 @@ function buildNleTracks() {
         o.imageUrl = c.imageUrl || '';
         o.zoomDir = c.zoomDir || 0;
       }
-      else if (type === 'broll') { o.imageUrl = c.imageUrl; o.zoomDir = c.zoomDir || 0; }
+      else if (type === 'broll') { o.videoUrl = c.videoUrl || ''; o.imageUrl = c.imageUrl; o.zoomDir = c.zoomDir || 0; }
       else {
         o.stem = stemUrlForName[c.stem] || null;
         o.effect = c.effectId || 'bars';
