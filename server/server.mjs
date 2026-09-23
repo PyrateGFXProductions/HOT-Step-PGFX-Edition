@@ -119565,6 +119565,11 @@ var LANGUAGE_FALLBACK_MAP = {
   "jam": { fallback: "en", name: "Jamaican Patois → English", note: "Jamaican Patois is a creole; write lyrics in Patois dialect using English vocal synthesis" },
   "jmc": { fallback: "en", name: "Jamaican Patois (ISO) → English", note: "Jamaican Patois ISO code; write lyrics in Patois dialect using English vocal synthesis" },
   "jmd": { fallback: "en", name: "Jamaican Maroon Creole → English", note: "Jamaican Maroon Creole unsupported; use Patois dialect in English lyrics" },
+  "pit": { fallback: "en", name: "Nigerian Pidgin → English", note: "Nigerian Pidgin is an English-based creole; write lyrics using pidgin grammar with English vocal synthesis" },
+  "pcm": { fallback: "en", name: "Nigerian Pidgin (ISO) → English", note: "Nigerian Pidgin ISO code; write lyrics using pidgin grammar with English vocal synthesis" },
+  "ng": { fallback: "en", name: "Nigerian Pidgin (alt) → English", note: "Nigerian Pidgin variant; write lyrics using pidgin grammar with English vocal synthesis" },
+  "snk": { fallback: "en", name: "Wolof-influenced pidgin → English", note: "West African creole flavor; use pidgin English with Wolof loanwords" },
+  "bem": { fallback: "en", name: "Bemba → English", note: "Bemba is a Bantu language; write lyrics using Bemba grammar with English vocal synthesis" },
   // Constructed
   "eo": { fallback: "en", name: "Esperanto → English", note: "Esperanto unsupported" },
   "ia": { fallback: "en", name: "Interlingua → English", note: "Interlingua unsupported" },
@@ -120134,6 +120139,37 @@ function resolveLanguageFallback(langCode) {
   if (!langCode) return null;
   const entry = LANGUAGE_FALLBACK_MAP[langCode];
   return entry || null;
+}
+
+// Language code sets + helpers for Patois/Pidgin dialect runs (ported from AVMuse).
+// These make dialect forcing LANGUAGE-aware, not just genre-aware: selecting a
+// Patois/Pidgin language drives full-dialect lyrics even for non-reggae genres.
+var PATOIS_LANGUAGE_CODES = new Set(["jam", "jmc", "jmd"]);
+var DIALECT_LANGUAGE_CODES = new Set(["jam", "jmc", "jmd", "pit", "pcm", "ng", "snk", "bem"]);
+// Engine's natively-supported vocalLanguage codes (ACE-Step normalizeLanguage).
+var ENGINE_NATIVE_LANGUAGE_CODES = new Set([
+  "ar", "az", "bg", "bn", "ca", "cs", "da", "de", "el", "en", "es", "fa",
+  "fi", "fr", "he", "hi", "hr", "ht", "hu", "id", "is", "it", "ja", "ko",
+  "la", "lt", "ms", "ne", "nl", "no", "pa", "pl", "pt", "ro", "ru", "sa",
+  "sk", "sr", "sv", "sw", "ta", "te", "th", "tl", "tr", "uk", "ur", "vi",
+  "yue", "zh", "unknown"
+]);
+function wantsPatoisLyrics(genres, language) {
+  const langCode = String(language || "").trim().toLowerCase();
+  return (genres || []).some(g => String(g).toLowerCase().includes("patois"))
+    || PATOIS_LANGUAGE_CODES.has(langCode);
+}
+// Normalize a vocalLanguage code before sending to the engine: native codes pass
+// through untouched (ht IS native - do NOT fall it back to fr), unsupported codes
+// map to LANGUAGE_FALLBACK_MAP (jam/pit/etc -> en), unknown codes pass through.
+function normalizeEngineVocalLanguage(code) {
+  const c = String(code || "").trim().toLowerCase();
+  if (!c) return code;
+  if (ENGINE_NATIVE_LANGUAGE_CODES.has(c)) return code;
+  if (PATOIS_LANGUAGE_CODES.has(c) || DIALECT_LANGUAGE_CODES.has(c)) return "en";
+  const fb = LANGUAGE_FALLBACK_MAP[c];
+  if (fb && fb.fallback) return fb.fallback;
+  return code;
 }
 
 // ── resolveGenreFromStyles ──────────────────────────────────────────────────────
@@ -166180,7 +166216,7 @@ function translateParams(params) {
     const ts2 = String(params.timeSignature);
     req.timesignature = ts2.includes("/") ? ts2.split("/")[0] : ts2;
   }
-  if (params.vocalLanguage) req.vocal_language = params.vocalLanguage;
+  if (params.vocalLanguage) req.vocal_language = normalizeEngineVocalLanguage(params.vocalLanguage);
   if (params.randomSeed) {
     req.seed = Math.floor(Math.random() * 2147483647);
   } else if (params.seed !== void 0) {
@@ -310289,6 +310325,11 @@ var LANGUAGE_NAMES = {
   jam: "Jamaican Patois",
   jmc: "Jamaican Patois",
   jmd: "Jamaican Maroon Creole",
+  pit: "Nigerian Pidgin",
+  pcm: "Nigerian Pidgin (ISO)",
+  ng: "Nigerian Pidgin (alt)",
+  snk: "Wolof-influenced pidgin",
+  bem: "Bemba",
   eo: "Esperanto",
   ia: "Interlingua",
   jv: "Javanese",
@@ -310355,7 +310396,7 @@ router21.post("/llm", async (req, res) => {
       langName = fallbackDisplayName || langName;
     }
     // Determine if user explicitly chose a (Patois) genre variant — used by genre hints & vocabulary lock
-    const wantsPatois = genres.some(g => g.toLowerCase().includes("patois"));
+    const wantsPatois = wantsPatoisLyrics(genres, language);
     if (genreKeys.length > 0) {
       console.log(`[Inspire/LLM] Resolved genre modules: ${genreKeys.join(", ")} (primary: "${genreKey}")`);
     }
@@ -310367,7 +310408,14 @@ router21.post("/llm", async (req, res) => {
     const llmTemperature = 0.5 + (creativityVal * 0.8);       // 0.5 → 1.3
     const llmPresencePenalty = 2.5 - (creativityVal * 1.7);   // 2.5 → 0.8
     const llmTopP = 0.85 + (creativityVal * 0.13);            // 0.85 → 0.98
-    console.log(`[Inspire/LLM] Creativity: ${(creativityVal * 100).toFixed(0)}% → temp=${llmTemperature.toFixed(2)}, pres_pen=${llmPresencePenalty.toFixed(2)}, top_p=${llmTopP.toFixed(2)}`);
+    // Dialect runs (Patois/Pidgin) force the LLM into a constrained dialect — bump
+    // sampling so small models do not collapse into loops. Mirrors AVMuse: +0.1
+    // temperature, +0.5 presence_penalty, both clamped at sane ceilings.
+    const dialectBoost = wantsPatoisLyrics(genres, language)
+      || DIALECT_LANGUAGE_CODES.has(String(language || "").trim().toLowerCase());
+    const llmTemperatureEff = dialectBoost ? Math.min(1.3, llmTemperature + 0.1) : llmTemperature;
+    const llmPresencePenaltyEff = dialectBoost ? Math.min(3.0, llmPresencePenalty + 0.5) : llmPresencePenalty;
+    console.log(`[Inspire/LLM] Creativity: ${(creativityVal * 100).toFixed(0)}% → temp=${llmTemperature.toFixed(2)}, pres_pen=${llmPresencePenalty.toFixed(2)}, top_p=${llmTopP.toFixed(2)}${dialectBoost ? ` (dialect boost: temp=${llmTemperatureEff.toFixed(2)}, pres_pen=${llmPresencePenaltyEff.toFixed(2)})` : ""}`);
     const dbCustom = getSetting("instagen_system_prompt");
     const systemPrompt = clientPrompt?.trim() || dbCustom || INSTAGEN_FULL_SYSTEM_PROMPT;
     // Build enhanced user prompt with genre-specific instructions
@@ -310422,7 +310470,7 @@ router21.post("/llm", async (req, res) => {
     //   - If user selected a base reggae genre → SUGGEST Patois as optional flavor
     // This lets users choose clean English reggae OR full Patois reggae.
     if (genreKeys.includes("reggae")) {
-      const wantsPatois = genres.some(g => g.toLowerCase().includes("patois"));
+      const wantsPatois = wantsPatoisLyrics(genres, language);
       if (wantsPatois) {
         // ── Determine if this is BILINGUAL (non-English + Patois) or MONOLINGUAL (English + Patois) ──
         const userLangCode = (language || "en").toLowerCase();
@@ -310600,7 +310648,7 @@ router21.post("/llm", async (req, res) => {
         return !["reggae", "dub", "ska", "rocksteady", "dancehall", "lovers rock", "roots reggae", "ragga"].some(alias => gLower.includes(alias));
       });
       if (otherGenreNames.length > 0) {
-        const wantsPatois = genres.some(g => g.toLowerCase().includes("patois"));
+        const wantsPatois = wantsPatoisLyrics(genres, language);
         if (wantsPatois) {
           const userLangCode = (language || "en").toLowerCase();
           const nonPatoisLangCodes = ["en", "jam", "jmc", "jmd"];
@@ -310626,6 +310674,26 @@ router21.post("/llm", async (req, res) => {
       if (otherGenreNames.length > 0) {
         enhancedUserPrompt += `\n\nSTRUCTURE: The story is the Subject above. The production SOUNDS like ${genreKeys.includes("sampledj") ? "crate digging and sampling" : "scratching and turntablism"} \u2014 ${genreKeys.includes("sampledj") ? "include [Sample Flip] and [Crate Dig] sections with unique source+technique pairs." : "include scratch breaks and cut-up vocal samples with technique variety (transforms, flares, chirps, crabs)."}`;
       }
+    }
+    // Language-driven Patois (decoupled from genre)
+    const dialectLangLower = String(language || "").toLowerCase();
+    if (PATOIS_LANGUAGE_CODES.has(dialectLangLower)) {
+      enhancedUserPrompt += `\n\nLANGUAGE LOCK: The lyrics field MUST be written entirely in Jamaican Patois. Use Patois grammar, pronouns, and street slang. JSON structure stays in English. Do NOT write English lyrics with a few Patois words sprinkled in - the ENTIRE lyrics content must be in Patois dialect.
+PATOIS PRONOUNS: mi (I/me), yuh (you), im (he/she), wi (we), unu (you all), dem (they).
+PATOIS ARTICLES: di (the), a (at/to), fi (to/for), wid (with), pon (on), inna (in), bout (about).
+PATOIS VERBS: nuh + verb = don't. nah + verb = isn't. tek (take), gi (give), seh (say), guh (go), nyam (eat), meck (make).
+PATOIS TIME: a = present continuous (mi a goh = I am going). did = past. ago = future. don = already done.
+PATOIS INTERJECTIONS: irie (good), dun know (of course), enuh (yeah?), one love, bless up, mi deh yah (I'm here).
+PATOIS APPLIES TO ANY GENRE - Pop, Rock, Sea Shanties, Electronic. The instrumentation shows the genre; the LANGUAGE is Patois.
+EACH SECTION [Verse/Chorus/etc] must have UNIQUE lines advancing the story. No single-line loops. The Patois lyrics should be singable - match the syllable count to the genre's rhythm.`;
+    }
+    // Language-driven Nigerian Pidgin (decoupled from genre)
+    if (["pit", "pcm", "ng"].includes(dialectLangLower)) {
+      enhancedUserPrompt += `\n\nLANGUAGE LOCK: Write ALL lyrics content in Nigerian Pidgin (pidgin English grammar, West African flavor). JSON keys and section labels stay in English; only lyrics text is pidgin.
+PIDGIN PRONOUNS: mi (I/me), yu (you), im (he/she/it), wi (we), una (you all), dem (they).
+PIDGIN STRUCTURE: 'I dey do am' (I am doing). 'E go happen' (It will happen). 'Na im be that' (That's it). Simple grammar, drop articles.
+PIDGIN INTERJECTIONS: abeg (please), na wetin (what?), no dey carry last (no worries), wahala (trouble), joor (listen), biko (please).
+PIDGIN APPLIES TO ANY GENRE - Pop, Hip-Hop, Afrobeats, Rock. The instrumentation shows the genre; the LANGUAGE is Nigerian Pidgin.`;
     }
     // Inject language fallback guidance
     if (langFallback) {
@@ -310654,7 +310722,7 @@ router21.post("/llm", async (req, res) => {
     // retries with quality feedback appended to the prompt. Threshold: < 70 triggers
     // a retry; up to 2 retries (3 total attempts). Returns the best-scoring attempt.
     const MAX_LLM_ATTEMPTS = 3;
-    const QUALITY_RETRY_THRESHOLD = 70;
+    const QUALITY_RETRY_THRESHOLD = DIALECT_LANGUAGE_CODES.has(String(language || "").toLowerCase()) ? 50 : 70;
     let bestAttempt = null;
     for (let _attempt = 1; _attempt <= MAX_LLM_ATTEMPTS; _attempt++) {
       const _attemptLabel = `[Attempt ${_attempt}/${MAX_LLM_ATTEMPTS}]`;
@@ -310669,8 +310737,8 @@ router21.post("/llm", async (req, res) => {
       // strong presence_penalty to discourage repeating words/phrases across verses.
       // noThink is NOT set — we keep the model's thinking mode enabled for quality.
       let raw = await provider.call(systemPrompt, _effectiveUserPrompt, effectiveModel, null, {
-        temperature: llmTemperature,
-        presence_penalty: llmPresencePenalty,
+        temperature: llmTemperatureEff,
+        presence_penalty: llmPresencePenaltyEff,
         top_p: llmTopP
       });
       raw = stripThinkingBlocks(raw);
